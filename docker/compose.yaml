@@ -11,8 +11,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    pids_limit: 128
-    mem_limit: 512m
     cpus: "1.0"
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532
@@ -38,6 +36,11 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ../results
+        target: /app/results
+        bind:
+          create_host_path: false
     # No privileged mode, devices, ports, or Docker socket.
     # Docker's default seccomp and AppArmor profiles remain enabled.
     restart: "no"
@@ -51,8 +54,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    pids_limit: 128
-    mem_limit: 512m
     cpus: "1.0"
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532

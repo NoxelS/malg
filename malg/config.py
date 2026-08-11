@@ -47,6 +47,16 @@ class EurostatConfig:
     cert: str | None
 
 
+@dataclass(frozen=True)
+class PipelineConfig:
+    """Result selection and persistence settings for the full pipeline."""
+
+    output_root: Path
+    market_count: int
+    top_n: int | None
+    overwrite: bool
+
+
 def load_settings(
     *,
     settings_files: Sequence[str | Path] = DEFAULT_CONFIG_FILES,
@@ -149,3 +159,33 @@ def get_eurostat_config(settings: Dynaconf) -> EurostatConfig:
         raise ValueError("Eurostat configuration field cert must be a string when set.")
 
     return EurostatConfig(timeout_seconds=timeout_seconds, proxy=proxy, verify=verify, cert=cert)
+
+
+def get_pipeline_config(settings: Dynaconf) -> PipelineConfig:
+    """Read and validate market-to-ICP pipeline settings."""
+    pipeline = settings.get("pipeline")
+    if not isinstance(pipeline, Mapping):
+        raise ValueError("Missing [default.pipeline] configuration.")
+
+    output_root = pipeline.get("output_root")
+    if not isinstance(output_root, str) or not output_root.strip():
+        raise ValueError("Pipeline configuration field output_root must be a non-empty string.")
+
+    top_n = pipeline.get("top_n")
+    if not isinstance(top_n, int) or isinstance(top_n, bool) or top_n < 0:
+        raise ValueError("Pipeline configuration field top_n must be a non-negative integer.")
+
+    market_count = pipeline.get("market_count")
+    if not isinstance(market_count, int) or isinstance(market_count, bool) or market_count <= 0:
+        raise ValueError("Pipeline configuration field market_count must be a positive integer.")
+
+    overwrite = pipeline.get("overwrite")
+    if not isinstance(overwrite, bool):
+        raise ValueError("Pipeline configuration field overwrite must be a boolean.")
+
+    return PipelineConfig(
+        output_root=Path(output_root),
+        market_count=market_count,
+        top_n=top_n or None,
+        overwrite=overwrite,
+    )

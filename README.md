@@ -73,11 +73,50 @@ systems, AI-assisted process automation, and ASR/TTS speech pipelines. It combin
 quantitative data with current browser research to identify and rank European market segments.
 English- and German-language evidence is prioritized, while industry selection remains open.
 
-The agent balances smaller freelance engagements with larger consulting opportunities. Its
-output is limited to market segments and includes demand evidence, adoption readiness, solvable
-problems, likely ICP characteristics, applicable services, engagement hypotheses, risks, scores,
-sources, and confidence. It does not produce individual company lead lists or invent company
-needs and budgets.
+The agent balances smaller freelance engagements with larger consulting opportunities. One NOOA
+method returns a compact `MarketDiscoveryResult`; a second returns one Pydantic `ScoredMarket` per
+call. Application code assembles `MarketResearchResult`, validates evidence references, and
+recomputes normalized scores and ranks from a versioned scorecard. Model-supplied totals are never
+authoritative. The agent does not produce individual company lead lists or invent company needs
+and budgets.
+
+## Market-to-ICP pipeline
+
+The runner first produces and ranks structured market records. It then gives each selected market
+to a fresh `ICPResearchAgent`, which returns an organization-level ideal customer profile. Stable
+fit attributes are kept separate from time-sensitive intent signals. Both stages distinguish
+sourced evidence from assumptions and unknowns.
+
+Canonical results are JSON. ICP Markdown is rendered deterministically from the validated model:
+
+```text
+results/
+├── markets/
+│   └── latest.json
+└── ICP/
+    ├── <market-id>.json
+    └── <market-id>.md
+```
+
+Market IDs are validated safe lowercase identifiers before being used as paths. Pipeline behavior
+is configured in `default.config.toml` and can be overridden in `user.config.toml`:
+
+```toml
+[default.pipeline]
+output_root = "results"
+market_count = 10
+top_n = 0
+overwrite = false
+```
+
+`market_count` controls how many compact market hypotheses are discovered and then assessed one at
+a time. `top_n = 0` generates an ICP for every scored market; a positive value limits generation
+to that many highest-ranked markets. Existing files are replaced only when `overwrite = true`.
+
+The scorecard uses ten fixed 1-5 dimensions: demand intensity, service fit, digital readiness,
+economic capacity, freelancer accessibility, competitive whitespace, geographic/language fit,
+lead discoverability, time to first engagement, and regulatory/delivery feasibility. In every
+dimension, 5 is favorable. Each component must cite evidence included in the market result.
 
 ## Setup
 
@@ -115,7 +154,8 @@ Configuration precedence is:
 4. exported environment variables
 
 Environment overrides use the `MALG_` prefix. For example,
-`MALG_LLM__MODEL=another-model` overrides the model without modifying a file.
+`MALG_LLM__MODEL=another-model` overrides the model without modifying a file. Pipeline settings
+use the same nested convention, such as `MALG_PIPELINE__TOP_N=1`.
 
 ## Verify
 
@@ -126,7 +166,8 @@ make check
 make test
 ```
 
-After configuring a reachable endpoint and its key, run the explicit NOOA smoke test:
+After configuring a reachable endpoint and its key, set `pipeline.top_n = 1` in
+`user.config.toml` for a bounded smoke test, then run:
 
 ```bash
 uv run python -m malg
@@ -137,10 +178,10 @@ appropriately isolated environment.
 
 ## Sandboxed NOOA smoke test
 
-The `docker/compose.yaml` service mounts only the gitignored `user.config.toml`, read-only, so
-the smoke agent has its usual configuration without environment-variable setup. It has no Docker
-socket access, Linux capabilities, writable image filesystem, or root user. Its only writable
-locations are size-limited `tmpfs` mounts. It also limits the process count, memory, and CPU.
+The `docker/compose.yaml` service mounts the gitignored `user.config.toml` read-only and exposes
+only `results/` as a writable host-data mount. The smoke agent has no Docker socket access, Linux
+capabilities, writable image filesystem, or root user. Its other writable locations are
+size-limited `tmpfs` mounts. It also limits the process count, memory, and CPU.
 Docker's default seccomp and (on Linux hosts) AppArmor profiles remain in force.
 
 From the repository root, configure `user.config.toml` as described in [Setup](#setup), then
