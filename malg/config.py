@@ -37,6 +37,16 @@ class BrowserConfig:
     timeout_seconds: int
 
 
+@dataclass(frozen=True)
+class EurostatConfig:
+    """HTTP request settings for the Eurostat client."""
+
+    timeout_seconds: float
+    proxy: str | None
+    verify: bool | str | None
+    cert: str | None
+
+
 def load_settings(
     *,
     settings_files: Sequence[str | Path] = DEFAULT_CONFIG_FILES,
@@ -108,3 +118,34 @@ def get_browser_config(settings: Dynaconf) -> BrowserConfig:
         raise ValueError("Browser configuration field timeout_seconds must be a positive integer.")
 
     return BrowserConfig(enabled=enabled, url=url, timeout_seconds=timeout_seconds)
+
+
+def get_eurostat_config(settings: Dynaconf) -> EurostatConfig:
+    """Read and validate the configured Eurostat request settings."""
+    eurostat = settings.get("eurostat")
+    if not isinstance(eurostat, Mapping):
+        raise ValueError("Missing [default.eurostat] configuration.")
+
+    timeout_seconds = eurostat.get("timeout_seconds")
+    if not isinstance(timeout_seconds, (int, float)) or isinstance(timeout_seconds, bool) or timeout_seconds <= 0:
+        raise ValueError("Eurostat configuration field timeout_seconds must be positive.")
+
+    proxy = eurostat.get("proxy")
+    if proxy == "":
+        proxy = None
+    if proxy is not None and not isinstance(proxy, str):
+        raise ValueError("Eurostat configuration field proxy must be a string when set.")
+
+    verify = eurostat.get("verify")
+    if verify == "":
+        verify = None
+    if verify is not None and not isinstance(verify, (bool, str)):
+        raise ValueError("Eurostat configuration field verify must be a boolean or string when set.")
+
+    cert = eurostat.get("cert")
+    if cert == "":
+        cert = None
+    if cert is not None and not isinstance(cert, str):
+        raise ValueError("Eurostat configuration field cert must be a string when set.")
+
+    return EurostatConfig(timeout_seconds=timeout_seconds, proxy=proxy, verify=verify, cert=cert)

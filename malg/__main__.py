@@ -11,8 +11,8 @@ from malg.core.browser_support import aclose_browser
 async def main() -> None:
     agent = MarketResearchAgent()
     try:
-        result = await agent.research_mcp()
-        print(f"MarketResearchAgent says: {result}")
+        result = await agent.research()
+        print(f"Market Research Result:\n\n{result}")
     finally:
         await aclose_browser(agent.browser)
 

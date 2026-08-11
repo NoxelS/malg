@@ -8,3 +8,9 @@ api_key = "<YOUR_OPENAI_API_KEY>"
 enabled = true
 url = "http://lightpanda:9223/mcp"
 timeout_seconds = 60
+
+[default.eurostat]
+timeout_seconds = 120
+proxy = ""
+verify = true
+cert = ""

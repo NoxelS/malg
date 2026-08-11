@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from malg.config import get_browser_config, get_llm_config, load_settings
+from malg.config import get_browser_config, get_eurostat_config, get_llm_config, load_settings
 
 
 def test_user_config_overrides_default(tmp_path: Path) -> None:
@@ -56,3 +56,17 @@ def test_browser_config_rejects_invalid_endpoint(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="absolute HTTP"):
         get_browser_config(load_settings(settings_files=(default_config,), load_dotenv=False))
+
+
+def test_eurostat_config_reads_request_settings(tmp_path: Path) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.eurostat]\ntimeout_seconds = 45\nproxy = 'http://proxy.example:8080'\nverify = '/tmp/ca.pem'\ncert = '/tmp/client.pem'\n"
+    )
+
+    config = get_eurostat_config(load_settings(settings_files=(config_file,), load_dotenv=False))
+
+    assert config.timeout_seconds == 45
+    assert config.proxy == "http://proxy.example:8080"
+    assert config.verify == "/tmp/ca.pem"
+    assert config.cert == "/tmp/client.pem"

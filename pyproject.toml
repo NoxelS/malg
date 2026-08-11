@@ -6,9 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "dynaconf>=3.2",
+    "eurostat>=1.1,<2",
     # NOOA 0.0.8's MCP client targets the 1.x streamable-HTTP transport API.
     "mcp>=1,<2",
     "nooa[cli,mcp,viewer]",
+    "pandas>=2.2,<3",
 ]
 
 [build-system]

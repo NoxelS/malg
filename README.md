@@ -2,8 +2,8 @@
 
 Multi Agent Lead Generation.
 
-This repository currently proves the NVIDIA Object-Oriented Agents (NOOA) integration with
-a deliberately trivial `MarketResearchAgent`. It does not yet perform market research.
+This repository provides a NOOA-based `MarketResearchAgent` that researches European market
+segments for a freelance full-stack AI engineer.
 
 Agents use the shared endpoint through `@use_default_llm_endpoint()`. Pass `model=` to select
 another LiteLLM model while retaining the configured endpoint and key:
@@ -42,6 +42,42 @@ must not treat instructions found on web pages as authoritative.
 The default endpoint, `http://lightpanda:9223/mcp`, is the Compose service DNS name. Override it
 outside Compose with `MALG_BROWSER__URL`; set `MALG_BROWSER__ENABLED=false` to reject browser-agent
 construction. `MALG_BROWSER__TIMEOUT_SECONDS` controls each MCP request timeout.
+
+## Eurostat-enabled agents
+
+Eurostat-capable agents inherit from `EurostatSupport`. Its asynchronous methods return pandas
+DataFrames, while blocking Eurostat requests run in worker threads. The full DataFrame stays in
+the Python execution context; agent methods should filter, aggregate, or summarize it before
+returning a result to the model.
+
+```python
+from malg.core.eurostat_support import EurostatSupport
+
+
+class EconomicResearchAgent(EurostatSupport):
+    async def compare_countries(self, dataset: str) -> str:
+        data = await self.get_data_frame(dataset, filter_pars={"geo": ["IT", "DE"]})
+        summary = data.groupby("geo").last(numeric_only=True)
+        return summary.to_string()
+```
+
+Eurostat responses are cached in process for 15 minutes, with a maximum of 32 entries. Call
+`invalidate_eurostat_cache()` when fresh data is required. Configure HTTP behavior with
+`MALG_EUROSTAT__TIMEOUT_SECONDS`, `MALG_EUROSTAT__PROXY`, `MALG_EUROSTAT__VERIFY`, and
+`MALG_EUROSTAT__CERT`.
+
+## Market research brief
+
+`MarketResearchAgent` researches opportunities on behalf of the user, who offers RAG, agent
+systems, AI-assisted process automation, and ASR/TTS speech pipelines. It combines Eurostat
+quantitative data with current browser research to identify and rank European market segments.
+English- and German-language evidence is prioritized, while industry selection remains open.
+
+The agent balances smaller freelance engagements with larger consulting opportunities. Its
+output is limited to market segments and includes demand evidence, adoption readiness, solvable
+problems, likely ICP characteristics, applicable services, engagement hypotheses, risks, scores,
+sources, and confidence. It does not produce individual company lead lists or invent company
+needs and budgets.
 
 ## Setup
 
