@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from malg.config import get_llm_config, load_settings
+import pytest
+
+from malg.config import get_browser_config, get_llm_config, load_settings
 
 
 def test_user_config_overrides_default(tmp_path: Path) -> None:
@@ -33,3 +35,24 @@ def test_environment_overrides_config_files(tmp_path: Path, monkeypatch) -> None
     assert config.api_key == "environment-key"
     assert config.context_window is None
     assert config.max_tokens is None
+
+
+def test_browser_config_uses_environment_overrides(tmp_path: Path, monkeypatch) -> None:
+    default_config = tmp_path / "default.config.toml"
+    default_config.write_text("[default.browser]\nenabled = true\nurl = 'http://lightpanda:9223/mcp'\ntimeout_seconds = 60\n")
+    monkeypatch.setenv("MALG_BROWSER__URL", "http://localhost:9223/mcp")
+    monkeypatch.setenv("MALG_BROWSER__TIMEOUT_SECONDS", "15")
+
+    config = get_browser_config(load_settings(settings_files=(default_config,), load_dotenv=False))
+
+    assert config.enabled is True
+    assert config.url == "http://localhost:9223/mcp"
+    assert config.timeout_seconds == 15
+
+
+def test_browser_config_rejects_invalid_endpoint(tmp_path: Path) -> None:
+    default_config = tmp_path / "default.config.toml"
+    default_config.write_text("[default.browser]\nenabled = true\nurl = 'lightpanda:9223/mcp'\ntimeout_seconds = 60\n")
+
+    with pytest.raises(ValueError, match="absolute HTTP"):
+        get_browser_config(load_settings(settings_files=(default_config,), load_dotenv=False))

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dynaconf import Dynaconf
 
@@ -25,6 +26,15 @@ class LLMConfig:
     api_key: str | None
     context_window: int | None
     max_tokens: int | None
+
+
+@dataclass(frozen=True)
+class BrowserConfig:
+    """Configuration for the Lightpanda MCP endpoint."""
+
+    enabled: bool
+    url: str
+    timeout_seconds: int
 
 
 def load_settings(
@@ -74,3 +84,27 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
         context_window=llm.get("context_window"),
         max_tokens=llm.get("max_tokens"),
     )
+
+
+def get_browser_config(settings: Dynaconf) -> BrowserConfig:
+    """Read the configured Lightpanda MCP endpoint."""
+    browser = settings.get("browser")
+    if not isinstance(browser, Mapping):
+        raise ValueError("Missing [default.browser] configuration.")
+
+    enabled = browser.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ValueError("Browser configuration field enabled must be a boolean.")
+
+    url = browser.get("url")
+    if not isinstance(url, str):
+        raise ValueError("Browser configuration field url must be a string.")
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise ValueError("Browser configuration field url must be an absolute HTTP(S) URL.")
+
+    timeout_seconds = browser.get("timeout_seconds")
+    if not isinstance(timeout_seconds, int) or timeout_seconds <= 0:
+        raise ValueError("Browser configuration field timeout_seconds must be a positive integer.")
+
+    return BrowserConfig(enabled=enabled, url=url, timeout_seconds=timeout_seconds)

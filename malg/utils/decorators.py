@@ -17,6 +17,7 @@ _default_llm_config = get_llm_config(load_settings())
 
 def use_default_llm_endpoint(*, model: str = _default_llm_config.model) -> Callable[[type[AgentType]], type[AgentType]]:
     """Configure a NOOA agent with the default endpoint and an optional model override."""
+    resolved_model = model if "/" in model else f"{_default_llm_config.provider}/{model}"
     llm_options: dict[str, object] = {
         "custom_llm_provider": _default_llm_config.provider,
         "api_base": _default_llm_config.api_base,
@@ -28,7 +29,7 @@ def use_default_llm_endpoint(*, model: str = _default_llm_config.model) -> Calla
         llm_options["max_tokens"] = _default_llm_config.max_tokens
 
     llm = get_llm_client(
-        model,
+        resolved_model,
         **llm_options,
     )
 

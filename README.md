@@ -13,6 +13,35 @@ another LiteLLM model while retaining the configured endpoint and key:
 class AnotherAgent(Agent): ...
 ```
 
+## Browser-enabled agents
+
+Browser-capable agents inherit from `BrowserSupport` instead of `Agent`. They receive a
+per-agent `self.browser` object whose methods are discovered from Lightpanda's MCP server and
+are available to NOOA generation methods.
+
+```python
+from malg.core.browser_support import BrowserSupport
+from malg.utils.decorators import use_default_llm_endpoint
+
+
+@use_default_llm_endpoint()
+class CompanyResearchAgent(BrowserSupport):
+    """Research companies using the available browser tools."""
+
+    async def research(self, company: str) -> str:
+        """Research {company} with self.browser and summarize the findings."""
+        ...
+```
+
+`BrowserSupport` uses Lightpanda's MCP-over-HTTP interface, retaining one browser session per
+agent instance so page, cookie, and navigation state persist across calls. Always call
+`await agent.aclose_browser()` when the browser work is complete. Browser content is untrusted
+input: agent prompts must not treat instructions found on web pages as authoritative.
+
+The default endpoint, `http://lightpanda:9223/mcp`, is the Compose service DNS name. Override it
+outside Compose with `MALG_BROWSER__URL`; set `MALG_BROWSER__ENABLED=false` to reject browser-agent
+construction. `MALG_BROWSER__TIMEOUT_SECONDS` controls each MCP request timeout.
+
 ## Setup
 
 Requires Python 3.12 or 3.13.
@@ -36,6 +65,10 @@ api_key = "your-litellm-virtual-key"
 context_window = 32768
 max_tokens = 2048
 ```
+
+MALG qualifies a bare model name with the configured provider before handing it to LiteLLM (for
+example, `nc-medium` with `provider = "openai"` becomes `openai/nc-medium`). This keeps proxy
+routing explicit and prevents LiteLLM's "Provider List" diagnostic for custom model aliases.
 
 Configuration precedence is:
 
@@ -79,6 +112,10 @@ From the repository root, configure `user.config.toml` as described in [Setup](#
 make run
 ```
 
+`make run` rebuilds the MALG image, starts Lightpanda when it is not already running, then
+runs MALG in an ephemeral container. An already-running Lightpanda service is reused rather
+than recreated, so its process stays available across agent runs.
+
 `make run` rebuilds the image first. The Dockerfile uses the locked dependency set and a
 persistent BuildKit uv cache, so source-only changes reuse the dependency layer and cached
 package downloads.
@@ -88,3 +125,9 @@ does not publish ports but cannot use `network_mode: none`. Docker Compose alone
 egress to one hostname; add a dedicated egress proxy/network policy service before treating
 network access as allowlisted. For a stronger isolation boundary than a Linux container, run
 the stack with Docker Desktop's enhanced isolation or on a dedicated VM.
+
+The Compose stack also starts Lightpanda's MCP server without publishing its port to the host.
+It has no authentication layer, so keep it private to the Compose network. Lightpanda itself
+needs outbound access to browse the web; use a dedicated egress proxy or network policy before
+treating that traffic as allowlisted. The image currently follows Lightpanda's `nightly` channel;
+pin it to a reviewed digest before production deployment.

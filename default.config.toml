@@ -3,3 +3,8 @@ model = "gpt-4.1-mini"
 provider = "openai"
 api_base = "https://api.openai.com/v1"
 api_key = "<YOUR_OPENAI_API_KEY>"
+
+[default.browser]
+enabled = true
+url = "http://lightpanda:9223/mcp"
+timeout_seconds = 60

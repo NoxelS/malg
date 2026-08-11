@@ -16,4 +16,5 @@ build:
 	docker compose -f docker/compose.yaml build malg
 
 run: build
-	docker compose -f docker/compose.yaml run --rm malg
+	docker compose -f docker/compose.yaml up -d --no-recreate lightpanda
+	docker compose -f docker/compose.yaml run --rm --no-deps malg

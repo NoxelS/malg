@@ -21,6 +21,9 @@ services:
       HOME: /home/malg
       TMPDIR: /tmp
       PYTHONDONTWRITEBYTECODE: "1"
+    depends_on:
+      lightpanda:
+        condition: service_started
     volumes:
       # The only host data exposed to generated code is the local, gitignored
       # configuration file; Compose fails instead of creating a directory when
@@ -33,4 +36,28 @@ services:
           create_host_path: false
     # No privileged mode, devices, ports, or Docker socket.
     # Docker's default seccomp and AppArmor profiles remain enabled.
+    restart: "no"
+
+  lightpanda:
+    image: lightpanda/browser:nightly
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532
+    environment:
+      HOME: /tmp
+      LIGHTPANDA_DISABLE_TELEMETRY: "true"
+      LIGHTPANDA_DISABLE_CORE_DUMP: "true"
+      TMPDIR: /tmp
+    command: ["/bin/lightpanda", "mcp", "--host", "0.0.0.0", "--port", "9223"]
+    # The MCP endpoint is reachable only by services on this Compose network.
+    # Do not publish it to the host: it has no authentication layer.
     restart: "no"

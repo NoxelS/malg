@@ -9,7 +9,11 @@ from malg.core.agents.market_research import MarketResearchAgent
 
 async def main() -> None:
     agent = MarketResearchAgent()
-    print(await agent.say_hello())
+    try:
+        result = await agent.research_mcp()
+        print(f"MarketResearchAgent says: {result}")
+    finally:
+        await agent.aclose_browser()
 
 
 if __name__ == "__main__":
