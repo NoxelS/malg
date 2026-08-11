@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "malg"
+version = "0.1.0"
+description = "Multi Agent Lead Generation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "malg contributors" }]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/NoxelS/malg"
+Repository = "https://github.com/NoxelS/malg"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3.0",
+]
