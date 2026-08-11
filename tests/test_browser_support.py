@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from malg.config import BrowserConfig
 from malg.core import browser_support
-from malg.core.browser_support import PersistentMCPStreamableHTTPClient
+from malg.core.browser_support import BrowserSupport, PersistentMCPStreamableHTTPClient, aclose_browser
 
 
 class _FakeSession:
@@ -68,3 +68,12 @@ def test_lightpanda_session_id_is_sent_on_later_calls(monkeypatch) -> None:
     assert _FakeHTTPClient.calls[1]["headers"] == {"Mcp-Session-Id": "agent-session"}
     assert _FakeHTTPClient.calls[-1]["delete_headers"] == {"Mcp-Session-Id": "agent-session"}
     assert client.session_id is None
+
+
+def test_browser_cleanup_is_not_an_agent_method() -> None:
+    client = PersistentMCPStreamableHTTPClient(BrowserConfig(enabled=True, url="http://lightpanda:9223/mcp", timeout_seconds=30))
+    tool = type("BrowserTool", (), {"_client": client})()
+
+    assert "aclose_browser" not in BrowserSupport.__dict__
+
+    asyncio.run(aclose_browser(tool))

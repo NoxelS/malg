@@ -1,4 +1,4 @@
-.PHONY: build check test run
+.PHONY: build check test run restart-tools
 
 # Avoid relying on a user-global uv cache, which can be unavailable in isolated
 # development environments.
@@ -16,5 +16,7 @@ build:
 	docker compose -f docker/compose.yaml build malg
 
 run: build
-	docker compose -f docker/compose.yaml up -d --no-recreate lightpanda
 	docker compose -f docker/compose.yaml run --rm --no-deps malg
+
+restart-tools:
+	docker compose -f docker/compose.yaml up -d --build --force-recreate lightpanda trace-viewer trace-proxy

@@ -99,8 +99,15 @@ def create_browser_tool(config: BrowserConfig) -> MCPTool:
     return tool
 
 
+async def aclose_browser(browser: MCPTool) -> None:
+    """Release a browser session outside an agent's callable interface."""
+    client = browser._client
+    if isinstance(client, PersistentMCPStreamableHTTPClient):
+        await client.aclose()
+
+
 class BrowserSupport(Agent):
-    """NOOA agent base class that supplies an isolated Lightpanda browser as ``self.browser``."""
+    """Base agent that supplies an isolated Lightpanda browser as ``self.browser``."""
 
     browser: MCPTool
 
@@ -110,9 +117,3 @@ class BrowserSupport(Agent):
         if not config.enabled:
             raise RuntimeError("Browser support is disabled by configuration.")
         self.browser = create_browser_tool(config)
-
-    async def aclose_browser(self) -> None:
-        """Release this agent's Lightpanda session after browser work is complete."""
-        client = self.browser._client
-        if isinstance(client, PersistentMCPStreamableHTTPClient):
-            await client.aclose()

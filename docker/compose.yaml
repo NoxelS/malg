@@ -19,10 +19,14 @@ services:
       - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
     environment:
       HOME: /home/malg
+      OTLP_ENDPOINT: http://trace-proxy:5001/v1/traces
+      TRACE_EXPERIMENT: malg-browser
       TMPDIR: /tmp
       PYTHONDONTWRITEBYTECODE: "1"
     depends_on:
       lightpanda:
+        condition: service_started
+      trace-viewer:
         condition: service_started
     volumes:
       # The only host data exposed to generated code is the local, gitignored
@@ -60,4 +64,66 @@ services:
     command: ["/bin/lightpanda", "mcp", "--host", "0.0.0.0", "--port", "9223"]
     # The MCP endpoint is reachable only by services on this Compose network.
     # Do not publish it to the host: it has no authentication layer.
-    restart: "no"
+    restart: unless-stopped
+
+  trace-viewer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: malg-trace-viewer:local
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777,uid=65532,gid=65532
+      - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
+    environment:
+      HOME: /home/malg
+      NOOA_VIEWER_AUTH_TOKEN: ${NOOA_VIEWER_AUTH_TOKEN:-malg-local-trace}
+      TMPDIR: /tmp
+    command: ["nooa", "start-dev", "--host", "0.0.0.0", "--port", "5001", "--db", "/tmp/traces.db"]
+    # Trace data remains available while this long-lived service is running.
+    # The database intentionally lives on tmpfs to avoid retaining prompts and page content.
+    restart: "unless-stopped"
+
+  trace-proxy:
+    image: nginx:1.27-alpine
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: "0.25"
+    tmpfs:
+      - /etc/nginx/conf.d:rw,noexec,nosuid,size=1m,mode=0755
+      - /var/cache/nginx:rw,noexec,nosuid,size=8m,mode=0755
+      - /var/run:rw,noexec,nosuid,size=1m,mode=0755
+    environment:
+      NOOA_VIEWER_AUTH_TOKEN: ${NOOA_VIEWER_AUTH_TOKEN:-malg-local-trace}
+    volumes:
+      - type: bind
+        source: ./trace-proxy.conf.template
+        target: /etc/nginx/templates/default.conf.template
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      trace-viewer:
+        condition: service_started
+    ports:
+      - "127.0.0.1:5002:5001"
+    restart: "unless-stopped"

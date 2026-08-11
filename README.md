@@ -34,9 +34,10 @@ class CompanyResearchAgent(BrowserSupport):
 ```
 
 `BrowserSupport` uses Lightpanda's MCP-over-HTTP interface, retaining one browser session per
-agent instance so page, cookie, and navigation state persist across calls. Always call
-`await agent.aclose_browser()` when the browser work is complete. Browser content is untrusted
-input: agent prompts must not treat instructions found on web pages as authoritative.
+agent instance so page, cookie, and navigation state persist across calls. The application
+runner must call `await aclose_browser(agent.browser)` when browser work is complete; cleanup is
+intentionally not exposed as an agent method. Browser content is untrusted input: agent prompts
+must not treat instructions found on web pages as authoritative.
 
 The default endpoint, `http://lightpanda:9223/mcp`, is the Compose service DNS name. Override it
 outside Compose with `MALG_BROWSER__URL`; set `MALG_BROWSER__ENABLED=false` to reject browser-agent
@@ -106,19 +107,28 @@ socket access, Linux capabilities, writable image filesystem, or root user. Its 
 locations are size-limited `tmpfs` mounts. It also limits the process count, memory, and CPU.
 Docker's default seccomp and (on Linux hosts) AppArmor profiles remain in force.
 
-From the repository root, configure `user.config.toml` as described in [Setup](#setup), then run:
+From the repository root, configure `user.config.toml` as described in [Setup](#setup), then
+start the detached browser and trace tools:
+
+```bash
+make restart-tools
+```
+
+`make restart-tools` rebuilds the local tool image and recreates Lightpanda, the trace viewer,
+and the trace proxy. Lightpanda uses `restart: unless-stopped`, so an internal browser crash is
+restarted automatically. Then run the ephemeral MALG agent container:
 
 ```bash
 make run
 ```
 
-`make run` rebuilds the MALG image, starts Lightpanda when it is not already running, then
-runs MALG in an ephemeral container. An already-running Lightpanda service is reused rather
-than recreated, so its process stays available across agent runs.
-
-`make run` rebuilds the image first. The Dockerfile uses the locked dependency set and a
-persistent BuildKit uv cache, so source-only changes reuse the dependency layer and cached
-package downloads.
+`make run` rebuilds only the MALG image and runs it against the already-running tools. Open
+`http://localhost:5002` to inspect generation turns, generated code, browser tool calls, and
+their results. The viewer is bound only to localhost; its trace database is kept in the
+container's temporary filesystem and is discarded when the viewer is recreated. A local proxy
+adds the viewer authorization header for the browser UI and agent exporter. Override the
+development token with `NOOA_VIEWER_AUTH_TOKEN` before `make restart-tools` if another local
+process could access the Docker network.
 
 The live agent needs outbound network access to its configured LLM endpoint, so the service
 does not publish ports but cannot use `network_mode: none`. Docker Compose alone cannot restrict
