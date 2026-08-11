@@ -1,0 +1,5 @@
+[default.llm]
+model = "gpt-4.1-mini"
+provider = "openai"
+api_base = "https://api.openai.com/v1"
+api_key = "<YOUR_OPENAI_API_KEY>"
