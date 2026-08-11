@@ -52,9 +52,8 @@ Environment overrides use the `MALG_` prefix. For example,
 The regular test suite does not call an LLM endpoint:
 
 ```bash
-uv run ruff format --check .
-uv run ruff check .
-uv run pytest
+make check
+make test
 ```
 
 After configuring a reachable endpoint and its key, run the explicit NOOA smoke test:
@@ -65,3 +64,27 @@ uv run python -m malg
 
 NOOA generation methods can execute LLM-generated Python. Run the live smoke test only in an
 appropriately isolated environment.
+
+## Sandboxed NOOA smoke test
+
+The `docker/compose.yaml` service mounts only the gitignored `user.config.toml`, read-only, so
+the smoke agent has its usual configuration without environment-variable setup. It has no Docker
+socket access, Linux capabilities, writable image filesystem, or root user. Its only writable
+locations are size-limited `tmpfs` mounts. It also limits the process count, memory, and CPU.
+Docker's default seccomp and (on Linux hosts) AppArmor profiles remain in force.
+
+From the repository root, configure `user.config.toml` as described in [Setup](#setup), then run:
+
+```bash
+make run
+```
+
+`make run` rebuilds the image first. The Dockerfile uses the locked dependency set and a
+persistent BuildKit uv cache, so source-only changes reuse the dependency layer and cached
+package downloads.
+
+The live agent needs outbound network access to its configured LLM endpoint, so the service
+does not publish ports but cannot use `network_mode: none`. Docker Compose alone cannot restrict
+egress to one hostname; add a dedicated egress proxy/network policy service before treating
+network access as allowlisted. For a stronger isolation boundary than a Linux container, run
+the stack with Docker Desktop's enhanced isolation or on a dedicated VM.

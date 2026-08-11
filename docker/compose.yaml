@@ -1,0 +1,36 @@
+services:
+  malg:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: malg-sandbox:local
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532
+      - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
+    environment:
+      HOME: /home/malg
+      TMPDIR: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      # The only host data exposed to generated code is the local, gitignored
+      # configuration file; Compose fails instead of creating a directory when
+      # it is absent.
+      - type: bind
+        source: ../user.config.toml
+        target: /app/user.config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+    # No privileged mode, devices, ports, or Docker socket.
+    # Docker's default seccomp and AppArmor profiles remain enabled.
+    restart: "no"
