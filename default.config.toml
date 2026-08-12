@@ -17,8 +17,7 @@ cert = ""
 
 [default.pipeline]
 output_root = "results"
-# Number of lightweight market hypotheses to discover and assess.
-market_count = 5
-# Generate an ICP for every scored market. Set a positive integer to limit the run.
-top_n = 5
-overwrite = false
+market_count = 1        # Number of lightweight market hypotheses to discover and assess.
+top_n = 1               # Generate an ICP for every scored market. Set a positive integer to limit the run.
+top_n_accounts = 10     # Number of accounts to research per ICP × region combination.
+overwrite = true

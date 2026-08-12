@@ -54,6 +54,7 @@ class PipelineConfig:
     output_root: Path
     market_count: int
     top_n: int | None
+    top_n_accounts: int
     overwrite: bool
 
 
@@ -175,6 +176,10 @@ def get_pipeline_config(settings: Dynaconf) -> PipelineConfig:
     if not isinstance(top_n, int) or isinstance(top_n, bool) or top_n < 0:
         raise ValueError("Pipeline configuration field top_n must be a non-negative integer.")
 
+    top_n_accounts = pipeline.get("top_n_accounts", 10)
+    if not isinstance(top_n_accounts, int) or isinstance(top_n_accounts, bool) or top_n_accounts < 1:
+        raise ValueError("Pipeline configuration field top_n_accounts must be a positive integer.")
+
     market_count = pipeline.get("market_count")
     if not isinstance(market_count, int) or isinstance(market_count, bool) or market_count <= 0:
         raise ValueError("Pipeline configuration field market_count must be a positive integer.")
@@ -187,5 +192,6 @@ def get_pipeline_config(settings: Dynaconf) -> PipelineConfig:
         output_root=Path(output_root),
         market_count=market_count,
         top_n=top_n or None,
+        top_n_accounts=top_n_accounts,
         overwrite=overwrite,
     )

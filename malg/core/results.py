@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from malg.core.models.account import AccountProfile
 from malg.core.models.icp import ICPResult
 from malg.core.models.market import MarketResearchResult
 
@@ -146,3 +147,49 @@ def write_icp_result(icp: ICPResult, output_root: Path, *, overwrite: bool = Fal
     write_json_result(icp, json_path, overwrite=overwrite)
     _atomic_write(markdown_path, render_icp_markdown(icp), overwrite=overwrite)
     return json_path, markdown_path
+
+
+def render_account_profile_markdown(profile: AccountProfile) -> str:
+    """Render a stable human-readable view of one account profile."""
+    sections = [
+        f"# Account: {profile.firmographics.company_name}\n\n**Account ID:** `{profile.account_id}`  \n**ICP ID:** `{profile.icp_id}`  \n**Region:** `{profile.region}`\n",
+        _section("Firmographics", _mapping_bullets(profile.firmographics)),
+        _section("Operating profile", _mapping_bullets(profile.operating_profile)),
+        _section("Technographics", _mapping_bullets(profile.technographics)),
+        _section(
+            "Pains and jobs to be done",
+            "\n".join(
+                f"- **{item.pain}:** {item.job_to_be_done} — {item.business_impact} (evidence: {', '.join(item.evidence_ids)})"
+                for item in profile.pains_and_jobs
+            ),
+        ),
+        _section(
+            "Evidence",
+            "\n".join(
+                f"- **{item.evidence_id}:** [{item.source_title}]({item.source_url}) — "
+                f"{item.claim} (retrieved {item.retrieved_at.date().isoformat()})"
+                for item in profile.evidence
+            ),
+        ),
+        _section("Assumptions", _bullets(profile.assumptions)),
+        _section("Unknowns", _bullets(profile.unknowns)),
+        _section("Validation questions", _bullets(profile.validation_questions)),
+    ]
+    return "\n".join(sections).rstrip() + "\n"
+
+
+def write_account_profile_result(
+    profile: AccountProfile, output_root: Path, *, overwrite: bool = False
+) -> tuple[Path, Path]:
+    """Persist canonical JSON and its Markdown rendering for one account profile."""
+    icp_id = _validate_id(profile.icp_id)
+    safe_region = re.sub(r"[^a-z0-9\-]", "-", profile.region.lower()).strip("-")
+    base_dir = output_root / "accounts" / icp_id / safe_region
+    json_path = base_dir / f"account_{profile.account_id}.json"
+    md_path = base_dir / f"account_{profile.account_id}.md"
+    if not overwrite and (json_path.exists() or md_path.exists()):
+        raise FileExistsError(f"Refusing to overwrite existing account profile for {profile.account_id}.")
+
+    write_json_result(profile, json_path, overwrite=overwrite)
+    _atomic_write(md_path, render_account_profile_markdown(profile), overwrite=overwrite)
+    return json_path, md_path

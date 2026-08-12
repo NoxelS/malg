@@ -6,16 +6,17 @@ import asyncio
 from pathlib import Path
 
 from malg.config import PipelineConfig, get_pipeline_config, load_settings
+from malg.core.agents.account_research import AccountResearchAgent
 from malg.core.agents.icp_research import ICPResearchAgent
 from malg.core.agents.market_research import MarketResearchAgent
 from malg.core.browser_support import aclose_browser
 from malg.core.models.market import MarketResearchResult
-from malg.core.results import write_icp_result, write_market_result
+from malg.core.results import write_account_profile_result, write_icp_result, write_market_result, ICPResult
 from malg.core.scoring import rank_markets
 
 
 async def run_pipeline(config: PipelineConfig) -> list[Path]:
-    """Research markets, rank them, then research and persist one ICP per market."""
+    """Research markets, rank them, then research and persist one ICP per market, then account profiles."""
     market_agent = MarketResearchAgent()
 
     # First discover compact market hypotheses, then research each market separately.
@@ -49,7 +50,8 @@ async def run_pipeline(config: PipelineConfig) -> list[Path]:
     # Limit the number of market segments to research based on the configuration.
     markets = market_result.markets[: config.top_n] if config.top_n is not None else market_result.markets
 
-    # For each market segment, let the ICP research agent analyze the market and produce a recommended ideal customer profile (ICP).
+    # Stage 2: For each market segment, let the ICP research agent analyze the market and produce a recommended ideal customer profile (ICP).
+    icp_results: list[ICPResult] = []
     for market in markets:
         icp_agent = ICPResearchAgent()
         try:
@@ -57,11 +59,30 @@ async def run_pipeline(config: PipelineConfig) -> list[Path]:
         finally:
             await aclose_browser(icp_agent.browser)
 
-        # Persist the ICP research results to disk, overwriting any existing files if configured to do so.
         if icp.market_id != market.market_id:
             print(f"ICP market_id {icp.market_id!r} does not match {market.market_id!r}.")
         else:
             written.extend(write_icp_result(icp, config.output_root, overwrite=config.overwrite))
+            icp_results.append(icp)
+
+    # Stage 3: For each ICP, research accounts in hardcoded test regions.
+    # TODO: Replace hardcoded regions with a config-driven approach
+    test_regions = ["Germany, Berlin", "Germany, Frankfurt", "Germany, NRW", "Germany, Munich", "Germany, Ba-wü", "Italy, Veneto Region"]
+
+    for icp in icp_results:
+        for region in test_regions:
+            account_agent = AccountResearchAgent()
+            try:
+                accounts = await account_agent.research_account(
+                    icp=icp, region=region, top_n_accounts=config.top_n_accounts
+                )
+            finally:
+                await aclose_browser(account_agent.browser)
+
+            for profile in accounts:
+                written.extend(
+                    write_account_profile_result(profile, config.output_root, overwrite=config.overwrite)
+                )
 
     return written
 
