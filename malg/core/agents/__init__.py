@@ -1,7 +1,5 @@
-"""Agents provided by malg."""
+"""The campaign-discovery agent currently exposed by MALG."""
 
-from malg.core.agents.account_research import AccountResearchAgent
-from malg.core.agents.icp_research import ICPResearchAgent
-from malg.core.agents.market_research import MarketResearchAgent
+from malg.core.agents.campaign_research import CampaignResearchAgent
 
-__all__ = ["ICPResearchAgent", "MarketResearchAgent", "AccountResearchAgent"]
+__all__ = ["CampaignResearchAgent"]

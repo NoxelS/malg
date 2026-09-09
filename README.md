@@ -1,9 +1,10 @@
 # malg
 
-Multi Agent Lead Generation.
+Campaign discovery for a later lead-generation workflow.
 
-This repository provides a NOOA-based `MarketResearchAgent` that researches European market
-segments for a freelance full-stack AI engineer.
+This repository provides a NOOA-based `CampaignResearchAgent` that finds one evidence-backed
+campaign candidate for Noel Schwabenland's independent AI practice. It currently does not
+research ICPs, accounts, contacts, leads, or outreach.
 
 Agents use the shared endpoint through `@use_default_llm_endpoint()`. Pass `model=` to select
 another LiteLLM model while retaining the configured endpoint and key:
@@ -66,57 +67,30 @@ Eurostat responses are cached in process for 15 minutes, with a maximum of 32 en
 `MALG_EUROSTAT__TIMEOUT_SECONDS`, `MALG_EUROSTAT__PROXY`, `MALG_EUROSTAT__VERIFY`, and
 `MALG_EUROSTAT__CERT`.
 
-## Market research brief
+## Campaign research brief
 
-`MarketResearchAgent` researches opportunities on behalf of the user, who offers RAG, agent
-systems, AI-assisted process automation, and ASR/TTS speech pipelines. It combines Eurostat
-quantitative data with current browser research to identify and rank European market segments.
-English- and German-language evidence is prioritized, while industry selection remains open.
+`CampaignResearchAgent` finds exactly one coherent, evidence-backed campaign boundary. It is
+grounded in Noel's positioning: governed, production-ready RAG, voice, agent, and private/on-premise
+AI systems for European organizations with sensitive data or critical workflows.
 
-The agent balances smaller freelance engagements with larger consulting opportunities. One NOOA
-method returns a compact `MarketDiscoveryResult`; a second returns one Pydantic `ScoredMarket` per
-call. Application code assembles `MarketResearchResult`, validates evidence references, and
-recomputes normalized scores and ranks from a versioned scorecard. Model-supplied totals are never
-authoritative. The agent does not produce individual company lead lists or invent company needs
-and budgets.
+The initial research hypothesis is DACH industrial, infrastructure, or security-service
+organizations with critical workflows and data-control needs. The agent must validate or reject
+that hypothesis using current public evidence. Its result describes the campaign boundary,
+workflow, positioning, buyer-role hypotheses, qualification signals, exclusions, small entry-offer
+hypothesis, sources, confidence, assumptions, unknowns, and questions for later ICP research.
 
-## Market-to-ICP pipeline
+It is an analyst, not the freelancer. It does not name individual companies, accounts, contacts,
+leads, or prospects; it does not create ICPs, messages, rankings, or quotas.
 
-The runner first produces and ranks structured market records. It then gives each selected market
-to a fresh `ICPResearchAgent`, which returns an organization-level ideal customer profile. Stable
-fit attributes are kept separate from time-sensitive intent signals. Both stages distinguish
-sourced evidence from assumptions and unknowns.
+## One-campaign entry point
 
-Canonical results are JSON. ICP Markdown is rendered deterministically from the validated model:
+The entry point calls only `CampaignResearchAgent.find_campaign()`, prints the validated JSON
+result, and closes the agent browser session. It does not write result files or invoke the dormant
+ICP/account research modules:
 
-```text
-results/
-├── markets/
-│   └── latest.json
-└── ICP/
-    ├── <market-id>.json
-    └── <market-id>.md
+```bash
+uv run python -m malg
 ```
-
-Market IDs are validated safe lowercase identifiers before being used as paths. Pipeline behavior
-is configured in `default.config.toml` and can be overridden in `user.config.toml`:
-
-```toml
-[default.pipeline]
-output_root = "results"
-market_count = 10
-top_n = 0
-overwrite = false
-```
-
-`market_count` controls how many compact market hypotheses are discovered and then assessed one at
-a time. `top_n = 0` generates an ICP for every scored market; a positive value limits generation
-to that many highest-ranked markets. Existing files are replaced only when `overwrite = true`.
-
-The scorecard uses ten fixed 1-5 dimensions: demand intensity, service fit, digital readiness,
-economic capacity, freelancer accessibility, competitive whitespace, geographic/language fit,
-lead discoverability, time to first engagement, and regulatory/delivery feasibility. In every
-dimension, 5 is favorable. Each component must cite evidence included in the market result.
 
 ## Setup
 
@@ -154,8 +128,7 @@ Configuration precedence is:
 4. exported environment variables
 
 Environment overrides use the `MALG_` prefix. For example,
-`MALG_LLM__MODEL=another-model` overrides the model without modifying a file. Pipeline settings
-use the same nested convention, such as `MALG_PIPELINE__TOP_N=1`.
+`MALG_LLM__MODEL=another-model` overrides the model without modifying a file.
 
 ## Verify
 
@@ -166,8 +139,7 @@ make check
 make test
 ```
 
-After configuring a reachable endpoint and its key, set `pipeline.top_n = 1` in
-`user.config.toml` for a bounded smoke test, then run:
+After configuring a reachable endpoint and its key, run the bounded one-campaign smoke test:
 
 ```bash
 uv run python -m malg

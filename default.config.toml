@@ -14,10 +14,3 @@ timeout_seconds = 120
 proxy = ""
 verify = true
 cert = ""
-
-[default.pipeline]
-output_root = "results"
-market_count = 1        # Number of lightweight market hypotheses to discover and assess.
-top_n = 1               # Generate an ICP for every scored market. Set a positive integer to limit the run.
-top_n_accounts = 10     # Number of accounts to research per ICP × region combination.
-overwrite = true

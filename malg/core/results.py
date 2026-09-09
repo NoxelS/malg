@@ -12,7 +12,6 @@ from pydantic import BaseModel
 
 from malg.core.models.account import AccountProfile
 from malg.core.models.icp import ICPResult
-from malg.core.models.market import MarketResearchResult
 
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 
@@ -45,10 +44,6 @@ def write_json_result(value: BaseModel, path: Path, *, overwrite: bool = False) 
     return _atomic_write(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", overwrite=overwrite)
 
 
-def write_market_result(result: MarketResearchResult, output_root: Path, *, overwrite: bool = False) -> Path:
-    return write_json_result(result, output_root / "markets" / "latest.json", overwrite=overwrite)
-
-
 def _bullets(values: list[str]) -> str:
     return "\n".join(f"- {value}" for value in values) if values else "- None identified"
 
@@ -72,7 +67,7 @@ def _mapping_bullets(value: BaseModel) -> str:
 def render_icp_markdown(icp: ICPResult) -> str:
     """Render a stable human-readable view of the canonical ICP object."""
     sections = [
-        f"# {icp.title}\n\n**Market ID:** `{icp.market_id}`  \n**ICP ID:** `{icp.icp_id}`\n",
+        f"# {icp.title}\n\n**Campaign ID:** `{icp.campaign_id}`  \n**ICP ID:** `{icp.icp_id}`\n",
         _section("Profile summary", icp.profile_summary),
         _section("Firmographics", _mapping_bullets(icp.firmographics)),
         _section("Operating profile", _mapping_bullets(icp.operating_profile)),
@@ -137,11 +132,11 @@ def render_icp_markdown(icp: ICPResult) -> str:
 
 def write_icp_result(icp: ICPResult, output_root: Path, *, overwrite: bool = False) -> tuple[Path, Path]:
     """Persist canonical JSON and its Markdown rendering using trusted identifiers."""
-    market_id = _validate_id(icp.market_id)
-    markdown_path = output_root / "ICP" / f"{market_id}.md"
-    json_path = output_root / "ICP" / f"{market_id}.json"
+    campaign_id = _validate_id(icp.campaign_id)
+    markdown_path = output_root / "ICP" / f"{campaign_id}.md"
+    json_path = output_root / "ICP" / f"{campaign_id}.json"
     if not overwrite and (markdown_path.exists() or json_path.exists()):
-        raise FileExistsError(f"Refusing to overwrite existing ICP for {market_id}.")
+        raise FileExistsError(f"Refusing to overwrite existing ICP for {campaign_id}.")
 
     # JSON is canonical; write it first. A later Markdown failure remains recoverable.
     write_json_result(icp, json_path, overwrite=overwrite)
@@ -152,7 +147,10 @@ def write_icp_result(icp: ICPResult, output_root: Path, *, overwrite: bool = Fal
 def render_account_profile_markdown(profile: AccountProfile) -> str:
     """Render a stable human-readable view of one account profile."""
     sections = [
-        f"# Account: {profile.firmographics.company_name}\n\n**Account ID:** `{profile.account_id}`  \n**ICP ID:** `{profile.icp_id}`  \n**Region:** `{profile.region}`\n",
+        f"# Account: {profile.firmographics.company_name}\n\n"
+        f"**Account ID:** `{profile.account_id}`  \n"
+        f"**ICP ID:** `{profile.icp_id}`  \n"
+        f"**Region:** `{profile.region}`\n",
         _section("Firmographics", _mapping_bullets(profile.firmographics)),
         _section("Operating profile", _mapping_bullets(profile.operating_profile)),
         _section("Technographics", _mapping_bullets(profile.technographics)),
@@ -178,9 +176,7 @@ def render_account_profile_markdown(profile: AccountProfile) -> str:
     return "\n".join(sections).rstrip() + "\n"
 
 
-def write_account_profile_result(
-    profile: AccountProfile, output_root: Path, *, overwrite: bool = False
-) -> tuple[Path, Path]:
+def write_account_profile_result(profile: AccountProfile, output_root: Path, *, overwrite: bool = False) -> tuple[Path, Path]:
     """Persist canonical JSON and its Markdown rendering for one account profile."""
     icp_id = _validate_id(profile.icp_id)
     safe_region = re.sub(r"[^a-z0-9\-]", "-", profile.region.lower()).strip("-")

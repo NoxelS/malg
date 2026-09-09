@@ -139,11 +139,11 @@ class IntentModel(BaseModel):
 
 
 class ICPResult(BaseModel):
-    """One evidence-backed organization profile for one market."""
+    """One evidence-backed organization profile for one campaign."""
 
     model_config = ConfigDict(extra="forbid")
 
-    market_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
+    campaign_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
     icp_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
     title: str
     profile_summary: str
