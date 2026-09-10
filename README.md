@@ -195,6 +195,20 @@ make check
 make test
 ```
 
+## API
+
+The persistence-only FastAPI service exposes campaign and ICP CRUD under `/api/v1`.
+It does not run research agents or initiate outreach.  The API owns no schema creation at
+runtime; its container applies Alembic migrations before starting. Start it with:
+
+```bash
+make api-up
+curl http://127.0.0.1:8000/ready
+```
+
+The PostgreSQL data volume is local to Docker. Configure the database name, user, and password
+with `MALG_POSTGRES_DB`, `MALG_POSTGRES_USER`, and `MALG_POSTGRES_PASSWORD` before startup.
+
 After configuring a reachable endpoint and its key, run the bounded saved-campaign ICP smoke test:
 
 ```bash

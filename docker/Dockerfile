@@ -21,7 +21,9 @@ RUN --mount=type=cache,id=malg-uv-cache,target=/root/.cache/uv \
 
 COPY default.config.toml ./
 COPY README.md ./
+COPY alembic.ini ./
 COPY malg ./malg
+COPY migrations ./migrations
 RUN --mount=type=cache,id=malg-uv-cache,target=/root/.cache/uv \
     uv sync --locked --no-editable
 
@@ -40,7 +42,9 @@ RUN groupadd --gid 65532 malg \
 
 COPY --from=builder --chown=65532:65532 /app/.venv /app/.venv
 COPY --from=builder --chown=65532:65532 /app/default.config.toml ./
+COPY --from=builder --chown=65532:65532 /app/alembic.ini ./
 COPY --from=builder --chown=65532:65532 /app/malg ./malg
+COPY --from=builder --chown=65532:65532 /app/migrations ./migrations
 
 USER 65532:65532
 

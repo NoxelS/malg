@@ -1,4 +1,45 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    init: true
+    environment:
+      POSTGRES_DB: ${MALG_POSTGRES_DB:-malg}
+      POSTGRES_USER: ${MALG_POSTGRES_USER:-malg}
+      POSTGRES_PASSWORD: ${MALG_POSTGRES_PASSWORD:-malg-local-password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: malg-api:local
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
+      PYTHONDONTWRITEBYTECODE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["/bin/sh", "-c", "alembic upgrade head && exec uvicorn malg.api.app:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
   malg:
     build:
       context: ..
@@ -193,3 +234,6 @@ services:
     ports:
       - "127.0.0.1:5002:5001"
     restart: "unless-stopped"
+
+volumes:
+  postgres-data:
