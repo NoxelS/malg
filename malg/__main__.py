@@ -6,11 +6,14 @@ import asyncio
 
 from malg.core.agents.campaign_research import CampaignResearchAgent
 from malg.core.models.campaign import CampaignCandidate
+from malg.utils.console_progress import ConsoleProgress
 
 
 async def find_one_campaign() -> CampaignCandidate:
     """Research one Eurostat-backed campaign without persisting it."""
     agent = CampaignResearchAgent()
+    if hasattr(agent, "event_manager"):
+        ConsoleProgress().attach(agent)
     return await agent.find_campaign()
 
 

@@ -16,6 +16,34 @@ from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dy
 from nooa.mcp.tool import MCPTool, MCPToolSpec, _make_dynamic_class
 
 from malg.config import BrowserConfig, get_browser_config, load_settings
+from malg.utils.console_progress import ConsoleProgress
+
+
+class LoggedMCPTool(MCPTool):
+    """MCP tool base that emits safe progress messages around remote calls."""
+
+    def __init__(
+        self,
+        client: Any,
+        server_name: str,
+        refresh_ctx: dict[str, Any] | None = None,
+        *,
+        progress: ConsoleProgress | None = None,
+    ) -> None:
+        super().__init__(client, server_name, refresh_ctx)
+        self._progress = progress or ConsoleProgress()
+
+    async def _call_tool(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Any:
+        """Call MCP while reporting only safe lifecycle metadata."""
+        clean_arguments = arguments or {}
+        call_id = self._progress.mcp_started(self._server_name, tool_name, clean_arguments)
+        try:
+            result = await super()._call_tool(tool_name, clean_arguments)
+        except Exception as exc:
+            self._progress.mcp_failed(call_id, self._server_name, tool_name, exc)
+            raise
+        self._progress.mcp_finished(call_id, self._server_name, tool_name, result)
+        return result
 
 
 class PersistentMCPStreamableHTTPClient:
@@ -103,7 +131,7 @@ def create_browser_tool(config: BrowserConfig) -> MCPTool:
         )
         for tool in tools_result.tools
     ]
-    tool_class = _make_dynamic_class("lightpanda", tool_specs, MCPTool)
+    tool_class = _make_dynamic_class("lightpanda", tool_specs, LoggedMCPTool)
     tool = object.__new__(tool_class)
     tool.__init__(client, "lightpanda")
     return tool
