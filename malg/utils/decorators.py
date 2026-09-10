@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeVar
 
-from nooa import Agent
+from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dynamically.
 from nooa.unifiedllm import get_llm_client
 
 from malg.config import get_llm_config, load_settings
@@ -15,7 +15,9 @@ AgentType = TypeVar("AgentType", bound=Agent)
 _default_llm_config = get_llm_config(load_settings())
 
 
-def use_default_llm_endpoint(*, model: str = _default_llm_config.model) -> Callable[[type[AgentType]], type[AgentType]]:
+def use_default_llm_endpoint(
+    *, model: str = _default_llm_config.model
+) -> Callable[[type[AgentType]], type[AgentType]]:
     """Configure a NOOA agent with the default endpoint and an optional model override."""
     resolved_model = model if "/" in model else f"{_default_llm_config.provider}/{model}"
     llm_options: dict[str, object] = {
@@ -30,7 +32,7 @@ def use_default_llm_endpoint(*, model: str = _default_llm_config.model) -> Calla
 
     llm = get_llm_client(
         resolved_model,
-        **llm_options,
+        **llm_options,  # type: ignore[arg-type]  # NOOA forwards provider-specific options.
     )
 
     def configure_agent(agent_class: type[AgentType]) -> type[AgentType]:

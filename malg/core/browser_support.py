@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from nooa import Agent
+from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dynamically.
 from nooa.mcp.tool import MCPTool, MCPToolSpec, _make_dynamic_class
 
 from malg.config import BrowserConfig, get_browser_config, load_settings
@@ -35,27 +35,33 @@ class PersistentMCPStreamableHTTPClient:
     async def connect_to_server(self) -> AsyncGenerator[ClientSession, None]:
         """Open one MCP request channel and preserve its session identifier."""
         headers = {"Mcp-Session-Id": self._session_id} if self._session_id else None
-        async with httpx.AsyncClient(
-            headers=headers,
-            timeout=httpx.Timeout(self._timeout_seconds, connect=5.0),
-        ) as http_client:
-            async with streamable_http_client(
+        async with (
+            httpx.AsyncClient(
+                headers=headers,
+                timeout=httpx.Timeout(self._timeout_seconds, connect=5.0),
+            ) as http_client,
+            streamable_http_client(
                 url=self._url,
                 http_client=http_client,
                 terminate_on_close=False,
-            ) as (read, write, get_session_id):
-                async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=self._timeout_seconds)) as session:
-                    await session.initialize()
-                    session_id = get_session_id()
-                    if session_id:
-                        self._session_id = session_id
-                    yield session
+            ) as (read, write, get_session_id),
+            ClientSession(
+                read, write, read_timeout_seconds=timedelta(seconds=self._timeout_seconds)
+            ) as session,
+        ):
+            await session.initialize()
+            session_id = get_session_id()
+            if session_id:
+                self._session_id = session_id
+            yield session
 
     async def aclose(self) -> None:
         """Close the remote Lightpanda session, if one was established."""
         if self._session_id is None:
             return
-        async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout_seconds, connect=5.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(self._timeout_seconds, connect=5.0)
+        ) as client:
             response = await client.delete(self._url, headers={"Mcp-Session-Id": self._session_id})
             response.raise_for_status()
         self._session_id = None
@@ -82,14 +88,18 @@ def create_browser_tool(config: BrowserConfig) -> MCPTool:
     try:
         tools_result = _run_sync(list_tools())
     except Exception as exc:
-        raise RuntimeError(f"Unable to connect to the Lightpanda MCP endpoint at {config.url}.") from exc
+        raise RuntimeError(
+            f"Unable to connect to the Lightpanda MCP endpoint at {config.url}."
+        ) from exc
 
     tool_specs = [
         MCPToolSpec(
             name=tool.name,
             description=tool.description or "",
             input_schema=tool.inputSchema if isinstance(tool.inputSchema, dict) else {},
-            required=set((tool.inputSchema or {}).get("required", [])) if isinstance(tool.inputSchema, dict) else set(),
+            required=set((tool.inputSchema or {}).get("required", []))
+            if isinstance(tool.inputSchema, dict)
+            else set(),
         )
         for tool in tools_result.tools
     ]

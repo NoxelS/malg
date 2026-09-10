@@ -11,7 +11,9 @@ from malg.core.eurostat_support import EurostatSupport
 
 def _support() -> EurostatSupport:
     support = object.__new__(EurostatSupport)
-    support.eurostat_config = EurostatConfig(timeout_seconds=120, proxy=None, verify=True, cert=None)
+    support.eurostat_config = EurostatConfig(
+        timeout_seconds=120, proxy=None, verify=True, cert=None
+    )
     return support
 
 

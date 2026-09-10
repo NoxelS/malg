@@ -26,7 +26,9 @@ def _atomic_write(path: Path, content: str, *, overwrite: bool = False) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not overwrite:
         raise FileExistsError(f"Refusing to overwrite existing result: {path}")
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent, text=True
+    )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             stream.write(content)
@@ -41,7 +43,9 @@ def _atomic_write(path: Path, content: str, *, overwrite: bool = False) -> Path:
 
 def write_json_result(value: BaseModel, path: Path, *, overwrite: bool = False) -> Path:
     payload = value.model_dump(mode="json")
-    return _atomic_write(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", overwrite=overwrite)
+    return _atomic_write(
+        path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", overwrite=overwrite
+    )
 
 
 def _bullets(values: list[str]) -> str:
@@ -81,7 +85,10 @@ def render_icp_markdown(icp: ICPResult) -> str:
         ),
         _section(
             "Service fit",
-            "\n".join(f"- **{item.service}:** {item.use_case} — {item.fit_rationale}" for item in icp.service_fit),
+            "\n".join(
+                f"- **{item.service}:** {item.use_case} — {item.fit_rationale}"
+                for item in icp.service_fit
+            ),
         ),
         _section(
             "Buying committee",
@@ -100,20 +107,29 @@ def render_icp_markdown(icp: ICPResult) -> str:
         ),
         _section(
             "Qualification signals",
-            "\n".join(f"- **{item.fit_or_intent}:** {item.signal} — verify via {item.verification_method}" for item in icp.qualification_signals),
+            "\n".join(
+                f"- **{item.fit_or_intent}:** {item.signal} — verify via {item.verification_method}"
+                for item in icp.qualification_signals
+            ),
         ),
         _section(
             "Disqualifiers",
-            "\n".join(f"- **{item.condition}:** {item.reason}" for item in icp.disqualifiers) or "- None identified",
+            "\n".join(f"- **{item.condition}:** {item.reason}" for item in icp.disqualifiers)
+            or "- None identified",
         ),
         _section(
             "Likely objections",
-            "\n".join(f"- **{item.objection}:** {item.response_hypothesis}" for item in icp.likely_objections) or "- None identified",
+            "\n".join(
+                f"- **{item.objection}:** {item.response_hypothesis}"
+                for item in icp.likely_objections
+            )
+            or "- None identified",
         ),
         _section("Entry offer", _mapping_bullets(icp.entry_offer)),
         _section(
             "Fit and intent",
-            f"**Fit score:** {icp.fit_score.score}/5 — {icp.fit_score.rationale}\n\n" + _mapping_bullets(icp.intent_signal_model),
+            f"**Fit score:** {icp.fit_score.score}/5 — {icp.fit_score.rationale}\n\n"
+            + _mapping_bullets(icp.intent_signal_model),
         ),
         _section("Assumptions", _bullets(icp.assumptions)),
         _section("Unknowns", _bullets(icp.unknowns)),
@@ -130,7 +146,9 @@ def render_icp_markdown(icp: ICPResult) -> str:
     return "\n".join(sections).rstrip() + "\n"
 
 
-def write_icp_result(icp: ICPResult, output_root: Path, *, overwrite: bool = False) -> tuple[Path, Path]:
+def write_icp_result(
+    icp: ICPResult, output_root: Path, *, overwrite: bool = False
+) -> tuple[Path, Path]:
     """Persist canonical JSON and its Markdown rendering using trusted identifiers."""
     campaign_id = _validate_id(icp.campaign_id)
     markdown_path = output_root / "ICP" / f"{campaign_id}.md"
@@ -176,7 +194,9 @@ def render_account_profile_markdown(profile: AccountProfile) -> str:
     return "\n".join(sections).rstrip() + "\n"
 
 
-def write_account_profile_result(profile: AccountProfile, output_root: Path, *, overwrite: bool = False) -> tuple[Path, Path]:
+def write_account_profile_result(
+    profile: AccountProfile, output_root: Path, *, overwrite: bool = False
+) -> tuple[Path, Path]:
     """Persist canonical JSON and its Markdown rendering for one account profile."""
     icp_id = _validate_id(profile.icp_id)
     safe_region = re.sub(r"[^a-z0-9\-]", "-", profile.region.lower()).strip("-")
@@ -184,7 +204,9 @@ def write_account_profile_result(profile: AccountProfile, output_root: Path, *, 
     json_path = base_dir / f"account_{profile.account_id}.json"
     md_path = base_dir / f"account_{profile.account_id}.md"
     if not overwrite and (json_path.exists() or md_path.exists()):
-        raise FileExistsError(f"Refusing to overwrite existing account profile for {profile.account_id}.")
+        raise FileExistsError(
+            f"Refusing to overwrite existing account profile for {profile.account_id}."
+        )
 
     write_json_result(profile, json_path, overwrite=overwrite)
     _atomic_write(md_path, render_account_profile_markdown(profile), overwrite=overwrite)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from malg.core.browser_support import BrowserSupport
 from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.account import AccountProfile
-from malg.core.models.icp import ICPResult, PainJob
+from malg.core.models.icp import ICPResult
 from malg.utils.decorators import use_default_llm_endpoint
 
 

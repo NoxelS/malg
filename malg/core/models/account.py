@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from malg.core.models.icp import PainJob
 from malg.core.models.evidence import EvidenceItem
+from malg.core.models.icp import PainJob
 
 
 class AccountFirmographics(BaseModel):

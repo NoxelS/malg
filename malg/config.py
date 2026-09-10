@@ -80,7 +80,9 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
 
     optional_integer_fields = ("context_window", "max_tokens")
     invalid_integer_fields = [
-        field for field in optional_integer_fields if llm.get(field) is not None and (not isinstance(llm.get(field), int) or llm[field] <= 0)
+        field
+        for field in optional_integer_fields
+        if llm.get(field) is not None and (not isinstance(llm.get(field), int) or llm[field] <= 0)
     ]
     if invalid_integer_fields:
         names = ", ".join(invalid_integer_fields)
@@ -127,7 +129,11 @@ def get_eurostat_config(settings: Dynaconf) -> EurostatConfig:
         raise ValueError("Missing [default.eurostat] configuration.")
 
     timeout_seconds = eurostat.get("timeout_seconds")
-    if not isinstance(timeout_seconds, (int, float)) or isinstance(timeout_seconds, bool) or timeout_seconds <= 0:
+    if (
+        not isinstance(timeout_seconds, (int, float))
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds <= 0
+    ):
         raise ValueError("Eurostat configuration field timeout_seconds must be positive.")
 
     proxy = eurostat.get("proxy")
@@ -140,7 +146,9 @@ def get_eurostat_config(settings: Dynaconf) -> EurostatConfig:
     if verify == "":
         verify = None
     if verify is not None and not isinstance(verify, (bool, str)):
-        raise ValueError("Eurostat configuration field verify must be a boolean or string when set.")
+        raise ValueError(
+            "Eurostat configuration field verify must be a boolean or string when set."
+        )
 
     cert = eurostat.get("cert")
     if cert == "":

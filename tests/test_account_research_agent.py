@@ -1,4 +1,4 @@
-from typing import Generic, get_origin, get_type_hints, get_args
+from typing import get_type_hints
 
 from nooa import Agent
 
@@ -8,7 +8,6 @@ from malg.core.browser_support import BrowserSupport
 from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.account import AccountProfile
 from malg.core.models.icp import ICPResult
-from malg.utils.decorators import use_default_llm_endpoint
 
 
 def test_account_research_agent_uses_nooa_agent_model(monkeypatch) -> None:

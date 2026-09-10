@@ -170,7 +170,9 @@ class ICPResult(BaseModel):
         evidence_ids = [item.evidence_id for item in self.evidence]
         if len(evidence_ids) != len(set(evidence_ids)):
             raise ValueError("evidence_id values must be unique within an ICP.")
-        referenced = {evidence_id for item in self.pains_and_jobs for evidence_id in item.evidence_ids} | set(self.fit_score.evidence_ids)
+        referenced = {
+            evidence_id for item in self.pains_and_jobs for evidence_id in item.evidence_ids
+        } | set(self.fit_score.evidence_ids)
         missing = referenced - set(evidence_ids)
         if missing:
             raise ValueError(f"ICP fields reference undefined evidence: {sorted(missing)}")
