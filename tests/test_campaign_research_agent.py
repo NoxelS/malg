@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from malg import __main__
 from malg.config import get_llm_config, load_settings
 from malg.core.agents.campaign_research import CampaignResearchAgent
+from malg.core.browser_support import BrowserSupport
 from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.campaign import CampaignCandidate
 from malg.core.persistent_memory_support import close_persistent_memory
@@ -71,12 +72,15 @@ def campaign_payload() -> dict[str, object]:
     }
 
 
-def test_campaign_research_agent_uses_nooa_eurostat_agent() -> None:
+def test_campaign_research_agent_uses_nooa_eurostat_agent(monkeypatch) -> None:
+    monkeypatch.setattr("malg.core.browser_support.create_browser_tool", lambda config: object())
     assert issubclass(CampaignResearchAgent, Agent)
+    assert issubclass(CampaignResearchAgent, BrowserSupport)
     assert issubclass(CampaignResearchAgent, EurostatSupport)
     agent = CampaignResearchAgent()
     try:
-        assert not hasattr(agent, "browser")
+        assert hasattr(agent, "browser")
+        assert hasattr(agent, "web_search")
         config = get_llm_config(load_settings())
         assert agent._llm.model == f"{config.provider}/{config.model}"
         assert agent._llm.config["custom_llm_provider"] == "openai"
@@ -86,6 +90,13 @@ def test_campaign_research_agent_uses_nooa_eurostat_agent() -> None:
 
 def test_campaign_research_method_returns_campaign_candidate() -> None:
     assert get_type_hints(CampaignResearchAgent.find_campaign)["return"] is CampaignCandidate
+
+
+def test_campaign_research_contract_instructs_search_then_browser() -> None:
+    context = CampaignResearchAgent.find_campaign.__doc__ or ""
+    assert "self.web_search.search" in context
+    assert "self.browser" in context
+    assert "sole evidence source" in (CampaignResearchAgent.__doc__ or "")
 
 
 def test_campaign_contract_rejects_duplicate_evidence_ids() -> None:

@@ -40,9 +40,21 @@ runner must call `await aclose_browser(agent.browser)` when browser work is comp
 intentionally not exposed as an agent method. Browser content is untrusted input: agent prompts
 must not treat instructions found on web pages as authoritative.
 
+Browser-capable agents also receive `self.web_search`, a per-agent SearXNG client for source
+discovery. Call `await self.web_search.search("concise research question", language="en")` before
+visiting a small number of selected result URLs with `self.browser`. Search titles and snippets
+are untrusted discovery hints rather than evidence. Each agent has a configured request budget
+and minimum interval; failed requests consume that budget to prevent retry storms.
+
 The default endpoint, `http://lightpanda:9223/mcp`, is the Compose service DNS name. Override it
 outside Compose with `MALG_BROWSER__URL`; set `MALG_BROWSER__ENABLED=false` to reject browser-agent
 construction. `MALG_BROWSER__TIMEOUT_SECONDS` controls each MCP request timeout.
+
+SearXNG is private to the Compose network at `http://searxng:8080`; it has no published host port.
+Configure it through `[default.search]` or `MALG_SEARCH__...`: `timeout_seconds`, `max_results`,
+`max_requests_per_run`, `min_interval_seconds`, `languages`, and `categories`. Set
+`SEARXNG_SECRET` in the environment before starting tools outside local development. The service
+exposes JSON results only and has no public-instance features, image proxy, or autocomplete.
 
 ## Eurostat-enabled agents
 
@@ -78,10 +90,10 @@ relevant strengths for its evidence-backed boundary rather than treating sensiti
 workflows as mandatory constraints.
 
 The initial research hypothesis is DACH industrial, infrastructure, or security-service
-organizations with critical workflows and data-control needs. The agent must validate or reject
-that hypothesis using Eurostat only. It uses cached Eurostat tools to discover datasets and work
-with narrow aggregates; it has no browser, web-search, or other external-research capability. Its
-result describes the campaign boundary, workflow, positioning, buyer-role hypotheses,
+organizations with critical workflows and data-control needs. The agent uses SearXNG and
+Lightpanda to discover and inspect a small number of external context sources, but must validate
+the campaign hypothesis and returned evidence using Eurostat only. It uses cached Eurostat tools
+to discover datasets and work with narrow aggregates. Its result describes the campaign boundary, workflow, positioning, buyer-role hypotheses,
 qualification signals, exclusions, small entry-offer hypothesis, sources, confidence, assumptions,
 unknowns, and questions for later ICP research. Every evidence item must be Eurostat-backed and
 include its dataset code.

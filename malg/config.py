@@ -38,6 +38,20 @@ class BrowserConfig:
 
 
 @dataclass(frozen=True)
+class SearchConfig:
+    """Bounded SearXNG discovery settings for browser-capable agents."""
+
+    enabled: bool
+    url: str
+    timeout_seconds: int
+    max_results: int
+    max_requests_per_run: int
+    min_interval_seconds: float
+    languages: tuple[str, ...]
+    categories: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class EurostatConfig:
     """HTTP request settings for the Eurostat client."""
 
@@ -120,6 +134,68 @@ def get_browser_config(settings: Dynaconf) -> BrowserConfig:
         raise ValueError("Browser configuration field timeout_seconds must be a positive integer.")
 
     return BrowserConfig(enabled=enabled, url=url, timeout_seconds=timeout_seconds)
+
+
+def get_search_config(settings: Dynaconf) -> SearchConfig:
+    """Read bounded SearXNG discovery settings for browser-capable agents."""
+    search = settings.get("search")
+    if not isinstance(search, Mapping):
+        raise ValueError("Missing [default.search] configuration.")
+
+    enabled = search.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ValueError("Search configuration field enabled must be a boolean.")
+
+    url = search.get("url")
+    if not isinstance(url, str):
+        raise ValueError("Search configuration field url must be a string.")
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise ValueError("Search configuration field url must be an absolute HTTP(S) URL.")
+
+    integer_fields = ("timeout_seconds", "max_results", "max_requests_per_run")
+    invalid_integer_fields = [
+        field
+        for field in integer_fields
+        if not isinstance(search.get(field), int) or search[field] <= 0
+    ]
+    if invalid_integer_fields:
+        names = ", ".join(invalid_integer_fields)
+        raise ValueError(f"Search configuration field(s) must be positive integers: {names}.")
+
+    min_interval_seconds = search.get("min_interval_seconds")
+    if (
+        not isinstance(min_interval_seconds, (int, float))
+        or isinstance(min_interval_seconds, bool)
+        or min_interval_seconds < 0
+        or min_interval_seconds > 60
+    ):
+        raise ValueError(
+            "Search configuration field min_interval_seconds must be between 0 and 60."
+        )
+
+    list_fields = ("languages", "categories")
+    invalid_list_fields = [
+        field
+        for field in list_fields
+        if not isinstance(search.get(field), list)
+        or not search[field]
+        or not all(isinstance(value, str) and value for value in search[field])
+    ]
+    if invalid_list_fields:
+        names = ", ".join(invalid_list_fields)
+        raise ValueError(f"Search configuration field(s) must be non-empty string lists: {names}.")
+
+    return SearchConfig(
+        enabled=enabled,
+        url=url.rstrip("/"),
+        timeout_seconds=search["timeout_seconds"],
+        max_results=search["max_results"],
+        max_requests_per_run=search["max_requests_per_run"],
+        min_interval_seconds=float(min_interval_seconds),
+        languages=tuple(search["languages"]),
+        categories=tuple(search["categories"]),
+    )
 
 
 def get_eurostat_config(settings: Dynaconf) -> EurostatConfig:

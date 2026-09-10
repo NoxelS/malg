@@ -15,7 +15,8 @@ from mcp.client.streamable_http import streamable_http_client
 from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dynamically.
 from nooa.mcp.tool import MCPTool, MCPToolSpec, _make_dynamic_class
 
-from malg.config import BrowserConfig, get_browser_config, load_settings
+from malg.config import BrowserConfig, get_browser_config, get_search_config, load_settings
+from malg.core.web_search import SearxngSearchClient
 from malg.utils.console_progress import ConsoleProgress
 
 
@@ -139,15 +140,20 @@ def create_browser_tool(config: BrowserConfig) -> MCPTool:
 
 async def aclose_browser(browser: MCPTool) -> None:
     """Release a browser session outside an agent's callable interface."""
-    client = browser._client
+    client = getattr(browser, "_client", None)
     if isinstance(client, PersistentMCPStreamableHTTPClient):
         await client.aclose()
 
 
 class BrowserSupport(Agent):
-    """Base agent that supplies an isolated Lightpanda browser as ``self.browser``."""
+    """Base agent that supplies private discovery and an isolated Lightpanda browser.
+
+    ``self.web_search`` discovers candidate sources through private SearXNG, while
+    ``self.browser`` visits only selected URLs in an isolated Lightpanda session.
+    """
 
     browser: MCPTool
+    web_search: SearxngSearchClient
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -155,3 +161,4 @@ class BrowserSupport(Agent):
         if not config.enabled:
             raise RuntimeError("Browser support is disabled by configuration.")
         self.browser = create_browser_tool(config)
+        self.web_search = SearxngSearchClient(get_search_config(load_settings()))

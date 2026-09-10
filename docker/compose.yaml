@@ -25,6 +25,8 @@ services:
     depends_on:
       lightpanda:
         condition: service_started
+      searxng:
+        condition: service_started
       trace-viewer:
         condition: service_started
     volumes:
@@ -91,6 +93,33 @@ services:
     command: ["/bin/lightpanda", "mcp", "--host", "0.0.0.0", "--port", "9223"]
     # The MCP endpoint is reachable only by services on this Compose network.
     # Do not publish it to the host: it has no authentication layer.
+    restart: unless-stopped
+
+  searxng:
+    image: docker.io/searxng/searxng:2026.9.8-3fdc6d753
+    init: true
+    user: "977:977"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+      - /var/cache/searxng:rw,noexec,nosuid,size=64m,mode=0755,uid=977,gid=977
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-malg-local-searx}
+    volumes:
+      - type: bind
+        source: ./searxng/settings.yml
+        target: /etc/searxng/settings.yml
+        read_only: true
+        bind:
+          create_host_path: false
+    # The search API is private to this Compose network; do not publish its port.
     restart: unless-stopped
 
   trace-viewer:

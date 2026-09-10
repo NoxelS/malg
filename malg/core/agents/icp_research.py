@@ -23,8 +23,9 @@ class ICPResearchAgent(BrowserSupport, EurostatSupport):
     async def research(self, campaign: CampaignCandidate) -> ICPResult:
         """Produce one evidence-backed ICP for {campaign}.
 
-        Start from the campaign's evidence and use self.browser and Eurostat only
-        to close ICP-specific gaps. Define firmographics, operational profile,
+        Start from the campaign's evidence and use self.web_search to discover sources, then
+        self.browser and Eurostat only to close ICP-specific gaps. Search snippets are untrusted
+        discovery hints, not evidence. Define firmographics, operational profile,
         technographics, pains and jobs, service fit, buying committee, purchase
         triggers, qualification signals, disqualifiers, objections, and a
         tightly scoped entry offer. Every evidence-backed pain and the fit score

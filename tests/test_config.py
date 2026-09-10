@@ -8,6 +8,7 @@ from malg.config import (
     get_browser_config,
     get_eurostat_config,
     get_llm_config,
+    get_search_config,
     load_settings,
 )
 
@@ -73,6 +74,36 @@ def test_browser_config_rejects_invalid_endpoint(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="absolute HTTP"):
         get_browser_config(load_settings(settings_files=(default_config,), load_dotenv=False))
+
+
+def test_search_config_uses_environment_overrides(tmp_path: Path, monkeypatch) -> None:
+    default_config = tmp_path / "default.config.toml"
+    default_config.write_text(
+        "[default.search]\nenabled = true\nurl = 'http://searxng:8080'\ntimeout_seconds = 20\n"
+        "max_results = 5\nmax_requests_per_run = 8\nmin_interval_seconds = 2\n"
+        "languages = ['en', 'de']\ncategories = ['general']\n"
+    )
+    monkeypatch.setenv("MALG_SEARCH__MAX_REQUESTS_PER_RUN", "3")
+    monkeypatch.setenv("MALG_SEARCH__MIN_INTERVAL_SECONDS", "1.5")
+
+    config = get_search_config(load_settings(settings_files=(default_config,), load_dotenv=False))
+
+    assert config.url == "http://searxng:8080"
+    assert config.max_requests_per_run == 3
+    assert config.min_interval_seconds == 1.5
+    assert config.languages == ("en", "de")
+
+
+def test_search_config_rejects_empty_categories(tmp_path: Path) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.search]\nenabled = true\nurl = 'http://searxng:8080'\ntimeout_seconds = 20\n"
+        "max_results = 5\nmax_requests_per_run = 8\nmin_interval_seconds = 2\n"
+        "languages = ['en']\ncategories = []\n"
+    )
+
+    with pytest.raises(ValueError, match="non-empty string lists: categories"):
+        get_search_config(load_settings(settings_files=(config_file,), load_dotenv=False))
 
 
 def test_eurostat_config_reads_request_settings(tmp_path: Path) -> None:

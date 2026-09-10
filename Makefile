@@ -40,4 +40,4 @@ run: container-build memory-init
 	docker compose -f docker/compose.yaml run --rm --no-deps malg
 
 restart-tools:
-	docker compose -f docker/compose.yaml up -d --build --force-recreate lightpanda trace-viewer trace-proxy
+	docker compose -f docker/compose.yaml up -d --build --force-recreate lightpanda searxng trace-viewer trace-proxy

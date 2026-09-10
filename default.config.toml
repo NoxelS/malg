@@ -9,6 +9,16 @@ enabled = true
 url = "http://lightpanda:9223/mcp"
 timeout_seconds = 60
 
+[default.search]
+enabled = true
+url = "http://searxng:8080"
+timeout_seconds = 20
+max_results = 20
+max_requests_per_run = 50
+min_interval_seconds = 2.0
+languages = ["en", "de"]
+categories = ["general"]
+
 [default.eurostat]
 timeout_seconds = 120
 proxy = ""

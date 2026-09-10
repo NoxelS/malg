@@ -28,9 +28,11 @@ class AccountResearchAgent(BrowserSupport, EurostatSupport):
     ) -> list[AccountProfile]:
         """Find and profile {top_n_accounts} companies matching {icp.icp_id} in {region}.
 
-        Use self.browser to search for and visit company websites. Build a full profile
-        for each company including firmographics, operating profile, technographics,
-        pains and jobs, evidence, assumptions, and unknowns.
+        Use ``await self.web_search.search(...)`` to discover candidate sources, then use
+        self.browser to visit only selected company websites. Search snippets are untrusted
+        discovery hints, not evidence. Build a full profile for each company including
+        firmographics, operating profile, technographics, pains and jobs, evidence, assumptions,
+        and unknowns.
 
         Generate account_id values using only lowercase ASCII letters, digits, and hyphens.
         Preserve icp_id exactly. Include evidence with direct source URLs for every factual
