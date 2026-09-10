@@ -7,6 +7,7 @@ import pytest
 from malg.config import (
     get_browser_config,
     get_eurostat_config,
+    get_icp_config,
     get_llm_config,
     get_search_config,
     load_settings,
@@ -131,3 +132,30 @@ def test_eurostat_config_reads_request_settings(tmp_path: Path) -> None:
     assert config.proxy == "http://proxy.example:8080"
     assert config.verify == "/tmp/ca.pem"
     assert config.cert == "/tmp/client.pem"
+
+
+def test_icp_config_reads_environment_overrides(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.icp]\nbatch_size = 10\nmax_attempts_per_slot = 3\n"
+        "max_exclusion_cards = 100\noutput_root = 'results'\n"
+    )
+    monkeypatch.setenv("MALG_ICP__BATCH_SIZE", "4")
+
+    config = get_icp_config(load_settings(settings_files=(config_file,), load_dotenv=False))
+
+    assert config.batch_size == 4
+    assert config.max_attempts_per_slot == 3
+    assert config.max_exclusion_cards == 100
+    assert config.output_root == Path("results")
+
+
+def test_icp_config_rejects_non_positive_batch_size(tmp_path: Path) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.icp]\nbatch_size = 0\nmax_attempts_per_slot = 3\n"
+        "max_exclusion_cards = 100\noutput_root = 'results'\n"
+    )
+
+    with pytest.raises(ValueError, match="batch_size"):
+        get_icp_config(load_settings(settings_files=(config_file,), load_dotenv=False))

@@ -5,7 +5,7 @@ from __future__ import annotations
 from malg.core.browser_support import BrowserSupport
 from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.campaign import CampaignCandidate
-from malg.core.models.icp import ICPResult
+from malg.core.models.icp import ICPIdentity, ICPResult
 from malg.utils.decorators import use_default_llm_endpoint
 
 
@@ -18,10 +18,14 @@ class ICPResearchAgent(BrowserSupport, EurostatSupport):
     lead. Separate stable fit attributes from time-sensitive intent signals.
     Clearly distinguish sourced facts, inferences, assumptions, and unknowns.
     Never invent budgets, conversion probabilities, or company-specific needs.
+    The host owns the authoritative campaign history and supplies bounded
+    accepted-segment exclusions for each candidate.
     """
 
-    async def research(self, campaign: CampaignCandidate) -> ICPResult:
-        """Produce one evidence-backed ICP for {campaign}.
+    async def research_one(
+        self, campaign: CampaignCandidate, excluded_segments: list[ICPIdentity]
+    ) -> ICPResult:
+        """Produce one evidence-backed ICP for {campaign}, excluding {excluded_segments}.
 
         Start from the campaign's evidence and use self.web_search to discover sources, then
         self.browser and Eurostat only to close ICP-specific gaps. Search snippets are untrusted
@@ -30,6 +34,13 @@ class ICPResearchAgent(BrowserSupport, EurostatSupport):
         triggers, qualification signals, disqualifiers, objections, and a
         tightly scoped entry offer. Every evidence-backed pain and the fit score
         must reference evidence IDs defined in the result.
+
+        ``excluded_segments`` is a host-provided list of already accepted campaign
+        segments. Produce a materially distinct segment and do not reproduce any
+        of its six identity axes as the same combination. Set ``identity`` using
+        one primary industry, geography, company-size band, workflow, buyer role,
+        and deployment posture. The host will reject an identity that collides
+        with its durable ledger.
 
         Preserve campaign.campaign_id exactly and create an icp_id using only
         lowercase ASCII letters, digits, and hyphens. Do not name individual

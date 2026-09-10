@@ -8,7 +8,7 @@ from malg.core.models.account import (
 )
 from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.evidence import EvidenceItem, EvidenceKind, EvidenceStrength, SourceType
-from malg.core.models.icp import ICPResult
+from malg.core.models.icp import ICPBatchResult, ICPIdentity, ICPRejection, ICPResult
 
 __all__ = [
     "AccountFirmographics",
@@ -19,6 +19,9 @@ __all__ = [
     "EvidenceItem",
     "EvidenceKind",
     "EvidenceStrength",
+    "ICPBatchResult",
+    "ICPIdentity",
+    "ICPRejection",
     "ICPResult",
     "SourceType",
 ]

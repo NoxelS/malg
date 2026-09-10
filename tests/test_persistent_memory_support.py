@@ -20,10 +20,10 @@ class CampaignMemoryAgent(PersistentMemorySupport):
 
 
 @use_default_llm_endpoint()
-class ICPMemoryAgent(PersistentMemorySupport):
-    """Minimal agent type used to test isolated ICP-memory persistence."""
+class IsolatedMemoryAgent(PersistentMemorySupport):
+    """Minimal second agent type used to test scoped-memory isolation."""
 
-    memory_scope = "icp-research"
+    memory_scope = "secondary-research"
 
 
 def test_memory_persists_for_fresh_agent_of_same_type(
@@ -53,15 +53,15 @@ def test_memory_persists_for_fresh_agent_of_same_type(
 def test_memory_is_isolated_by_agent_type(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("MALG_MEMORY_DIRECTORY", str(tmp_path))
     campaign = CampaignMemoryAgent()
-    icp = ICPMemoryAgent()
+    secondary = IsolatedMemoryAgent()
     try:
         campaign.remember("Campaign-only source finding", tags=["campaign"])
-        assert icp.search("Campaign-only source finding") == []
+        assert secondary.search("Campaign-only source finding") == []
         assert (tmp_path / "campaign-research.sqlite").exists()
-        assert (tmp_path / "icp-research.sqlite").exists()
+        assert (tmp_path / "secondary-research.sqlite").exists()
     finally:
         close_persistent_memory(campaign)
-        close_persistent_memory(icp)
+        close_persistent_memory(secondary)
 
 
 def test_remember_source_requires_absolute_http_url(

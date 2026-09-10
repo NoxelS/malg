@@ -138,6 +138,36 @@ class IntentModel(BaseModel):
     low_intent_state: str
 
 
+class ICPIdentity(BaseModel):
+    """The campaign-segment axes used for deterministic ICP deduplication.
+
+    Values describe a best-fit organization segment, never an individual
+    company.  The host derives a canonical key from these fields; model output
+    alone is not treated as a uniqueness decision.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    industry: str = Field(min_length=1)
+    geography: str = Field(min_length=1)
+    company_size_band: str = Field(min_length=1)
+    primary_workflow: str = Field(min_length=1)
+    primary_buyer_role: str = Field(min_length=1)
+    deployment_posture: str = Field(min_length=1)
+
+    def segment_key(self) -> str:
+        """Return a stable key for exact campaign-scoped segment exclusion."""
+        values = (
+            self.industry,
+            self.geography,
+            self.company_size_band,
+            self.primary_workflow,
+            self.primary_buyer_role,
+            self.deployment_posture,
+        )
+        return "|".join(" ".join(value.casefold().split()) for value in values)
+
+
 class ICPResult(BaseModel):
     """One evidence-backed organization profile for one campaign."""
 
@@ -146,6 +176,7 @@ class ICPResult(BaseModel):
     campaign_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
     icp_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
     title: str
+    identity: ICPIdentity
     profile_summary: str
     firmographics: Firmographics
     operating_profile: OperatingProfile
@@ -176,4 +207,40 @@ class ICPResult(BaseModel):
         missing = referenced - set(evidence_ids)
         if missing:
             raise ValueError(f"ICP fields reference undefined evidence: {sorted(missing)}")
+        return self
+
+
+class ICPRejection(BaseModel):
+    """One bounded research attempt rejected by deterministic host policy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempt: int = Field(ge=1)
+    reason: str = Field(min_length=1)
+    icp_id: str | None = None
+    segment_key: str | None = None
+
+
+class ICPBatchResult(BaseModel):
+    """The durable outcome of one campaign-scoped ICP research run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    campaign_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
+    run_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    requested_count: int = Field(ge=1)
+    icps: list[ICPResult]
+    rejections: list[ICPRejection]
+    exhaustion_reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_batch(self) -> ICPBatchResult:
+        if len(self.icps) > self.requested_count:
+            raise ValueError("An ICP batch cannot contain more than requested_count profiles.")
+        if any(icp.campaign_id != self.campaign_id for icp in self.icps):
+            raise ValueError("Every ICP in a batch must belong to the batch campaign.")
+        if len({icp.identity.segment_key() for icp in self.icps}) != len(self.icps):
+            raise ValueError("ICP batch identities must be distinct.")
+        if len(self.icps) < self.requested_count and not self.exhaustion_reason:
+            raise ValueError("A partial ICP batch must state an exhaustion_reason.")
         return self

@@ -11,7 +11,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from malg.core.models.account import AccountProfile
-from malg.core.models.icp import ICPResult
+from malg.core.models.icp import ICPBatchResult, ICPResult
 
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 
@@ -159,6 +159,51 @@ def write_icp_result(
     # JSON is canonical; write it first. A later Markdown failure remains recoverable.
     write_json_result(icp, json_path, overwrite=overwrite)
     _atomic_write(markdown_path, render_icp_markdown(icp), overwrite=overwrite)
+    return json_path, markdown_path
+
+
+def render_icp_batch_markdown(batch: ICPBatchResult) -> str:
+    """Render one ICP batch and its accepted identities for quick human review."""
+    sections = [
+        "# ICP research batch\n\n"
+        f"**Campaign ID:** `{batch.campaign_id}`  \n"
+        f"**Run ID:** `{batch.run_id}`  \n"
+        f"**Requested / accepted:** {batch.requested_count} / {len(batch.icps)}\n",
+        _section(
+            "Accepted ICPs",
+            "\n".join(
+                f"- **{icp.icp_id}:** {icp.title} — `{icp.identity.segment_key()}`"
+                for icp in batch.icps
+            )
+            or "- None accepted",
+        ),
+        _section(
+            "Rejected attempts",
+            "\n".join(
+                f"- Attempt {rejection.attempt}: {rejection.reason}"
+                for rejection in batch.rejections
+            )
+            or "- None",
+        ),
+    ]
+    if batch.exhaustion_reason:
+        sections.append(_section("Partial batch reason", batch.exhaustion_reason))
+    return "\n".join(sections).rstrip() + "\n"
+
+
+def write_icp_batch_result(batch: ICPBatchResult, output_root: Path) -> tuple[Path, Path]:
+    """Persist a batch and each accepted ICP without overwriting an earlier run."""
+    campaign_id = _validate_id(batch.campaign_id)
+    run_id = _validate_id(batch.run_id)
+    base_dir = output_root / "icps" / campaign_id / run_id
+    json_path = base_dir / "batch.json"
+    markdown_path = base_dir / "batch.md"
+    write_json_result(batch, json_path)
+    _atomic_write(markdown_path, render_icp_batch_markdown(batch))
+    for icp in batch.icps:
+        icp_id = _validate_id(icp.icp_id)
+        write_json_result(icp, base_dir / f"{icp_id}.json")
+        _atomic_write(base_dir / f"{icp_id}.md", render_icp_markdown(icp))
     return json_path, markdown_path
 
 

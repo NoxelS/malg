@@ -2,9 +2,8 @@
 
 Campaign discovery for a later lead-generation workflow.
 
-This repository provides a NOOA-based `CampaignResearchAgent` that finds one evidence-backed
-campaign candidate for Noel Schwabenland's independent AI practice. It currently does not
-research ICPs, accounts, contacts, leads, or outreach.
+This repository provides NOOA-based campaign and ICP research for Noel Schwabenland's independent
+AI practice. It currently does not research accounts, contacts, leads, or outreach.
 
 Agents use the shared endpoint through `@use_default_llm_endpoint()`. Pass `model=` to select
 another LiteLLM model while retaining the configured endpoint and key:
@@ -121,10 +120,22 @@ for the Memory tab. NOOA memory events identify the originating database with th
 viewer serves read-only routes, though NOOA performs an idempotent schema check when it first
 opens a database. Recreate the tools with `make restart-tools` after changing the mount.
 
-## One-campaign entry point
+## ICP batches with durable non-overlap
 
-The entry point calls only `CampaignResearchAgent.find_campaign()` and prints the validated JSON
-result. It does not write result files or invoke the dormant ICP/account research modules:
+`ICPResearchAgent` is stateless between runs. The separate `icp-history.sqlite` ledger is the
+authoritative campaign-scoped record: it atomically claims an ICP's structured segment identity
+(industry, geography, size, workflow, buyer, deployment posture) before results are published.
+The ledger guarantees that a restarted run does not accept the same identity again.
+
+The host generates one ICP at a time, validates it, and retries a duplicate up to the configured
+limit. `[default.icp]` configures `batch_size` (10 by default), attempt limits, bounded exclusion
+cards, and `output_root`; `MALG_ICP__...` environment variables override those settings. Batches
+are written under `results/icps/<campaign-id>/<run-id>/`.
+
+## Saved-campaign ICP entry point
+
+The entry point validates `results/campaigns/1.json` and requests the next ten distinct ICPs for
+that campaign. A fresh invocation consults the durable ledger and asks for another ten:
 
 ```bash
 uv run python -m malg
@@ -181,7 +192,7 @@ make check
 make test
 ```
 
-After configuring a reachable endpoint and its key, run the bounded one-campaign smoke test:
+After configuring a reachable endpoint and its key, run the bounded saved-campaign ICP smoke test:
 
 ```bash
 uv run python -m malg

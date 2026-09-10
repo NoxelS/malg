@@ -1,14 +1,20 @@
-"""Run the bounded campaign-discovery smoke entry point."""
+"""Run the saved-campaign ICP batch smoke entry point."""
 
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 from malg.core.agents.campaign_research import CampaignResearchAgent
 from malg.core.browser_support import aclose_browser
+from malg.core.icp_runner import research_icps
 from malg.core.models.campaign import CampaignCandidate
+from malg.core.models.icp import ICPBatchResult
 from malg.core.persistent_memory_support import close_persistent_memory
 from malg.utils.console_progress import ConsoleProgress
+
+CAMPAIGN_PATH = Path("results/campaigns/1.json")
 
 
 async def find_one_campaign() -> CampaignCandidate:
@@ -24,9 +30,19 @@ async def find_one_campaign() -> CampaignCandidate:
         close_persistent_memory(agent)
 
 
+def load_saved_campaign(path: Path = CAMPAIGN_PATH) -> CampaignCandidate:
+    """Load and validate the explicit campaign artifact used by the ICP smoke run."""
+    return CampaignCandidate.model_validate(json.loads(path.read_text(encoding="utf-8")))
+
+
+async def find_ten_icps() -> ICPBatchResult:
+    """Research the next configured ICP batch for ``results/campaigns/1.json``."""
+    return await research_icps(load_saved_campaign())
+
+
 async def main() -> None:
-    campaign = await find_one_campaign()
-    print(campaign.model_dump_json(indent=2))
+    batch = await find_ten_icps()
+    print(batch.model_dump_json(indent=2))
 
 
 if __name__ == "__main__":

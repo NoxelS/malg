@@ -25,3 +25,9 @@ timeout_seconds = 600
 proxy = ""
 verify = true
 cert = ""
+
+[default.icp]
+batch_size = 10
+max_attempts_per_slot = 3
+max_exclusion_cards = 100
+output_root = "results"

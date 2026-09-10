@@ -62,6 +62,16 @@ class EurostatConfig:
     cert: str | None
 
 
+@dataclass(frozen=True)
+class ICPConfig:
+    """Host-owned limits and output settings for ICP batch research."""
+
+    batch_size: int
+    max_attempts_per_slot: int
+    max_exclusion_cards: int
+    output_root: Path
+
+
 def load_settings(
     *,
     settings_files: Sequence[str | Path] = DEFAULT_CONFIG_FILES,
@@ -245,3 +255,31 @@ def get_eurostat_config(settings: Dynaconf) -> EurostatConfig:
         raise ValueError("Eurostat configuration field cert must be a string when set.")
 
     return EurostatConfig(timeout_seconds=timeout_seconds, proxy=proxy, verify=verify, cert=cert)
+
+
+def get_icp_config(settings: Dynaconf) -> ICPConfig:
+    """Read bounded ICP batch settings without accepting agent-provided limits."""
+    icp = settings.get("icp")
+    if not isinstance(icp, Mapping):
+        raise ValueError("Missing [default.icp] configuration.")
+
+    integer_fields = ("batch_size", "max_attempts_per_slot", "max_exclusion_cards")
+    invalid_fields = [
+        field
+        for field in integer_fields
+        if not isinstance(icp.get(field), int) or isinstance(icp[field], bool) or icp[field] <= 0
+    ]
+    if invalid_fields:
+        names = ", ".join(invalid_fields)
+        raise ValueError(f"ICP configuration field(s) must be positive integers: {names}.")
+
+    output_root = icp.get("output_root")
+    if not isinstance(output_root, str) or not output_root:
+        raise ValueError("ICP configuration field output_root must be a non-empty string.")
+
+    return ICPConfig(
+        batch_size=icp["batch_size"],
+        max_attempts_per_slot=icp["max_attempts_per_slot"],
+        max_exclusion_cards=icp["max_exclusion_cards"],
+        output_root=Path(output_root),
+    )
