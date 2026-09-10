@@ -84,18 +84,7 @@ def test_campaign_research_agent_uses_nooa_eurostat_agent() -> None:
         close_persistent_memory(agent)
 
 
-def test_campaign_research_instruction_has_the_single_campaign_boundary() -> None:
-    context = CampaignResearchAgent.__doc__ or ""
-    research_context = CampaignResearchAgent.find_campaign.__doc__ or ""
-
-    assert "production-ready RAG, voice, agent, and private/on-premise AI" in context
-    assert "exactly one" in research_context
-    assert "Do not discover or name individual companies" in research_context
-    assert "contacts, leads, or" in research_context
-    assert "prospects." in research_context
-    assert "Do not create ICPs" in research_context
-    assert "Eurostat tools" in research_context
-    assert "Do not use a\nbrowser, web search" in research_context
+def test_campaign_research_method_returns_campaign_candidate() -> None:
     assert get_type_hints(CampaignResearchAgent.find_campaign)["return"] is CampaignCandidate
 
 

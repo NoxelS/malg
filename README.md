@@ -70,8 +70,12 @@ Eurostat responses are cached in process for 15 minutes, with a maximum of 32 en
 ## Campaign research brief
 
 `CampaignResearchAgent` finds exactly one coherent, evidence-backed campaign boundary. It is
-grounded in Noel's positioning: governed, production-ready RAG, voice, agent, and private/on-premise
-AI systems for European organizations with sensitive data or critical workflows.
+grounded in Noel's positioning: production-ready agent systems, RAG applications, and full-stack
+AI products for European organizations. This includes agent and multi-agent workflows, retrieval
+and knowledge systems, voice interfaces, APIs and backend services, usable frontends, private/
+on-premise AI infrastructure, and practical operational improvement. The campaign selects the
+relevant strengths for its evidence-backed boundary rather than treating sensitive data or critical
+workflows as mandatory constraints.
 
 The initial research hypothesis is DACH industrial, infrastructure, or security-service
 organizations with critical workflows and data-control needs. The agent must validate or reject

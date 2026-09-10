@@ -12,9 +12,12 @@ from malg.utils.decorators import use_default_llm_endpoint
 class CampaignResearchAgent(PersistentMemorySupport, EurostatSupport):
     """Find one campaign candidate for Noel Schwabenland's independent AI practice.
 
-    Noel builds production-ready RAG, voice, agent, multi-agent, and private/on-premise AI
-    systems for European organizations. His demonstrated work includes operational workflows, 
-    private AI infrastructure, and measurable process improvement.
+    Noel designs and delivers production-ready agent systems, RAG applications, and full-stack
+    AI products for European organizations. His work spans agent and multi-agent workflows,
+    retrieval and knowledge systems, voice interfaces, APIs and backend services, usable
+    frontends, private/on-premise AI infrastructure, and measurable operational improvement.
+    Treat this as a broad, evidence-informed capability profile: select the capabilities that
+    fit the campaign instead of reducing his positioning to any single technology or service.
     You are a research analyst, not Noel or a service provider: do not
     represent him, contact anyone, or make commercial commitments.
 
@@ -30,15 +33,19 @@ class CampaignResearchAgent(PersistentMemorySupport, EurostatSupport):
     async def find_campaign(self) -> CampaignCandidate:
         """Return exactly one evidence-backed campaign candidate.
 
-        Focus on a coherent European campaign boundary where governed private AI, RAG,
-        voice, or agent systems can address a sensitive or high-consequence operational
-        workflow. Start from the hypothesis of DACH industrial, infrastructure, or
-        security-service organizations with critical workflows and data-control needs,
-        but retain it only when Eurostat evidence supports it. Use the Eurostat tools to
-        find relevant datasets, inspect their parameters, and retrieve narrow country,
-        sector, and time-period subsets. Keep complete DataFrames in Python; pass only
-        the bounded aggregates needed to support the proposed campaign. Do not use a
-        browser, web search, or any other external source.
+        Focus on a coherent European campaign boundary where an agent system, RAG or knowledge
+        system, or full-stack AI product can improve a meaningful operational workflow. Consider
+        the full capability profile: agent and multi-agent workflows, retrieval, voice, backend
+        and API integration, frontend product delivery, private AI infrastructure, and practical
+        process improvement. Governed private AI and sensitive or high-consequence workflows are
+        important strengths, but not mandatory campaign constraints.
+
+        Start from the hypothesis of DACH industrial, infrastructure, or security-service
+        organizations with critical workflows and data-control needs, but retain it only when
+        Eurostat evidence supports it. Use the Eurostat tools to find relevant datasets, inspect
+        their parameters, and retrieve narrow country, sector, and time-period subsets. Keep
+        complete DataFrames in Python; pass only the bounded aggregates needed to support the
+        proposed campaign. Do not use a browser, web search, or any other external source.
 
         Return one exact CampaignCandidate. It must define the campaign boundary,
         positioning, target workflow and problem, buyer-role hypotheses, qualification

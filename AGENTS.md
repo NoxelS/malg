@@ -30,6 +30,8 @@
 - Test observable outcomes, not private helpers or call order. Keep tests
   focused; use real models, temporary paths, in-memory fakes, and dependency
   injection before mocking.
+- Prompts do not need to be tested. Do not add tests that assert literal prompt
+  wording; test deterministic, observable behavior instead.
 - Monkeypatch only external boundaries (environment, time, HTTP/MCP, filesystem
   permissions, third-party SDKs). Unit tests are offline and deterministic.
   Live NOOA generation runs only in the documented Docker sandbox.
