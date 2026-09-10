@@ -9,6 +9,9 @@ from tests.test_campaign_research_agent import campaign_payload
 
 from malg import __main__
 from malg.config import ICPConfig
+from malg.core.agents.icp_research import ICPResearchAgent
+from malg.core.browser_support import BrowserSupport
+from malg.core.eurostat_support import EurostatSupport
 from malg.core.icp_history import ICPHistoryLedger
 from malg.core.icp_runner import research_icps
 from malg.core.models.campaign import CampaignCandidate
@@ -145,6 +148,12 @@ def _config(tmp_path: Path, *, batch_size: int = 2) -> ICPConfig:
         max_exclusion_cards=10,
         output_root=tmp_path / "results",
     )
+
+
+def test_icp_research_agent_exposes_only_browser_research_support() -> None:
+    """Keep ICP research bounded to SearXNG discovery and Lightpanda browsing."""
+    assert issubclass(ICPResearchAgent, BrowserSupport)
+    assert not issubclass(ICPResearchAgent, EurostatSupport)
 
 
 def test_runner_retries_duplicate_and_persists_distinct_batch(tmp_path: Path) -> None:
