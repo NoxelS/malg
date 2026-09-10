@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from malg.core.models.evidence import EvidenceItem, EvidenceKind
+from malg.core.models.evidence import EvidenceItem, SourceType
 
 
 class CampaignCandidate(BaseModel):
@@ -36,6 +36,6 @@ class CampaignCandidate(BaseModel):
         evidence_ids = [item.evidence_id for item in self.evidence]
         if len(evidence_ids) != len(set(evidence_ids)):
             raise ValueError("evidence_id values must be unique within a campaign.")
-        if EvidenceKind.QUALITATIVE not in {item.evidence_kind for item in self.evidence}:
-            raise ValueError("a campaign requires current qualitative evidence.")
+        if any(item.source_type is not SourceType.EUROSTAT for item in self.evidence):
+            raise ValueError("a campaign requires Eurostat evidence only.")
         return self

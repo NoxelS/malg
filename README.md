@@ -75,18 +75,20 @@ AI systems for European organizations with sensitive data or critical workflows.
 
 The initial research hypothesis is DACH industrial, infrastructure, or security-service
 organizations with critical workflows and data-control needs. The agent must validate or reject
-that hypothesis using current public evidence. Its result describes the campaign boundary,
-workflow, positioning, buyer-role hypotheses, qualification signals, exclusions, small entry-offer
-hypothesis, sources, confidence, assumptions, unknowns, and questions for later ICP research.
+that hypothesis using Eurostat only. It uses cached Eurostat tools to discover datasets and work
+with narrow aggregates; it has no browser, web-search, or other external-research capability. Its
+result describes the campaign boundary, workflow, positioning, buyer-role hypotheses,
+qualification signals, exclusions, small entry-offer hypothesis, sources, confidence, assumptions,
+unknowns, and questions for later ICP research. Every evidence item must be Eurostat-backed and
+include its dataset code.
 
 It is an analyst, not the freelancer. It does not name individual companies, accounts, contacts,
 leads, or prospects; it does not create ICPs, messages, rankings, or quotas.
 
 ## One-campaign entry point
 
-The entry point calls only `CampaignResearchAgent.find_campaign()`, prints the validated JSON
-result, and closes the agent browser session. It does not write result files or invoke the dormant
-ICP/account research modules:
+The entry point calls only `CampaignResearchAgent.find_campaign()` and prints the validated JSON
+result. It does not write result files or invoke the dormant ICP/account research modules:
 
 ```bash
 uv run python -m malg

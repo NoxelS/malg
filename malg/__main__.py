@@ -5,17 +5,13 @@ from __future__ import annotations
 import asyncio
 
 from malg.core.agents.campaign_research import CampaignResearchAgent
-from malg.core.browser_support import aclose_browser
 from malg.core.models.campaign import CampaignCandidate
 
 
 async def find_one_campaign() -> CampaignCandidate:
-    """Research one campaign and release its browser session without persisting it."""
+    """Research one Eurostat-backed campaign without persisting it."""
     agent = CampaignResearchAgent()
-    try:
-        return await agent.find_campaign()
-    finally:
-        await aclose_browser(agent.browser)
+    return await agent.find_campaign()
 
 
 async def main() -> None:

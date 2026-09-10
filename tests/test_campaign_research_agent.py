@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from malg import __main__
 from malg.config import get_llm_config, load_settings
 from malg.core.agents.campaign_research import CampaignResearchAgent
-from malg.core.browser_support import BrowserSupport
+from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.campaign import CampaignCandidate
 
 
@@ -31,25 +31,35 @@ def campaign_payload() -> dict[str, object]:
         "entry_offer_hypothesis": "A governed workflow assessment leading to a scoped private-AI pilot.",
         "evidence": [
             {
-                "evidence_id": "portfolio-private-ai",
-                "claim": "The portfolio describes private AI for sensitive European workloads.",
-                "source_type": "official",
-                "evidence_kind": "qualitative",
-                "source_title": "Noel Schwabenland portfolio",
-                "source_url": "https://portfolio-staging.noel.fyi/en/",
+                "evidence_id": "eurostat-enterprise-ai",
+                "claim": "Enterprise AI adoption provides a measurable campaign-selection signal.",
+                "source_type": "eurostat",
+                "evidence_kind": "quantitative",
+                "source_title": "Eurostat enterprise AI use",
+                "source_url": "https://ec.europa.eu/eurostat/",
+                "dataset_code": "isoc_eb_ai",
+                "observation_date": "2025-01-01",
                 "retrieved_at": "2026-09-09T10:00:00Z",
-                "geography": ["Europe"],
+                "geography": ["Germany"],
+                "unit": "percent",
+                "population": "enterprises",
+                "value": 20.0,
                 "strength": "strong",
             },
             {
-                "evidence_id": "private-ai-market-signal",
-                "claim": "Private AI can address data-control constraints in sensitive operations.",
-                "source_type": "industry",
-                "evidence_kind": "qualitative",
-                "source_title": "Industry research",
-                "source_url": "https://example.com/private-ai-research",
+                "evidence_id": "eurostat-enterprise-cloud",
+                "claim": "Enterprise cloud use is a measurable digital-readiness signal.",
+                "source_type": "eurostat",
+                "evidence_kind": "quantitative",
+                "source_title": "Eurostat enterprise cloud use",
+                "source_url": "https://ec.europa.eu/eurostat/",
+                "dataset_code": "isoc_cicce_use",
+                "observation_date": "2025-01-01",
                 "retrieved_at": "2026-09-09T10:00:00Z",
-                "geography": ["DACH"],
+                "geography": ["Germany"],
+                "unit": "percent",
+                "population": "enterprises",
+                "value": 45.0,
                 "strength": "moderate",
             },
         ],
@@ -60,11 +70,10 @@ def campaign_payload() -> dict[str, object]:
     }
 
 
-def test_campaign_research_agent_uses_nooa_browser_agent(monkeypatch) -> None:
-    monkeypatch.setattr("malg.core.browser_support.create_browser_tool", lambda config: object())
-
+def test_campaign_research_agent_uses_nooa_eurostat_agent() -> None:
     assert issubclass(CampaignResearchAgent, Agent)
-    assert issubclass(CampaignResearchAgent, BrowserSupport)
+    assert issubclass(CampaignResearchAgent, EurostatSupport)
+    assert not hasattr(CampaignResearchAgent(), "browser")
     client = CampaignResearchAgent()._llm
     config = get_llm_config(load_settings())
     assert client.model == f"{config.provider}/{config.model}"
@@ -81,7 +90,8 @@ def test_campaign_research_instruction_has_the_single_campaign_boundary() -> Non
     assert "contacts, leads, or" in research_context
     assert "prospects." in research_context
     assert "Do not create ICPs" in research_context
-    assert "self.browser" in research_context
+    assert "Eurostat tools" in research_context
+    assert "Do not use a\nbrowser, web search" in research_context
     assert get_type_hints(CampaignResearchAgent.find_campaign)["return"] is CampaignCandidate
 
 
@@ -90,43 +100,33 @@ def test_campaign_contract_rejects_duplicate_evidence_ids() -> None:
     evidence = payload["evidence"]
     assert isinstance(evidence, list)
     duplicate = dict(evidence[1])
-    duplicate["evidence_id"] = "portfolio-private-ai"
+    duplicate["evidence_id"] = "eurostat-enterprise-ai"
     evidence[1] = duplicate
 
     with pytest.raises(ValidationError, match="evidence_id values must be unique"):
         CampaignCandidate.model_validate(payload)
 
 
-def test_campaign_contract_requires_current_qualitative_evidence() -> None:
+def test_campaign_contract_rejects_non_eurostat_evidence() -> None:
     payload = campaign_payload()
     evidence = payload["evidence"]
     assert isinstance(evidence, list)
-    for item in evidence:
-        assert isinstance(item, dict)
-        item["evidence_kind"] = "quantitative"
-        item["value"] = 1
+    item = evidence[1]
+    assert isinstance(item, dict)
+    item["source_type"] = "industry"
+    item.pop("dataset_code")
 
-    with pytest.raises(ValidationError, match="current qualitative evidence"):
+    with pytest.raises(ValidationError, match="Eurostat evidence only"):
         CampaignCandidate.model_validate(payload)
 
 
-def test_main_searches_one_campaign_and_closes_its_browser(monkeypatch) -> None:
+def test_main_searches_one_campaign_without_a_browser(monkeypatch) -> None:
     expected = CampaignCandidate.model_validate(campaign_payload())
-    browser = object()
-    closed: list[object] = []
 
     class FakeCampaignResearchAgent:
-        def __init__(self) -> None:
-            self.browser = browser
-
         async def find_campaign(self) -> CampaignCandidate:
             return expected
 
-    async def fake_close(value: object) -> None:
-        closed.append(value)
-
     monkeypatch.setattr(__main__, "CampaignResearchAgent", FakeCampaignResearchAgent)
-    monkeypatch.setattr(__main__, "aclose_browser", fake_close)
 
     assert asyncio.run(__main__.find_one_campaign()) == expected
-    assert closed == [browser]
