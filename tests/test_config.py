@@ -21,7 +21,7 @@ def test_user_config_overrides_default(tmp_path: Path) -> None:
     )
     user_config = tmp_path / "user.config.toml"
     user_config.write_text(
-        "[default.llm]\nmodel = 'user-model'\napi_key = 'user-key'\ncontext_window = 32768\nmax_tokens = 2048\nrequest_timeout_seconds = 300\n"
+        "[default.llm]\nmodel = 'user-model'\napi_key = 'user-key'\ncontext_window = 32768\nmax_tokens = 2048\nheadroom_compression = true\nrequest_timeout_seconds = 300\n"
     )
 
     config = get_llm_config(
@@ -34,6 +34,7 @@ def test_user_config_overrides_default(tmp_path: Path) -> None:
     assert config.api_key == "user-key"
     assert config.context_window == 32768
     assert config.max_tokens == 2048
+    assert config.headroom_compression is True
     assert config.request_timeout_seconds == 300
 
 
@@ -51,6 +52,7 @@ def test_environment_overrides_config_files(tmp_path: Path, monkeypatch) -> None
     assert config.api_key == "environment-key"
     assert config.context_window is None
     assert config.max_tokens is None
+    assert config.headroom_compression is False
     assert config.request_timeout_seconds == 300
 
 

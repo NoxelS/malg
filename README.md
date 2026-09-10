@@ -162,8 +162,11 @@ api_base = "https://your-litellm-endpoint.example/v1"
 api_key = "your-litellm-virtual-key"
 request_timeout_seconds = 300
 # Supply limits known for your gateway/model. They are not inferred.
-context_window = 32768
-max_tokens = 2048
+context_window = 262144
+max_tokens = 4096
+# Sends ``guardrails: ["headroom-compression"]`` in LiteLLM requests. The
+# LiteLLM gateway must register that pre-call guardrail and a Headroom sidecar.
+headroom_compression = true
 ```
 
 MALG qualifies a bare model name with the configured provider before handing it to LiteLLM (for

@@ -4,6 +4,9 @@ provider = "openai"
 api_base = "https://api.openai.com/v1"
 api_key = "<YOUR_OPENAI_API_KEY>"
 request_timeout_seconds = 300
+context_window = 262144
+max_tokens = 32768
+headroom_compression = true
 
 [default.browser]
 enabled = true

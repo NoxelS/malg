@@ -26,6 +26,7 @@ class LLMConfig:
     api_key: str | None
     context_window: int | None
     max_tokens: int | None
+    headroom_compression: bool
     request_timeout_seconds: int
 
 
@@ -113,6 +114,10 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
         names = ", ".join(invalid_integer_fields)
         raise ValueError(f"LLM configuration field(s) must be positive integers: {names}.")
 
+    headroom_compression = llm.get("headroom_compression", False)
+    if not isinstance(headroom_compression, bool):
+        raise ValueError("LLM configuration field headroom_compression must be a boolean.")
+
     request_timeout_seconds = llm.get("request_timeout_seconds")
     if (
         not isinstance(request_timeout_seconds, int)
@@ -130,6 +135,7 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
         api_key=api_key,
         context_window=llm.get("context_window"),
         max_tokens=llm.get("max_tokens"),
+        headroom_compression=headroom_compression,
         request_timeout_seconds=request_timeout_seconds,
     )
 

@@ -29,6 +29,10 @@ def use_default_llm_endpoint(
     }
     if _default_llm_config.context_window is not None:
         llm_options["context_window"] = _default_llm_config.context_window
+    if _default_llm_config.headroom_compression:
+        # LiteLLM's OpenAI-compatible proxy reads this request-body field to
+        # opt into its configured ``headroom-compression`` pre-call guardrail.
+        llm_options["extra_body"] = {"guardrails": ["headroom-compression"]}
     if _default_llm_config.max_tokens is not None:
         llm_options["max_tokens"] = _default_llm_config.max_tokens
 
