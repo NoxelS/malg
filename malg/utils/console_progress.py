@@ -58,6 +58,32 @@ class ConsoleProgress:
         agent.event_manager.intercept("agent_call", self._agent_call)
         agent.event_manager.on("LLMCallStart", self._llm_call_start)
         agent.event_manager.on("LLMCallEnd", self._llm_call_end)
+        attach_memory_progress = getattr(agent, "_set_memory_progress", None)
+        if callable(attach_memory_progress):
+            attach_memory_progress(self)
+
+    def memory_saved(self, scope: str, memory_id: str) -> None:
+        """Report a durable memory write without rendering its contents."""
+        self._write("MEMORY", f"{scope} saved (id {_short_id(memory_id)})", _GREEN)
+
+    def memory_loaded(self, scope: str, operation: str, count: int) -> None:
+        """Report a memory lookup without rendering its query or results."""
+        noun = "item" if count == 1 else "items"
+        self._write("MEMORY", f"{scope} {operation} loaded {count} {noun}", _GREEN)
+
+    def memory_updated(self, scope: str, memory_id: str, found: bool) -> None:
+        """Report whether a memory refinement found its target."""
+        outcome = "updated" if found else "not found"
+        self._write("MEMORY", f"{scope} {outcome} (id {_short_id(memory_id)})", _GREEN)
+
+    def memory_archived(self, scope: str, memory_id: str, found: bool) -> None:
+        """Report whether a memory archive request found its target."""
+        outcome = "archived" if found else "not found"
+        self._write("MEMORY", f"{scope} {outcome} (id {_short_id(memory_id)})", _GREEN)
+
+    def memory_associated(self, scope: str) -> None:
+        """Report a memory-link write without rendering link endpoints."""
+        self._write("MEMORY", f"{scope} associated memories", _GREEN)
 
     async def _agent_call(self, context: Any, next_call: Callable[[Any], Awaitable[Any]]) -> Any:
         label = _call_label(context.agent, context.method_name, context.args, context.kwargs)
@@ -165,6 +191,11 @@ def _call_metadata(
 
 def _safe_identifier(value: str) -> str:
     return repr(value[:80] + ("..." if len(value) > 80 else ""))
+
+
+def _short_id(value: str) -> str:
+    """Return a bounded identifier suitable for operational progress output."""
+    return value[:8]
 
 
 def _argument_names(arguments: dict[str, Any]) -> list[str]:

@@ -48,6 +48,8 @@ site/
 # Local runtime data and temporary files
 results/*
 !results/.gitkeep
+memory/*
+!memory/.gitkeep
 *.log
 *.pid
 *.tmp

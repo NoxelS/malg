@@ -85,6 +85,26 @@ include its dataset code.
 It is an analyst, not the freelancer. It does not name individual companies, accounts, contacts,
 leads, or prospects; it does not create ICPs, messages, rankings, or quotas.
 
+## Persistent campaign-research memory
+
+Campaign research has an explicit, durable NOOA memory. The agent can recall, search,
+refine, archive, and associate its own findings, and `remember_source()` stores a concise
+finding with a direct HTTP(S) source URL and optional Eurostat dataset code. Memory is scoped
+per agent type: campaign research uses only `campaign-research.sqlite`; other agent types do
+not share or recall it.
+
+The Docker POC bind-mounts the repository's gitignored `memory/` directory at
+`/app/.nooa/memory`, so you can inspect its SQLite files locally (for example,
+`memory/campaign-research.sqlite`). A tracked `.gitkeep` preserves the empty directory, while
+generated memory remains untracked. It is made writable for the unprivileged MALG user before
+each `make run`. This POC uses explicit operations only: it does not auto-write events, inject
+recalled content automatically, or run reflection.
+
+The trace viewer receives the same directory at `/app/.nooa/memory`, which is its discovery path
+for the Memory tab. NOOA memory events identify the originating database with that same path. The
+viewer serves read-only routes, though NOOA performs an idempotent schema check when it first
+opens a database. Recreate the tools with `make restart-tools` after changing the mount.
+
 ## One-campaign entry point
 
 The entry point calls only `CampaignResearchAgent.find_campaign()` and prints the validated JSON

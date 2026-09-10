@@ -795,6 +795,7 @@ dependencies = [
     { name = "eurostat" },
     { name = "mcp" },
     { name = "nooa", extra = ["cli", "mcp", "viewer"] },
+    { name = "nooa-memory" },
     { name = "pandas" },
     { name = "pydantic" },
 ]
@@ -814,6 +815,7 @@ requires-dist = [
     { name = "eurostat", specifier = ">=1.1,<2" },
     { name = "mcp", specifier = ">=1,<2" },
     { name = "nooa", extras = ["cli", "mcp", "viewer"] },
+    { name = "nooa-memory", specifier = ">=0.0.10,<0.1" },
     { name = "pandas", specifier = ">=2.2,<3" },
     { name = "pydantic", specifier = ">=2.5,<3" },
 ]
@@ -1034,6 +1036,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/61/db/3102e89788ca0e2e7c494a7c4c6c8c3004213416bb3f9d11f1da908aafff/nooa_cli-0.0.8.tar.gz", hash = "sha256:4c80a31815ddd0472d4c422324eb3a4b542e3e1901d1f17c7b3d0ef3f287f81e", size = 51263, upload-time = "2026-07-30T07:32:20.358Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/66/cf679e4774ff54d0d5cc71dcbd7ef86de4eb93fa3cc55e711d94e1d52a79/nooa_cli-0.0.8-py3-none-any.whl", hash = "sha256:5b9280dc3c80598df18753336ee810c687083974b348ba8986ed4afa9dcd5c67", size = 59160, upload-time = "2026-07-30T07:32:19.248Z" },
+]
+
+[[package]]
+name = "nooa-memory"
+version = "0.0.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nooa" },
+    { name = "numpy" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/94/bd/5c8925b4c46d5bb81e1dba394dfd249cac7ce3cd31910994d4d25477e40c/nooa_memory-0.0.10.tar.gz", hash = "sha256:4bc67e2c66daa9dcc15974cfad1b1cfa2ab89c4540f6bdf4ba1a0825594a37b6", size = 97721, upload-time = "2026-09-04T06:04:34.983Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/69/00/107ea87f7fc0709e520f3b69d082a2ee09447335e9021366811ed60ceccf/nooa_memory-0.0.10-py3-none-any.whl", hash = "sha256:f51183011172485531e06f7cafd198aab465313ede334e1c967e512f99fe7a4b", size = 71125, upload-time = "2026-09-04T06:04:35.969Z" },
 ]
 
 [[package]]

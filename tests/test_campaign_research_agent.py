@@ -12,6 +12,7 @@ from malg.config import get_llm_config, load_settings
 from malg.core.agents.campaign_research import CampaignResearchAgent
 from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.campaign import CampaignCandidate
+from malg.core.persistent_memory_support import close_persistent_memory
 
 
 def campaign_payload() -> dict[str, object]:
@@ -73,11 +74,14 @@ def campaign_payload() -> dict[str, object]:
 def test_campaign_research_agent_uses_nooa_eurostat_agent() -> None:
     assert issubclass(CampaignResearchAgent, Agent)
     assert issubclass(CampaignResearchAgent, EurostatSupport)
-    assert not hasattr(CampaignResearchAgent(), "browser")
-    client = CampaignResearchAgent()._llm
-    config = get_llm_config(load_settings())
-    assert client.model == f"{config.provider}/{config.model}"
-    assert client.config["custom_llm_provider"] == "openai"
+    agent = CampaignResearchAgent()
+    try:
+        assert not hasattr(agent, "browser")
+        config = get_llm_config(load_settings())
+        assert agent._llm.model == f"{config.provider}/{config.model}"
+        assert agent._llm.config["custom_llm_provider"] == "openai"
+    finally:
+        close_persistent_memory(agent)
 
 
 def test_campaign_research_instruction_has_the_single_campaign_boundary() -> None:

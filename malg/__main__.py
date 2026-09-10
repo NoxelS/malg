@@ -6,15 +6,19 @@ import asyncio
 
 from malg.core.agents.campaign_research import CampaignResearchAgent
 from malg.core.models.campaign import CampaignCandidate
+from malg.core.persistent_memory_support import close_persistent_memory
 from malg.utils.console_progress import ConsoleProgress
 
 
 async def find_one_campaign() -> CampaignCandidate:
-    """Research one Eurostat-backed campaign without persisting it."""
+    """Research one Eurostat-backed campaign with scoped persistent memory."""
     agent = CampaignResearchAgent()
-    if hasattr(agent, "event_manager"):
-        ConsoleProgress().attach(agent)
-    return await agent.find_campaign()
+    try:
+        if hasattr(agent, "event_manager"):
+            ConsoleProgress().attach(agent)
+        return await agent.find_campaign()
+    finally:
+        close_persistent_memory(agent)
 
 
 async def main() -> None:

@@ -23,6 +23,7 @@ dependencies = [
     # NOOA 0.0.8's MCP client targets the 1.x streamable-HTTP transport API.
     "mcp>=1,<2",
     "nooa[cli,mcp,viewer]",
+    "nooa-memory>=0.0.10,<0.1",
     "pandas>=2.2,<3",
     "pydantic>=2.5,<3",
 ]
@@ -77,7 +78,7 @@ warn_unused_configs = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["dynaconf", "eurostat", "nooa", "nooa.*"]
+module = ["dynaconf", "eurostat", "nooa", "nooa.*", "nooa_memory"]
 follow_untyped_imports = false
 ignore_missing_imports = true
 

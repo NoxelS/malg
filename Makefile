@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help format format-check lint typecheck test test-cov check container-build run restart-tools
+.PHONY: help format format-check lint typecheck test test-cov check container-build memory-init run restart-tools
 
 # Avoid relying on a user-global uv cache, which can be unavailable in isolated
 # development environments.
@@ -8,7 +8,7 @@ UV_CACHE_DIR ?= /tmp/malg-uv-cache
 export UV_CACHE_DIR
 
 help:
-	@printf '%s\n' 'Targets: format, format-check, lint, typecheck, test, test-cov, check, container-build, run, restart-tools'
+	@printf '%s\n' 'Targets: format, format-check, lint, typecheck, test, test-cov, check, container-build, memory-init, run, restart-tools'
 
 format:
 	uv run ruff format malg tests
@@ -33,7 +33,10 @@ check: format-check lint typecheck test-cov
 container-build:
 	docker compose -f docker/compose.yaml build malg
 
-run: container-build
+memory-init:
+	docker compose -f docker/compose.yaml run --rm --no-deps memory-init
+
+run: container-build memory-init
 	docker compose -f docker/compose.yaml run --rm --no-deps malg
 
 restart-tools:

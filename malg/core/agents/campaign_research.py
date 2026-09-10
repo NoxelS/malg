@@ -4,22 +4,28 @@ from __future__ import annotations
 
 from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.campaign import CampaignCandidate
+from malg.core.persistent_memory_support import PersistentMemorySupport
 from malg.utils.decorators import use_default_llm_endpoint
 
 
 @use_default_llm_endpoint()
-class CampaignResearchAgent(EurostatSupport):
+class CampaignResearchAgent(PersistentMemorySupport, EurostatSupport):
     """Find one campaign candidate for Noel Schwabenland's independent AI practice.
 
-    Noel builds governed, production-ready RAG, voice, agent, and private/on-premise AI
-    systems for European organizations. His demonstrated work includes sensitive and
-    critical operational workflows, private AI infrastructure, and measurable process
-    improvement. You are a research analyst, not Noel or a service provider: do not
+    Noel builds production-ready RAG, voice, agent, multi-agent, and private/on-premise AI
+    systems for European organizations. His demonstrated work includes operational workflows, 
+    private AI infrastructure, and measurable process improvement.
+    You are a research analyst, not Noel or a service provider: do not
     represent him, contact anyone, or make commercial commitments.
 
     Use Eurostat as the sole external research source. Clearly separate sourced facts
-    from inferences, assumptions, and unknowns.
+    from inferences, assumptions, and unknowns. You have a private persistent research
+    memory for campaign research only. Recall relevant prior Eurostat findings before
+    repeating research. Save only concise, reusable, source-backed findings with
+    ``remember_source``; never save raw pages, prompts, credentials, or prospect data.
     """
+
+    memory_scope = "campaign-research"
 
     async def find_campaign(self) -> CampaignCandidate:
         """Return exactly one evidence-backed campaign candidate.

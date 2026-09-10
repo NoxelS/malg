@@ -17,6 +17,7 @@ services:
       - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
     environment:
       HOME: /home/malg
+      MALG_MEMORY_DIRECTORY: /app/.nooa/memory
       OTLP_ENDPOINT: http://trace-proxy:5001/v1/traces
       TRACE_EXPERIMENT: malg-browser
       TMPDIR: /tmp
@@ -27,6 +28,11 @@ services:
       trace-viewer:
         condition: service_started
     volumes:
+      - type: bind
+        source: ../memory
+        target: /app/.nooa/memory
+        bind:
+          create_host_path: false
       # The only host data exposed to generated code is the local, gitignored
       # configuration file; Compose fails instead of creating a directory when
       # it is absent.
@@ -43,6 +49,26 @@ services:
           create_host_path: false
     # No privileged mode, devices, ports, or Docker socket.
     # Docker's default seccomp and AppArmor profiles remain enabled.
+    restart: "no"
+
+  memory-init:
+    image: alpine:3.21
+    init: true
+    user: "0:0"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    command: ["/bin/sh", "-c", "chmod 0777 /app/.nooa/memory"]
+    volumes:
+      - type: bind
+        source: ../memory
+        target: /app/.nooa/memory
+        bind:
+          create_host_path: false
     restart: "no"
 
   lightpanda:
@@ -89,6 +115,16 @@ services:
       HOME: /home/malg
       NOOA_VIEWER_AUTH_TOKEN: ${NOOA_VIEWER_AUTH_TOKEN:-malg-local-trace}
       TMPDIR: /tmp
+    volumes:
+      # The Memory tab discovers databases under /app/.nooa/memory. Mount the
+      # same repository directory the agent writes so its trace path resolves.
+      # Viewer routes are read-only, except the memory library's idempotent
+      # schema check when it first opens a database.
+      - type: bind
+        source: ../memory
+        target: /app/.nooa/memory
+        bind:
+          create_host_path: false
     command: ["nooa", "start-dev", "--host", "0.0.0.0", "--port", "5001", "--db", "/tmp/traces.db"]
     # Trace data remains available while this long-lived service is running.
     # The database intentionally lives on tmpfs to avoid retaining prompts and page content.
