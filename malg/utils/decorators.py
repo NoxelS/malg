@@ -7,6 +7,7 @@ from typing import TypeVar
 
 from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dynamically.
 from nooa.unifiedllm import get_llm_client
+from nooa.unifiedllm.http_config import HttpConfig
 
 from malg.config import get_llm_config, load_settings
 
@@ -24,6 +25,7 @@ def use_default_llm_endpoint(
         "custom_llm_provider": _default_llm_config.provider,
         "api_base": _default_llm_config.api_base,
         "api_key": _default_llm_config.api_key,
+        "http_config": HttpConfig(read_timeout=_default_llm_config.request_timeout_seconds),
     }
     if _default_llm_config.context_window is not None:
         llm_options["context_window"] = _default_llm_config.context_window

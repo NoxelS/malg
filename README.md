@@ -149,6 +149,7 @@ model = "your-model"
 provider = "openai"
 api_base = "https://your-litellm-endpoint.example/v1"
 api_key = "your-litellm-virtual-key"
+request_timeout_seconds = 300
 # Supply limits known for your gateway/model. They are not inferred.
 context_window = 32768
 max_tokens = 2048
@@ -167,6 +168,9 @@ Configuration precedence is:
 
 Environment overrides use the `MALG_` prefix. For example,
 `MALG_LLM__MODEL=another-model` overrides the model without modifying a file.
+`MALG_LLM__REQUEST_TIMEOUT_SECONDS` sets the maximum idle interval while waiting
+for LiteLLM response bytes; the default is five minutes. It is not a wall-clock
+limit, so streaming response bytes reset the timer.
 
 ## Verify
 

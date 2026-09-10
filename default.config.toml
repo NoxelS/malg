@@ -3,11 +3,12 @@ model = "gpt-4.1-mini"
 provider = "openai"
 api_base = "https://api.openai.com/v1"
 api_key = "<YOUR_OPENAI_API_KEY>"
+request_timeout_seconds = 300
 
 [default.browser]
 enabled = true
 url = "http://lightpanda:9223/mcp"
-timeout_seconds = 60
+timeout_seconds = 600
 
 [default.search]
 enabled = true
@@ -20,7 +21,7 @@ languages = ["en", "de"]
 categories = ["general"]
 
 [default.eurostat]
-timeout_seconds = 120
+timeout_seconds = 600
 proxy = ""
 verify = true
 cert = ""

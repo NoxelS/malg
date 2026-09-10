@@ -84,6 +84,7 @@ def test_campaign_research_agent_uses_nooa_eurostat_agent(monkeypatch) -> None:
         config = get_llm_config(load_settings())
         assert agent._llm.model == f"{config.provider}/{config.model}"
         assert agent._llm.config["custom_llm_provider"] == "openai"
+        assert agent._llm._http_config.read_timeout == config.request_timeout_seconds
     finally:
         close_persistent_memory(agent)
 

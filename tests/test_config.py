@@ -20,7 +20,7 @@ def test_user_config_overrides_default(tmp_path: Path) -> None:
     )
     user_config = tmp_path / "user.config.toml"
     user_config.write_text(
-        "[default.llm]\nmodel = 'user-model'\napi_key = 'user-key'\ncontext_window = 32768\nmax_tokens = 2048\n"
+        "[default.llm]\nmodel = 'user-model'\napi_key = 'user-key'\ncontext_window = 32768\nmax_tokens = 2048\nrequest_timeout_seconds = 300\n"
     )
 
     config = get_llm_config(
@@ -33,12 +33,13 @@ def test_user_config_overrides_default(tmp_path: Path) -> None:
     assert config.api_key == "user-key"
     assert config.context_window == 32768
     assert config.max_tokens == 2048
+    assert config.request_timeout_seconds == 300
 
 
 def test_environment_overrides_config_files(tmp_path: Path, monkeypatch) -> None:
     default_config = tmp_path / "default.config.toml"
     default_config.write_text(
-        "[default.llm]\nmodel = 'default-model'\nprovider = 'openai'\napi_base = 'https://default.example/v1'\n"
+        "[default.llm]\nmodel = 'default-model'\nprovider = 'openai'\napi_base = 'https://default.example/v1'\nrequest_timeout_seconds = 300\n"
     )
     monkeypatch.setenv("MALG_LLM__MODEL", "environment-model")
     monkeypatch.setenv("MALG_LLM__API_KEY", "environment-key")
@@ -49,6 +50,18 @@ def test_environment_overrides_config_files(tmp_path: Path, monkeypatch) -> None
     assert config.api_key == "environment-key"
     assert config.context_window is None
     assert config.max_tokens is None
+    assert config.request_timeout_seconds == 300
+
+
+def test_llm_config_rejects_invalid_request_timeout(tmp_path: Path) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.llm]\nmodel = 'model'\nprovider = 'openai'\napi_base = 'https://example.test/v1'\n"
+        "request_timeout_seconds = 0\n"
+    )
+
+    with pytest.raises(ValueError, match="request_timeout_seconds"):
+        get_llm_config(load_settings(settings_files=(config_file,), load_dotenv=False))
 
 
 def test_browser_config_uses_environment_overrides(tmp_path: Path, monkeypatch) -> None:

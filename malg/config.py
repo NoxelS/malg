@@ -26,6 +26,7 @@ class LLMConfig:
     api_key: str | None
     context_window: int | None
     max_tokens: int | None
+    request_timeout_seconds: int
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,16 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
         names = ", ".join(invalid_integer_fields)
         raise ValueError(f"LLM configuration field(s) must be positive integers: {names}.")
 
+    request_timeout_seconds = llm.get("request_timeout_seconds")
+    if (
+        not isinstance(request_timeout_seconds, int)
+        or isinstance(request_timeout_seconds, bool)
+        or request_timeout_seconds <= 0
+    ):
+        raise ValueError(
+            "LLM configuration field request_timeout_seconds must be a positive integer."
+        )
+
     return LLMConfig(
         model=llm["model"],
         provider=llm["provider"],
@@ -109,6 +120,7 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
         api_key=api_key,
         context_window=llm.get("context_window"),
         max_tokens=llm.get("max_tokens"),
+        request_timeout_seconds=request_timeout_seconds,
     )
 
 
