@@ -21,10 +21,11 @@ dependencies = [
     "alembic>=1.14,<2",
     "dynaconf>=3.2",
     "eurostat>=1.1,<2",
-    # NOOA 0.0.8's MCP client targets the 1.x streamable-HTTP transport API.
+    # NOOA's MCP client targets the 1.x streamable-HTTP transport API.
     "mcp>=1,<2",
-    "nooa[cli,mcp,viewer]",
+    "nooa[cli,mcp,viewer]>=0.0.10,<0.1",
     "nooa-memory>=0.0.10,<0.1",
+    "openai>=2.53,<3",
     "pandas>=2.2,<3",
     "pydantic>=2.5,<3",
     "psycopg[binary]>=3.2,<4",

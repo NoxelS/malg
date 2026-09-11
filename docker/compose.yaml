@@ -1,4 +1,26 @@
 services:
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: malg-frontend:local
+    init: true
+    user: "101:101"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,size=8m,mode=0755,uid=101,gid=101
+      - /var/run:rw,noexec,nosuid,size=1m,mode=0755,uid=101,gid=101
+    ports:
+      - "127.0.0.1:4200:8080"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
   postgres:
     image: postgres:17-alpine
     init: true
@@ -57,6 +79,7 @@ services:
       - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532
       - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
     environment:
+      DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
       HOME: /home/malg
       MALG_MEMORY_DIRECTORY: /app/.nooa/memory
       OTLP_ENDPOINT: http://trace-proxy:5001/v1/traces
@@ -64,6 +87,8 @@ services:
       TMPDIR: /tmp
       PYTHONDONTWRITEBYTECODE: "1"
     depends_on:
+      postgres:
+        condition: service_healthy
       lightpanda:
         condition: service_started
       searxng:

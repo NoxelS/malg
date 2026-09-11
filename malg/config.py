@@ -18,15 +18,16 @@ DEFAULT_CONFIG_FILES = (
 
 @dataclass(frozen=True)
 class LLMConfig:
-    """Configuration needed to construct the NOOA LiteLLM client."""
+    """Configuration needed to construct MALG's OpenAI-compatible client."""
 
     model: str
-    provider: str
     api_base: str
     api_key: str | None
     context_window: int | None
     max_tokens: int | None
     headroom_compression: bool
+    enable_thinking: bool | None
+    parallel_tool_calls: bool
     request_timeout_seconds: int
 
 
@@ -68,6 +69,7 @@ class ICPConfig:
     """Host-owned limits and output settings for ICP batch research."""
 
     batch_size: int
+    concurrency: int
     max_attempts_per_slot: int
     max_exclusion_cards: int
     output_root: Path
@@ -94,7 +96,7 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
     if not isinstance(llm, Mapping):
         raise ValueError("Missing [default.llm] configuration.")
 
-    required_fields = ("model", "provider", "api_base")
+    required_fields = ("model", "api_base")
     invalid_fields = [field for field in required_fields if not isinstance(llm.get(field), str)]
     if invalid_fields:
         names = ", ".join(invalid_fields)
@@ -118,6 +120,14 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
     if not isinstance(headroom_compression, bool):
         raise ValueError("LLM configuration field headroom_compression must be a boolean.")
 
+    enable_thinking = llm.get("enable_thinking")
+    if enable_thinking is not None and not isinstance(enable_thinking, bool):
+        raise ValueError("LLM configuration field enable_thinking must be a boolean when set.")
+
+    parallel_tool_calls = llm.get("parallel_tool_calls", False)
+    if not isinstance(parallel_tool_calls, bool):
+        raise ValueError("LLM configuration field parallel_tool_calls must be a boolean.")
+
     request_timeout_seconds = llm.get("request_timeout_seconds")
     if (
         not isinstance(request_timeout_seconds, int)
@@ -130,12 +140,13 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
 
     return LLMConfig(
         model=llm["model"],
-        provider=llm["provider"],
         api_base=llm["api_base"],
         api_key=api_key,
         context_window=llm.get("context_window"),
         max_tokens=llm.get("max_tokens"),
         headroom_compression=headroom_compression,
+        enable_thinking=enable_thinking,
+        parallel_tool_calls=parallel_tool_calls,
         request_timeout_seconds=request_timeout_seconds,
     )
 
@@ -269,7 +280,7 @@ def get_icp_config(settings: Dynaconf) -> ICPConfig:
     if not isinstance(icp, Mapping):
         raise ValueError("Missing [default.icp] configuration.")
 
-    integer_fields = ("batch_size", "max_attempts_per_slot", "max_exclusion_cards")
+    integer_fields = ("batch_size", "concurrency", "max_attempts_per_slot", "max_exclusion_cards")
     invalid_fields = [
         field
         for field in integer_fields
@@ -285,6 +296,7 @@ def get_icp_config(settings: Dynaconf) -> ICPConfig:
 
     return ICPConfig(
         batch_size=icp["batch_size"],
+        concurrency=icp["concurrency"],
         max_attempts_per_slot=icp["max_attempts_per_slot"],
         max_exclusion_cards=icp["max_exclusion_cards"],
         output_root=Path(output_root),

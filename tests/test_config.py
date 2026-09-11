@@ -17,11 +17,12 @@ from malg.config import (
 def test_user_config_overrides_default(tmp_path: Path) -> None:
     default_config = tmp_path / "default.config.toml"
     default_config.write_text(
-        "[default.llm]\nmodel = 'default-model'\nprovider = 'openai'\napi_base = 'https://default.example/v1'\n"
+        "[default.llm]\nmodel = 'default-model'\napi_base = 'https://default.example/v1'\n"
     )
     user_config = tmp_path / "user.config.toml"
     user_config.write_text(
         "[default.llm]\nmodel = 'user-model'\napi_key = 'user-key'\ncontext_window = 32768\nmax_tokens = 2048\nheadroom_compression = true\nrequest_timeout_seconds = 300\n"
+        "enable_thinking = false\nparallel_tool_calls = true\n"
     )
 
     config = get_llm_config(
@@ -29,19 +30,20 @@ def test_user_config_overrides_default(tmp_path: Path) -> None:
     )
 
     assert config.model == "user-model"
-    assert config.provider == "openai"
     assert config.api_base == "https://default.example/v1"
     assert config.api_key == "user-key"
     assert config.context_window == 32768
     assert config.max_tokens == 2048
     assert config.headroom_compression is True
+    assert config.enable_thinking is False
+    assert config.parallel_tool_calls is True
     assert config.request_timeout_seconds == 300
 
 
 def test_environment_overrides_config_files(tmp_path: Path, monkeypatch) -> None:
     default_config = tmp_path / "default.config.toml"
     default_config.write_text(
-        "[default.llm]\nmodel = 'default-model'\nprovider = 'openai'\napi_base = 'https://default.example/v1'\nrequest_timeout_seconds = 300\n"
+        "[default.llm]\nmodel = 'default-model'\napi_base = 'https://default.example/v1'\nrequest_timeout_seconds = 300\n"
     )
     monkeypatch.setenv("MALG_LLM__MODEL", "environment-model")
     monkeypatch.setenv("MALG_LLM__API_KEY", "environment-key")
@@ -53,17 +55,41 @@ def test_environment_overrides_config_files(tmp_path: Path, monkeypatch) -> None
     assert config.context_window is None
     assert config.max_tokens is None
     assert config.headroom_compression is False
+    assert config.enable_thinking is None
+    assert config.parallel_tool_calls is False
     assert config.request_timeout_seconds == 300
 
 
 def test_llm_config_rejects_invalid_request_timeout(tmp_path: Path) -> None:
     config_file = tmp_path / "default.config.toml"
     config_file.write_text(
-        "[default.llm]\nmodel = 'model'\nprovider = 'openai'\napi_base = 'https://example.test/v1'\n"
+        "[default.llm]\nmodel = 'model'\napi_base = 'https://example.test/v1'\n"
         "request_timeout_seconds = 0\n"
     )
 
     with pytest.raises(ValueError, match="request_timeout_seconds"):
+        get_llm_config(load_settings(settings_files=(config_file,), load_dotenv=False))
+
+
+def test_llm_config_rejects_invalid_enable_thinking(tmp_path: Path) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.llm]\nmodel = 'model'\napi_base = 'https://example.test/v1'\n"
+        "request_timeout_seconds = 300\nenable_thinking = 'sometimes'\n"
+    )
+
+    with pytest.raises(ValueError, match="enable_thinking"):
+        get_llm_config(load_settings(settings_files=(config_file,), load_dotenv=False))
+
+
+def test_llm_config_rejects_invalid_parallel_tool_calls(tmp_path: Path) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.llm]\nmodel = 'model'\napi_base = 'https://example.test/v1'\n"
+        "request_timeout_seconds = 300\nparallel_tool_calls = 'sometimes'\n"
+    )
+
+    with pytest.raises(ValueError, match="parallel_tool_calls"):
         get_llm_config(load_settings(settings_files=(config_file,), load_dotenv=False))
 
 
@@ -139,7 +165,7 @@ def test_eurostat_config_reads_request_settings(tmp_path: Path) -> None:
 def test_icp_config_reads_environment_overrides(tmp_path: Path, monkeypatch) -> None:
     config_file = tmp_path / "default.config.toml"
     config_file.write_text(
-        "[default.icp]\nbatch_size = 10\nmax_attempts_per_slot = 3\n"
+        "[default.icp]\nbatch_size = 10\nconcurrency = 3\nmax_attempts_per_slot = 3\n"
         "max_exclusion_cards = 100\noutput_root = 'results'\n"
     )
     monkeypatch.setenv("MALG_ICP__BATCH_SIZE", "4")
@@ -147,6 +173,7 @@ def test_icp_config_reads_environment_overrides(tmp_path: Path, monkeypatch) -> 
     config = get_icp_config(load_settings(settings_files=(config_file,), load_dotenv=False))
 
     assert config.batch_size == 4
+    assert config.concurrency == 3
     assert config.max_attempts_per_slot == 3
     assert config.max_exclusion_cards == 100
     assert config.output_root == Path("results")
@@ -155,7 +182,7 @@ def test_icp_config_reads_environment_overrides(tmp_path: Path, monkeypatch) -> 
 def test_icp_config_rejects_non_positive_batch_size(tmp_path: Path) -> None:
     config_file = tmp_path / "default.config.toml"
     config_file.write_text(
-        "[default.icp]\nbatch_size = 0\nmax_attempts_per_slot = 3\n"
+        "[default.icp]\nbatch_size = 0\nconcurrency = 3\nmax_attempts_per_slot = 3\n"
         "max_exclusion_cards = 100\noutput_root = 'results'\n"
     )
 

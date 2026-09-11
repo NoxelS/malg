@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from pathlib import Path
+from typing import Any
 
+import pytest
+from sqlalchemy import create_engine, event, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.pool import StaticPool
 from tests.test_campaign_research_agent import campaign_payload
 
 from malg import __main__
 from malg.config import ICPConfig
+from malg.core import icp_runner
 from malg.core.agents.icp_research import ICPResearchAgent
 from malg.core.browser_support import BrowserSupport
 from malg.core.eurostat_support import EurostatSupport
@@ -16,6 +23,9 @@ from malg.core.icp_history import ICPHistoryLedger
 from malg.core.icp_runner import research_icps
 from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.icp import ICPResult
+from malg.database import ICP, Base
+from malg.database.artifacts import persist_icps
+from malg.database.session import make_session_factory
 
 
 def _campaign() -> CampaignCandidate:
@@ -141,9 +151,27 @@ class _FakeResearcher:
         return next(self.candidates)
 
 
-def _config(tmp_path: Path, *, batch_size: int = 2) -> ICPConfig:
+class _ConcurrentFakeResearcher:
+    active = 0
+    maximum_active = 0
+    calls = 0
+
+    async def research_one(self, campaign, excluded_segments):  # type: ignore[no-untyped-def]
+        type(self).calls += 1
+        call = type(self).calls
+        type(self).active += 1
+        type(self).maximum_active = max(type(self).maximum_active, type(self).active)
+        try:
+            await asyncio.sleep(0)
+            return _icp(f"parallel-{call}", f"Workflow {call}")
+        finally:
+            type(self).active -= 1
+
+
+def _config(tmp_path: Path, *, batch_size: int = 2, concurrency: int = 1) -> ICPConfig:
     return ICPConfig(
         batch_size=batch_size,
+        concurrency=concurrency,
         max_attempts_per_slot=2,
         max_exclusion_cards=10,
         output_root=tmp_path / "results",
@@ -181,6 +209,88 @@ def test_runner_retries_duplicate_and_persists_distinct_batch(tmp_path: Path) ->
     assert (
         tmp_path / "results" / "icps" / _campaign().campaign_id / result.run_id / "batch.json"
     ).exists()
+
+
+def test_runner_calls_storage_for_each_accepted_icp(tmp_path: Path) -> None:
+    """Make each accepted ICP durable before researching the next batch slot."""
+    stored_ids: list[str] = []
+    ledger = ICPHistoryLedger(tmp_path / "history.sqlite")
+    try:
+        result = asyncio.run(
+            research_icps(
+                _campaign(),
+                config=_config(tmp_path),
+                history=ledger,
+                agent=_FakeResearcher(
+                    [_icp("first", "Incident intake"), _icp("second", "Knowledge retrieval")]
+                ),
+                on_accepted=lambda icp: stored_ids.append(icp.icp_id),
+            )
+        )
+    finally:
+        ledger.close()
+
+    assert stored_ids == ["first", "second"]
+    assert [icp.icp_id for icp in result.icps] == stored_ids
+
+
+def test_runner_limits_default_agents_to_configured_concurrency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run independent generated-agent instances without exceeding the configured limit."""
+    _ConcurrentFakeResearcher.active = 0
+    _ConcurrentFakeResearcher.maximum_active = 0
+    _ConcurrentFakeResearcher.calls = 0
+    monkeypatch.setattr(icp_runner, "ICPResearchAgent", _ConcurrentFakeResearcher)
+    ledger = ICPHistoryLedger(tmp_path / "history.sqlite")
+    try:
+        result = asyncio.run(
+            research_icps(
+                _campaign(),
+                config=_config(tmp_path, batch_size=4, concurrency=3),
+                history=ledger,
+            )
+        )
+    finally:
+        ledger.close()
+
+    assert len(result.icps) == 4
+    assert _ConcurrentFakeResearcher.maximum_active == 3
+
+
+def test_runner_releases_claim_when_per_icp_storage_fails(tmp_path: Path) -> None:
+    """Allow a later run to retry an ICP whose durable store failed."""
+    path = tmp_path / "history.sqlite"
+    candidate = _icp("first", "Incident intake")
+    failed_ledger = ICPHistoryLedger(path)
+    try:
+        with pytest.raises(RuntimeError, match="store failed"):
+            asyncio.run(
+                research_icps(
+                    _campaign(),
+                    config=_config(tmp_path, batch_size=1),
+                    history=failed_ledger,
+                    agent=_FakeResearcher([candidate]),
+                    on_accepted=lambda _: (_ for _ in ()).throw(RuntimeError("store failed")),
+                )
+            )
+    finally:
+        failed_ledger.close()
+
+    retry_ledger = ICPHistoryLedger(path)
+    try:
+        retried = asyncio.run(
+            research_icps(
+                _campaign(),
+                config=_config(tmp_path, batch_size=1),
+                history=retry_ledger,
+                agent=_FakeResearcher([candidate]),
+            )
+        )
+    finally:
+        retry_ledger.close()
+
+    assert [icp.icp_id for icp in retried.icps] == [candidate.icp_id]
 
 
 def test_fresh_runner_uses_same_ledger_to_exclude_prior_batch(tmp_path: Path) -> None:
@@ -222,3 +332,25 @@ def test_main_loads_the_saved_campaign_artifact(tmp_path: Path) -> None:
     path.write_text(_campaign().model_dump_json(), encoding="utf-8")
 
     assert __main__.load_saved_campaign(path).campaign_id == _campaign().campaign_id
+
+
+def test_main_persistence_stores_generated_icps_with_the_saved_campaign() -> None:
+    """Persisting a run retains canonical ICP payloads without campaign research."""
+    engine: Engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(connection: sqlite3.Connection, _record: Any) -> None:
+        connection.execute("PRAGMA foreign_keys = ON")
+
+    Base.metadata.create_all(engine)
+    campaign = _campaign()
+    expected = _icp("manufacturing-ops", "Incident intake")
+    persist_icps(campaign, [expected], make_session_factory(engine))
+
+    with make_session_factory(engine)() as session:
+        stored = session.scalar(select(ICP))
+        assert stored is not None
+        assert stored.payload == expected.model_dump(mode="json")
+        assert stored.campaign_id == campaign.campaign_id

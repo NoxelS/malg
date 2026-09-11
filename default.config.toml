@@ -1,12 +1,12 @@
 [default.llm]
 model = "gpt-4.1-mini"
-provider = "openai"
 api_base = "https://api.openai.com/v1"
 api_key = "<YOUR_OPENAI_API_KEY>"
 request_timeout_seconds = 300
-context_window = 262144
-max_tokens = 32768
-headroom_compression = true
+context_window = 131072
+max_tokens = 4096
+headroom_compression = false
+parallel_tool_calls = false
 
 [default.browser]
 enabled = true
@@ -30,7 +30,8 @@ verify = true
 cert = ""
 
 [default.icp]
-batch_size = 10
+batch_size = 25
+concurrency = 3
 max_attempts_per_slot = 3
 max_exclusion_cards = 100
 output_root = "results"

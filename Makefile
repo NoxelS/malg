@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help format format-check lint typecheck test test-cov check container-build api-up memory-init run restart-tools
+.PHONY: help format format-check lint typecheck test test-cov check container-build api-up frontend-up memory-init run restart-tools
 
 # Avoid relying on a user-global uv cache, which can be unavailable in isolated
 # development environments.
@@ -8,7 +8,7 @@ UV_CACHE_DIR ?= /tmp/malg-uv-cache
 export UV_CACHE_DIR
 
 help:
-	@printf '%s\n' 'Targets: format, format-check, lint, typecheck, test, test-cov, check, container-build, api-up, memory-init, run, restart-tools'
+	@printf '%s\n' 'Targets: format, format-check, lint, typecheck, test, test-cov, check, container-build, api-up, frontend-up, memory-init, run, restart-tools'
 
 format:
 	uv run ruff format malg tests
@@ -36,11 +36,14 @@ container-build:
 api-up:
 	docker compose -f docker/compose.yaml up --build -d postgres api
 
+frontend-up:
+	docker compose -f docker/compose.yaml up --build -d frontend
+
 memory-init:
 	docker compose -f docker/compose.yaml run --rm --no-deps memory-init
 
 run: container-build memory-init
-	docker compose -f docker/compose.yaml run --rm --no-deps malg
+	docker compose -f docker/compose.yaml run --rm malg
 
 restart-tools:
 	docker compose -f docker/compose.yaml up -d --build --force-recreate lightpanda searxng trace-viewer trace-proxy

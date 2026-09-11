@@ -1,0 +1,40 @@
+/*
+ * Taiga UI components consume these semantic tokens. Keeping the palette here
+ * makes pink the application-wide primary colour rather than styling each
+ * component instance separately.
+ */
+:root,
+[tuiTheme='light'],
+[tuiTheme='dark'] {
+  --malg-pink: #d61f69;
+  --malg-pink-hover: #e4377e;
+  --malg-pink-pressed: #ab1550;
+  --malg-pink-pale: rgba(214, 31, 105, 0.12);
+  --malg-pink-pale-hover: rgba(214, 31, 105, 0.2);
+
+  --tui-background-accent-1: var(--malg-pink);
+  --tui-background-accent-1-hover: var(--malg-pink-hover);
+  --tui-background-accent-1-pressed: var(--malg-pink-pressed);
+  --tui-background-accent-2: var(--malg-pink);
+  --tui-background-accent-2-hover: var(--malg-pink-hover);
+  --tui-background-accent-2-pressed: var(--malg-pink-pressed);
+  --tui-border-focus: var(--malg-pink);
+  --tui-service-selection-background: var(--malg-pink-pale);
+  --tui-text-action: var(--malg-pink);
+  --tui-text-action-hover: var(--malg-pink-hover);
+  --tui-text-primary-on-accent-1: #fff;
+  --tui-text-primary-on-accent-2: #fff;
+  --tui-chart-categorical-00: var(--malg-pink);
+  --tui-chart-categorical-01: #ed7cae;
+  --tui-chart-categorical-14: #b51556;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: Inter, Arial, sans-serif;
+}

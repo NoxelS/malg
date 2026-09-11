@@ -89,6 +89,22 @@ class ICPHistoryLedger:
         self.connection.commit()
         return result.rowcount == 1
 
+    def release(self, icp: ICPResult, *, run_id: str) -> None:
+        """Release this run's claim when downstream durable storage fails.
+
+        A caller may claim an ICP before handing it to another durable store.
+        Removing only the matching claim keeps a failed store retryable without
+        disturbing a claim made by another run.
+        """
+        self.connection.execute(
+            """
+            DELETE FROM accepted_icps
+            WHERE campaign_id = ? AND segment_key = ? AND icp_id = ? AND run_id = ?
+            """,
+            (icp.campaign_id, icp.identity.segment_key(), icp.icp_id, run_id),
+        )
+        self.connection.commit()
+
     def close(self) -> None:
         """Close the SQLite handle after the host finishes the batch."""
         self.connection.close()

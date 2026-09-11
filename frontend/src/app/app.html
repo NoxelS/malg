@@ -1,0 +1,43 @@
+<tui-root>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand" routerLink="/campaigns" aria-label="MALG home">
+        <pre class="brand__logo" aria-hidden="true"> _____ ______   ________  ___       ________     
+|\   _ \  _   \|\   __  \|\  \     |\   ____\    
+\ \  \\\__\ \  \ \  \|\  \ \  \    \ \  \___|    
+ \ \  \\|__| \  \ \   __  \  \  \    \ \  \  ___  
+  \ \  \    \  \  \  \  \  \  \____\ \  \|\  \ 
+   \ \__\    \ \__\ \__\ \__\ \_______\ \_______\
+    \|__|     \|__|\|__|\|__|\|_______|\|_______|
+                                                 </pre>
+      </a>
+
+      <nav class="nav" aria-label="Sections">
+        <a
+          tuiButton
+          appearance="flat"
+          class="nav__link"
+          routerLink="/campaigns"
+          routerLinkActive="nav__link--active"
+          [routerLinkActiveOptions]="{exact: true}"
+        >
+          Campaigns
+        </a>
+        <a
+          tuiButton
+          appearance="flat"
+          class="nav__link"
+          routerLink="/icps"
+          routerLinkActive="nav__link--active"
+          [routerLinkActiveOptions]="{exact: true}"
+        >
+          ICP Overview
+        </a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <router-outlet />
+    </main>
+  </div>
+</tui-root>

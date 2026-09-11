@@ -8,6 +8,7 @@ from malg.core.browser_support import BrowserSupport
 from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.account import AccountProfile
 from malg.core.models.icp import ICPResult
+from malg.core.openai_llm import OpenAIChatClient
 
 
 def test_account_research_agent_uses_nooa_agent_model(monkeypatch) -> None:
@@ -17,8 +18,8 @@ def test_account_research_agent_uses_nooa_agent_model(monkeypatch) -> None:
     assert issubclass(AccountResearchAgent, EurostatSupport)
     client = AccountResearchAgent()._llm
     config = get_llm_config(load_settings())
-    assert client.model == f"{config.provider}/{config.model}"
-    assert client.config["custom_llm_provider"] == "openai"
+    assert isinstance(client, OpenAIChatClient)
+    assert client.model == config.model
 
 
 def test_account_research_agent_context_defines_contract() -> None:

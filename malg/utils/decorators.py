@@ -6,10 +6,9 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dynamically.
-from nooa.unifiedllm import get_llm_client
-from nooa.unifiedllm.http_config import HttpConfig
 
 from malg.config import get_llm_config, load_settings
+from malg.core.openai_llm import OpenAIChatClient
 
 AgentType = TypeVar("AgentType", bound=Agent)
 
@@ -17,28 +16,30 @@ _default_llm_config = get_llm_config(load_settings())
 
 
 def use_default_llm_endpoint(
-    *, model: str = _default_llm_config.model
+    *, model: str | None = None
 ) -> Callable[[type[AgentType]], type[AgentType]]:
-    """Configure a NOOA agent with the default endpoint and an optional model override."""
-    resolved_model = model if "/" in model else f"{_default_llm_config.provider}/{model}"
-    llm_options: dict[str, object] = {
-        "custom_llm_provider": _default_llm_config.provider,
-        "api_base": _default_llm_config.api_base,
-        "api_key": _default_llm_config.api_key,
-        "http_config": HttpConfig(read_timeout=_default_llm_config.request_timeout_seconds),
-    }
-    if _default_llm_config.context_window is not None:
-        llm_options["context_window"] = _default_llm_config.context_window
-    if _default_llm_config.headroom_compression:
-        # LiteLLM's OpenAI-compatible proxy reads this request-body field to
-        # opt into its configured ``headroom-compression`` pre-call guardrail.
-        llm_options["extra_body"] = {"guardrails": ["headroom-compression"]}
-    if _default_llm_config.max_tokens is not None:
-        llm_options["max_tokens"] = _default_llm_config.max_tokens
+    """Configure a NOOA agent with a direct OpenAI-compatible client.
 
-    llm = get_llm_client(
-        resolved_model,
-        **llm_options,  # type: ignore[arg-type]  # NOOA forwards provider-specific options.
+    The model is sent unchanged, allowing configured gateway aliases such as
+    ``nc-medium``. Requests remain non-streaming and use the configured timeout.
+    """
+    config = _default_llm_config
+    extra_body: dict[str, object] = {}
+    if config.headroom_compression:
+        # The gateway's optional pre-call compression extension remains valid
+        # when requests are made through the OpenAI SDK.
+        extra_body["guardrails"] = ["headroom-compression"]
+    if config.enable_thinking is not None:
+        extra_body["chat_template_kwargs"] = {"enable_thinking": config.enable_thinking}
+    llm = OpenAIChatClient(
+        model=model or config.model,
+        api_base=config.api_base,
+        api_key=config.api_key,
+        context_window=config.context_window,
+        max_tokens=config.max_tokens,
+        request_timeout_seconds=config.request_timeout_seconds,
+        extra_body=extra_body or None,
+        parallel_tool_calls=config.parallel_tool_calls,
     )
 
     def configure_agent(agent_class: type[AgentType]) -> type[AgentType]:

@@ -1,0 +1,42 @@
+:host { display: block; }
+.campaigns-page { margin: 0 auto; max-width: 96rem; padding: 3rem clamp(1.5rem, 4vw, 4rem); }
+.page-header { margin-block-end: 2.5rem; }
+.page-header__eyebrow, .summary-card__label, .field-label { color: var(--tui-text-action); font: var(--tui-font-text-s); font-weight: 700; letter-spacing: .08em; margin: 0 0 .5rem; text-transform: uppercase; }
+h1, h2, h3, h4, h5 { color: var(--tui-text-primary); margin: 0; }
+h1 { font: var(--tui-font-heading-3); } h2 { font: var(--tui-font-heading-5); } h3 { font: var(--tui-font-heading-4); } h4 { font: var(--tui-font-heading-6); } h5 { font: var(--tui-font-text-m); }
+.page-header__description, .section-heading p, .summary-card__hint { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .75rem 0 0; }
+.summary-grid { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-block-end: 3rem; }
+.summary-card, .campaign-list, .campaign-card { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-l); box-shadow: var(--tui-shadow-small); }
+.summary-card { display: flex; flex-direction: column; min-height: 8rem; padding: 1.5rem; }
+.summary-card__value { color: var(--tui-text-primary); font: var(--tui-font-heading-4); margin-block-start: auto; } .summary-card__value small { color: var(--tui-text-secondary); font: var(--tui-font-text-m); }
+.campaign-list { padding: 1.5rem; } .section-heading { align-items: flex-start; display: flex; justify-content: space-between; margin-block-end: 1.5rem; } .section-heading--small { margin-block-end: 1rem; } .section-heading--small h4 { font: var(--tui-font-heading-6); }
+.campaign-cards { display: grid; gap: 1.5rem; }
+.campaign-card { box-shadow: none; overflow: hidden; padding: 0; }
+.campaign-card__header { align-items: flex-start; border-block-end: 1px solid var(--tui-border-normal); display: flex; gap: 1rem; justify-content: space-between; padding: 1.5rem; }
+.campaign-id { color: var(--tui-text-tertiary); display: block; font: var(--tui-font-text-s); margin-block-end: .35rem; }
+.campaign-card__hero { background: linear-gradient(110deg, var(--malg-pink-pale), transparent); border-block-end: 1px solid var(--tui-border-normal); padding: 1.5rem; } .hero-copy { color: var(--tui-text-primary); font: var(--tui-font-heading-6); line-height: 1.45; margin: 0; max-width: 60rem; }
+.detail-grid { display: grid; gap: 1.25rem; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 1.5rem; } .detail-block { min-width: 0; } .detail-block--wide { grid-column: span 2; }
+.detail-block p, .detail-block li { color: var(--tui-text-secondary); font: var(--tui-font-text-m); line-height: 1.5; margin: .5rem 0 0; } ul { margin: .5rem 0 0; padding-inline-start: 1.25rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-block-start: .65rem; } .chips [tuiChip] { max-width: 100%; }
+.evidence-section { border-block-start: 1px solid var(--tui-border-normal); padding: 1.5rem; } .evidence-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+.evidence-card { background: var(--tui-background-neutral-1); border-inline-start: .25rem solid var(--malg-pink); padding: 1rem; } .evidence-card__meta { align-items: center; color: var(--tui-text-tertiary); display: flex; font: var(--tui-font-text-s); gap: .5rem; justify-content: space-between; text-transform: capitalize; } .evidence-card h5 { line-height: 1.45; margin-block: .75rem; } .evidence-card a { color: var(--tui-text-action); font: var(--tui-font-text-s); }
+.evidence-card dl { display: grid; gap: .5rem; margin: 1rem 0 0; } .evidence-card dl div { display: flex; gap: .5rem; justify-content: space-between; } .evidence-card dt, .evidence-card dd { font: var(--tui-font-text-s); margin: 0; } .evidence-card dt { color: var(--tui-text-tertiary); } .evidence-card dd { color: var(--tui-text-secondary); text-align: end; }
+.detail-grid--footer { border-block-start: 1px solid var(--tui-border-normal); }
+.state-message { background: var(--tui-background-neutral-1); color: var(--tui-text-secondary); margin: 0; padding: 2rem; text-align: center; } .state-message--error { color: var(--tui-text-negative); }
+@media (max-width: 48rem) { .campaigns-page { padding-block: 2rem; } .summary-grid, .detail-grid { grid-template-columns: 1fr; } .detail-block--wide { grid-column: auto; } .campaign-card__header { flex-direction: column; } }
+
+.summary-card__value { font-size: 3.5rem; line-height: 1; }
+.summary-card__value small { font-size: 1.25rem; }
+.campaign-card__summary { align-items: flex-start; cursor: pointer; display: flex; gap: 1rem; justify-content: space-between; list-style: none; padding: 1.5rem; }
+.campaign-card__summary::-webkit-details-marker, .detail-disclosure > summary::-webkit-details-marker, .evidence-section > summary::-webkit-details-marker { display: none; }
+.campaign-card__summary::after, .detail-disclosure > summary::after, .evidence-section > summary::after { color: var(--tui-text-action); content: '＋'; flex: 0 0 auto; font-size: 1.25rem; line-height: 1; }
+.campaign-card[open] > .campaign-card__summary::after, .detail-disclosure[open] > summary::after, .evidence-section[open] > summary::after { content: '−'; }
+.campaign-card__summary h3 { font-size: 1.75rem; }
+.campaign-card__summary p { color: var(--tui-text-secondary); font: var(--tui-font-heading-6); line-height: 1.45; margin: .75rem 0 0; max-width: 60rem; }
+.campaign-card__body { border-block-start: 1px solid var(--tui-border-normal); }
+.detail-disclosure { border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-m); padding: 1rem 1.25rem; }
+.detail-disclosure > summary, .evidence-section > summary { align-items: center; cursor: pointer; display: flex; font: var(--tui-font-heading-6); justify-content: space-between; list-style: none; }
+.detail-disclosure > p, .detail-disclosure > ul, .detail-disclosure > .chips { margin-block: 1rem 0; }
+.evidence-section { border-block-start: 1px solid var(--tui-border-normal); padding: 1.5rem; }
+.section-summary span:first-child { display: flex; flex-direction: column; gap: .25rem; }
+.section-summary small { color: var(--tui-text-secondary); font: var(--tui-font-text-s); }

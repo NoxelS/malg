@@ -1,0 +1,44 @@
+<div class="campaigns-page">
+  <header class="page-header">
+    <p class="page-header__eyebrow">Workspace</p>
+    <h1>Campaigns</h1>
+    <p class="page-header__description">Evidence-backed campaign boundaries for your next opportunity.</p>
+  </header>
+
+  <section class="summary-grid" aria-label="Campaign summary">
+    <article class="summary-card"><span class="summary-card__label">Campaigns</span><strong class="summary-card__value">{{ campaigns().length }}</strong><span class="summary-card__hint">Total discovered</span></article>
+    <article class="summary-card"><span class="summary-card__label">Industries</span><strong class="summary-card__value">{{ industryCount }}</strong><span class="summary-card__hint">Across all campaigns</span></article>
+    <article class="summary-card"><span class="summary-card__label">Avg. confidence</span><strong class="summary-card__value">{{ averageConfidence }}<small>/5</small></strong><span class="summary-card__hint">Evidence confidence</span></article>
+  </section>
+
+  <section class="campaign-list" aria-labelledby="campaign-list-heading">
+    <div class="section-heading"><div><h2 id="campaign-list-heading">All campaigns</h2><p>Expand a campaign to explore its complete research boundary.</p></div><span tuiBadge appearance="primary">{{ campaigns().length }} total</span></div>
+    @if (loading()) { <p class="state-message">Loading campaigns…</p> } @else if (error()) { <p class="state-message state-message--error">Campaigns could not be loaded right now.</p> } @else if (!campaigns().length) { <p class="state-message">No campaigns have been created yet.</p> } @else {
+      <div class="campaign-cards">
+        @for (campaign of campaigns(); track campaign.campaign_id) {
+          <details class="campaign-card" [id]="campaign.campaign_id">
+            <summary class="campaign-card__summary"><div><span class="campaign-id">{{ campaign.campaign_id }}</span><h3>{{ campaign.title }}</h3><p>{{ campaign.positioning }}</p></div><span tuiBadge appearance="primary">{{ campaign.confidence }}/5</span></summary>
+            <div class="campaign-card__body">
+              <div class="detail-grid">
+                <section class="detail-block detail-block--wide"><h4>Problem statement</h4><p>{{ campaign.problem_statement }}</p></section>
+                <section class="detail-block detail-block--wide"><h4>Why now</h4><p>{{ campaign.why_now }}</p></section>
+                <details class="detail-disclosure"><summary>Industries</summary><div class="chips">@for (item of campaign.industries; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div></details>
+                <details class="detail-disclosure"><summary>Geographies</summary><div class="chips">@for (item of campaign.geographies; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div></details>
+                <details class="detail-disclosure"><summary>Company size focus</summary><div class="chips">@for (item of campaign.company_size_focus; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div></details>
+                <details class="detail-disclosure"><summary>Target workflows</summary><div class="chips">@for (item of campaign.target_workflows; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div></details>
+                <details class="detail-disclosure"><summary>Buyer role hypotheses</summary><ul>@for (item of campaign.buyer_role_hypotheses; track item) {<li>{{ item }}</li>}</ul></details>
+                <details class="detail-disclosure"><summary>Qualification signals</summary><ul>@for (item of campaign.qualification_signals; track item) {<li>{{ item }}</li>}</ul></details>
+                <details class="detail-disclosure"><summary>Exclusions</summary><ul>@for (item of campaign.exclusions; track item) {<li>{{ item }}</li>}</ul></details>
+                <details class="detail-disclosure"><summary>Entry offer hypothesis</summary><p>{{ campaign.entry_offer_hypothesis }}</p></details>
+              </div>
+
+              <details class="evidence-section"><summary class="section-summary"><span><strong>Evidence</strong><small>{{ campaign.evidence.length }} source-backed claims</small></span><span tuiBadge appearance="secondary">{{ campaign.evidence.length }}</span></summary><div class="evidence-grid">@for (item of campaign.evidence; track item.evidence_id) {<article class="evidence-card"><div class="evidence-card__meta"><span tuiBadge appearance="secondary">{{ item.strength }}</span><span>{{ item.evidence_kind }}</span></div><h5>{{ item.claim }}</h5><a [href]="item.source_url" target="_blank" rel="noopener">{{ item.source_title }}</a><dl><div><dt>Source</dt><dd>{{ item.source_type }}</dd></div>@if (item.dataset_code) {<div><dt>Dataset</dt><dd>{{ item.dataset_code }}</dd></div>}<div><dt>Geography</dt><dd>{{ item.geography.join(', ') }}</dd></div>@if (item.value !== null) {<div><dt>Value</dt><dd>{{ item.value }}{{ item.unit ? ' ' + item.unit : '' }}</dd></div>}@if (item.population) {<div><dt>Population</dt><dd>{{ item.population }}</dd></div>}@if (item.observation_date) {<div><dt>Observed</dt><dd>{{ item.observation_date }}</dd></div>}<div><dt>Retrieved</dt><dd>{{ item.retrieved_at | date:'mediumDate' }}</dd></div></dl></article>}</div></details>
+
+              <div class="detail-grid detail-grid--footer"><details class="detail-disclosure"><summary>Assumptions</summary><ul>@for (item of campaign.assumptions; track item) {<li>{{ item }}</li>}</ul></details><details class="detail-disclosure"><summary>Unknowns</summary><ul>@for (item of campaign.unknowns; track item) {<li>{{ item }}</li>}</ul></details><details class="detail-disclosure detail-block--wide"><summary>Next research questions</summary><ul>@for (item of campaign.next_research_questions; track item) {<li>{{ item }}</li>}</ul></details></div>
+            </div>
+          </details>
+        }
+      </div>
+    }
+  </section>
+</div>

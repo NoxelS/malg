@@ -1,0 +1,40 @@
+<div class="icps-page">
+  <header class="page-header">
+    <p class="page-header__eyebrow">Workspace</p>
+    <h1>ICP Overview</h1>
+    <p class="page-header__description">Evidence-backed ideal customer profiles, grouped by their campaign context.</p>
+  </header>
+
+  <section class="summary-grid" aria-label="ICP summary">
+    <article class="summary-card"><span class="summary-card__label">ICPs</span><strong class="summary-card__value">{{ icps().length }}</strong><span class="summary-card__hint">Total researched</span></article>
+    <article class="summary-card"><span class="summary-card__label">Campaigns</span><strong class="summary-card__value">{{ campaignCount }}</strong><span class="summary-card__hint">Represented by ICPs</span></article>
+    <article class="summary-card"><span class="summary-card__label">Avg. fit score</span><strong class="summary-card__value">{{ averageFitScore }}<small>/5</small></strong><span class="summary-card__hint">Across all ICPs</span></article>
+  </section>
+
+  <section class="icp-list" aria-labelledby="icp-list-heading">
+    <div class="section-heading"><div><h2 id="icp-list-heading">All ICPs</h2><p>Expand an ICP to examine its segment definition and buying context.</p></div><span tuiBadge appearance="primary">{{ icps().length }} total</span></div>
+    @if (loading()) { <p class="state-message">Loading ICPs…</p> } @else if (error()) { <p class="state-message state-message--error">ICPs could not be loaded right now.</p> } @else if (!icps().length) { <p class="state-message">No ICPs have been researched yet.</p> } @else {
+      <div class="icp-cards">
+        @for (icp of icps(); track icp.campaign_id + icp.icp_id) {
+          <details class="icp-card">
+            <summary class="icp-card__summary"><div><span class="icp-id">{{ icp.icp_id }}</span><h3>{{ icp.title }}</h3><p>{{ icp.profile_summary }}</p></div><span tuiBadge appearance="primary">{{ icp.fit_score.score }}/5</span></summary>
+            <div class="icp-card__body">
+              <a class="campaign-link" [routerLink]="['/campaigns']" [fragment]="icp.campaign_id">Campaign: {{ campaignTitle(icp.campaign_id) }} <span aria-hidden="true">→</span></a>
+              <div class="detail-grid">
+                <section class="detail-block detail-block--wide"><h4>Segment identity</h4><div class="chips"><span tuiChip size="xxs">{{ icp.identity.industry }}</span><span tuiChip size="xxs">{{ icp.identity.geography }}</span><span tuiChip size="xxs">{{ icp.identity.company_size_band }}</span><span tuiChip size="xxs">{{ icp.identity.primary_workflow }}</span><span tuiChip size="xxs">{{ icp.identity.primary_buyer_role }}</span><span tuiChip size="xxs">{{ icp.identity.deployment_posture }}</span></div></section>
+                <details class="detail-disclosure"><summary>Firmographics</summary><dl><div><dt>Industries</dt><dd>{{ icp.firmographics.industries.join(', ') }}</dd></div><div><dt>Countries</dt><dd>{{ icp.firmographics.countries.join(', ') }}</dd></div><div><dt>Employees</dt><dd>{{ icp.firmographics.employee_range }}</dd></div>@if (icp.firmographics.turnover_range) {<div><dt>Turnover</dt><dd>{{ icp.firmographics.turnover_range }}</dd></div>}</dl></details>
+                <details class="detail-disclosure"><summary>Operating profile</summary><h5>Target workflows</h5><div class="chips">@for (item of icp.operating_profile.target_workflows; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div><h5>Desired outcomes</h5><ul>@for (item of icp.operating_profile.desired_outcomes; track item) {<li>{{ item }}</li>}</ul></details>
+                <details class="detail-disclosure"><summary>Pains and jobs</summary><ul>@for (item of icp.pains_and_jobs; track item.pain) {<li><strong>{{ item.pain }}</strong><br>{{ item.job_to_be_done }}</li>}</ul></details>
+                <details class="detail-disclosure"><summary>Buying committee</summary><div class="chips">@for (role of icp.buying_committee; track role.likely_titles.join()) {@for (title of role.likely_titles; track title) {<span tuiChip size="xxs">{{ title }}</span>}}</div></details>
+                <details class="detail-disclosure"><summary>Purchase triggers</summary><ul>@for (item of icp.purchase_triggers; track item.signal) {<li><strong>{{ item.signal }}</strong><br>{{ item.why_now }}</li>}</ul></details>
+                <details class="detail-disclosure"><summary>Qualification signals</summary><ul>@for (item of icp.qualification_signals; track item.signal) {<li><strong>{{ item.fit_or_intent }}:</strong> {{ item.signal }}</li>}</ul></details>
+                <section class="detail-block detail-block--wide"><h4>Entry offer</h4><p><strong>{{ icp.entry_offer.name }}</strong> · {{ icp.entry_offer.delivery_window }}</p><p>{{ icp.entry_offer.expected_outcome }}</p></section>
+                <section class="detail-block detail-block--wide"><h4>Fit rationale</h4><p>{{ icp.fit_score.rationale }}</p></section>
+              </div>
+            </div>
+          </details>
+        }
+      </div>
+    }
+  </section>
+</div>

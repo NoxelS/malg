@@ -168,6 +168,84 @@ class ICPIdentity(BaseModel):
         return "|".join(" ".join(value.casefold().split()) for value in values)
 
 
+class ICPSegmentFoundation(BaseModel):
+    """Stable identity and summary produced in the first ICP research stage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    campaign_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
+    icp_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
+    title: str
+    identity: ICPIdentity
+    profile_summary: str
+
+
+class ICPOperatingFoundation(BaseModel):
+    """Firmographic, operating, and technical profile for one selected segment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    firmographics: Firmographics
+    operating_profile: OperatingProfile
+    technographics: Technographics
+
+
+class ICPEvidenceAssessment(BaseModel):
+    """Evidence-backed pains, fit assessment, and remaining research uncertainty."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pains_and_jobs: list[PainJob] = Field(min_length=1)
+    fit_score: FitScore
+    evidence: list[EvidenceItem] = Field(min_length=2)
+    assumptions: list[str]
+    unknowns: list[str]
+
+    @model_validator(mode="after")
+    def validate_evidence_references(self) -> ICPEvidenceAssessment:
+        """Require unique evidence IDs and resolve every pain and fit reference."""
+        _validate_evidence_references(self.evidence, self.pains_and_jobs, self.fit_score)
+        return self
+
+
+class ICPBuyerSignals(BaseModel):
+    """Buyer, timing, qualification, and intent hypotheses for one ICP segment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    buying_committee: list[BuyingRole] = Field(min_length=1)
+    purchase_triggers: list[Trigger] = Field(min_length=1)
+    qualification_signals: list[QualificationSignal] = Field(min_length=1)
+    intent_signal_model: IntentModel
+
+
+class ICPEntryPlan(BaseModel):
+    """Service fit, objections, exclusions, and entry offer for one ICP segment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    service_fit: list[ServiceOpportunity] = Field(min_length=1)
+    disqualifiers: list[Disqualifier]
+    likely_objections: list[Objection]
+    entry_offer: EntryOffer
+    validation_questions: list[str] = Field(min_length=1)
+
+
+def _validate_evidence_references(
+    evidence: list[EvidenceItem], pains_and_jobs: list[PainJob], fit_score: FitScore
+) -> None:
+    """Enforce the evidence-reference invariant shared by staged and final ICP models."""
+    evidence_ids = [item.evidence_id for item in evidence]
+    if len(evidence_ids) != len(set(evidence_ids)):
+        raise ValueError("evidence_id values must be unique within an ICP.")
+    referenced = {
+        evidence_id for item in pains_and_jobs for evidence_id in item.evidence_ids
+    } | set(fit_score.evidence_ids)
+    missing = referenced - set(evidence_ids)
+    if missing:
+        raise ValueError(f"ICP fields reference undefined evidence: {sorted(missing)}")
+
+
 class ICPResult(BaseModel):
     """One evidence-backed organization profile for one campaign."""
 
@@ -198,15 +276,7 @@ class ICPResult(BaseModel):
 
     @model_validator(mode="after")
     def validate_evidence_references(self) -> ICPResult:
-        evidence_ids = [item.evidence_id for item in self.evidence]
-        if len(evidence_ids) != len(set(evidence_ids)):
-            raise ValueError("evidence_id values must be unique within an ICP.")
-        referenced = {
-            evidence_id for item in self.pains_and_jobs for evidence_id in item.evidence_ids
-        } | set(self.fit_score.evidence_ids)
-        missing = referenced - set(evidence_ids)
-        if missing:
-            raise ValueError(f"ICP fields reference undefined evidence: {sorted(missing)}")
+        _validate_evidence_references(self.evidence, self.pains_and_jobs, self.fit_score)
         return self
 
 

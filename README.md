@@ -127,10 +127,16 @@ authoritative campaign-scoped record: it atomically claims an ICP's structured s
 (industry, geography, size, workflow, buyer, deployment posture) before results are published.
 The ledger guarantees that a restarted run does not accept the same identity again.
 
-The host generates one ICP at a time, validates it, and retries a duplicate up to the configured
-limit. `[default.icp]` configures `batch_size` (10 by default), attempt limits, bounded exclusion
-cards, and `output_root`; `MALG_ICP__...` environment variables override those settings. Batches
-are written under `results/icps/<campaign-id>/<run-id>/`.
+The host generates ICPs with at most three concurrent agent calls by default, validates each one,
+and retries duplicates up to the configured limit. `[default.icp]` configures `batch_size`,
+`concurrency`, attempt limits, bounded exclusion cards, and `output_root`; `MALG_ICP__...`
+environment variables override those settings. Batches are written under
+`results/icps/<campaign-id>/<run-id>/`.
+
+Each `research_one` call uses five smaller structured generations: segment identity, operations,
+evidence and fit, buyer signals, then entry planning. Python assembles those validated sections
+into the canonical `ICPResult` and rechecks cross-section evidence references. This avoids
+requiring the model endpoint to produce the complete 19-definition ICP schema in one response.
 
 ## Saved-campaign ICP entry point
 
@@ -152,26 +158,31 @@ cp default.config.toml user.config.toml
 
 Set the key in the gitignored `user.config.toml`, or use `MALG_LLM__API_KEY` in `.env` or the
 shell. `user.config.toml` can override only the fields you need, for example an
-OpenAI-compatible LiteLLM endpoint:
+OpenAI-compatible endpoint:
 
 ```toml
 [default.llm]
 model = "your-model"
-provider = "openai"
 api_base = "https://your-litellm-endpoint.example/v1"
 api_key = "your-litellm-virtual-key"
 request_timeout_seconds = 300
 # Supply limits known for your gateway/model. They are not inferred.
-context_window = 262144
+context_window = 131072
 max_tokens = 4096
-# Sends ``guardrails: ["headroom-compression"]`` in LiteLLM requests. The
+# Optional for Qwen-compatible endpoints. Omit for providers that do not support it.
+enable_thinking = false
+# Sends ``guardrails: ["headroom-compression"]`` to a compatible gateway. The
 # LiteLLM gateway must register that pre-call guardrail and a Headroom sidecar.
 headroom_compression = true
+# Permit a model to return a batch of function calls. NOOA executes each call
+# sequentially, so this does not make browser or Python execution concurrent.
+parallel_tool_calls = false
 ```
 
-MALG qualifies a bare model name with the configured provider before handing it to LiteLLM (for
-example, `nc-medium` with `provider = "openai"` becomes `openai/nc-medium`). This keeps proxy
-routing explicit and prevents LiteLLM's "Provider List" diagnostic for custom model aliases.
+MALG uses the official OpenAI Python SDK directly. It sends configured model names unchanged, so a
+gateway alias such as `nc-medium` remains `nc-medium` rather than gaining a client-side provider
+prefix. LiteLLM may still be the server behind an OpenAI-compatible endpoint; it is not MALG's
+request client.
 
 Configuration precedence is:
 
@@ -182,9 +193,8 @@ Configuration precedence is:
 
 Environment overrides use the `MALG_` prefix. For example,
 `MALG_LLM__MODEL=another-model` overrides the model without modifying a file.
-`MALG_LLM__REQUEST_TIMEOUT_SECONDS` sets the maximum idle interval while waiting
-for LiteLLM response bytes; the default is five minutes. It is not a wall-clock
-limit, so streaming response bytes reset the timer.
+`MALG_LLM__REQUEST_TIMEOUT_SECONDS` sets the maximum time allowed while waiting
+for the non-streaming OpenAI SDK response; the default is five minutes.
 
 ## Verify
 
@@ -208,6 +218,24 @@ curl http://127.0.0.1:8000/ready
 
 The PostgreSQL data volume is local to Docker. Configure the database name, user, and password
 with `MALG_POSTGRES_DB`, `MALG_POSTGRES_USER`, and `MALG_POSTGRES_PASSWORD` before startup.
+
+## Frontend
+
+`frontend/` is a standalone Angular application using Taiga UI. It currently provides a small
+welcome page only; it does not call the API or implement authentication.
+
+Start it locally with:
+
+```bash
+cd frontend
+npm start
+```
+
+Or build and serve the production image at <http://127.0.0.1:4200>:
+
+```bash
+make frontend-up
+```
 
 After configuring a reachable endpoint and its key, run the bounded saved-campaign ICP smoke test:
 
@@ -241,7 +269,8 @@ restarted automatically. Then run the ephemeral MALG agent container:
 make run
 ```
 
-`make run` rebuilds only the MALG image and runs it against the already-running tools. Open
+`make run` rebuilds only the MALG image and runs it against the Compose services, waiting for
+PostgreSQL to become healthy before the agent starts. Open
 `http://localhost:5002` to inspect generation turns, generated code, browser tool calls, and
 their results. The viewer is bound only to localhost; its trace database is kept in the
 container's temporary filesystem and is discarded when the viewer is recreated. A local proxy

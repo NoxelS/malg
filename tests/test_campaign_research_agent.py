@@ -13,6 +13,7 @@ from malg.core.agents.campaign_research import CampaignResearchAgent
 from malg.core.browser_support import BrowserSupport
 from malg.core.eurostat_support import EurostatSupport
 from malg.core.models.campaign import CampaignCandidate
+from malg.core.openai_llm import OpenAIChatClient
 from malg.core.persistent_memory_support import close_persistent_memory
 
 
@@ -82,9 +83,9 @@ def test_campaign_research_agent_uses_nooa_eurostat_agent(monkeypatch) -> None:
         assert hasattr(agent, "browser")
         assert hasattr(agent, "web_search")
         config = get_llm_config(load_settings())
-        assert agent._llm.model == f"{config.provider}/{config.model}"
-        assert agent._llm.config["custom_llm_provider"] == "openai"
-        assert agent._llm._http_config.read_timeout == config.request_timeout_seconds
+        assert isinstance(agent._llm, OpenAIChatClient)
+        assert agent._llm.model == config.model
+        assert agent._llm.request_timeout_seconds == config.request_timeout_seconds
     finally:
         close_persistent_memory(agent)
 
