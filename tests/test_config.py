@@ -38,6 +38,7 @@ def test_user_config_overrides_default(tmp_path: Path) -> None:
     assert config.enable_thinking is False
     assert config.parallel_tool_calls is True
     assert config.request_timeout_seconds == 300
+    assert config.max_retries == 3
 
 
 def test_environment_overrides_config_files(tmp_path: Path, monkeypatch) -> None:
@@ -58,6 +59,7 @@ def test_environment_overrides_config_files(tmp_path: Path, monkeypatch) -> None
     assert config.enable_thinking is None
     assert config.parallel_tool_calls is False
     assert config.request_timeout_seconds == 300
+    assert config.max_retries == 3
 
 
 def test_llm_config_rejects_invalid_request_timeout(tmp_path: Path) -> None:
@@ -68,6 +70,17 @@ def test_llm_config_rejects_invalid_request_timeout(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="request_timeout_seconds"):
+        get_llm_config(load_settings(settings_files=(config_file,), load_dotenv=False))
+
+
+def test_llm_config_rejects_negative_max_retries(tmp_path: Path) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.llm]\nmodel = 'model'\napi_base = 'https://example.test/v1'\n"
+        "request_timeout_seconds = 300\nmax_retries = -1\n"
+    )
+
+    with pytest.raises(ValueError, match="max_retries"):
         get_llm_config(load_settings(settings_files=(config_file,), load_dotenv=False))
 
 

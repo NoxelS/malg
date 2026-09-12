@@ -2,16 +2,19 @@
 model = "gpt-4.1-mini"
 api_base = "https://api.openai.com/v1"
 api_key = "<YOUR_OPENAI_API_KEY>"
-request_timeout_seconds = 300
-context_window = 131072
-max_tokens = 4096
+request_timeout_seconds = 6000
+# Retry client and gateway timeout responses after their server-directed delay,
+# or with a bounded exponential fallback when no delay is provided.
+max_retries = 3
+context_window = 262144
+max_tokens = 32768
 headroom_compression = false
 parallel_tool_calls = false
 
 [default.browser]
 enabled = true
 url = "http://lightpanda:9223/mcp"
-timeout_seconds = 600
+timeout_seconds = 6000
 
 [default.search]
 enabled = true
@@ -24,13 +27,13 @@ languages = ["en", "de"]
 categories = ["general"]
 
 [default.eurostat]
-timeout_seconds = 600
+timeout_seconds = 6000
 proxy = ""
 verify = true
 cert = ""
 
 [default.icp]
-batch_size = 25
+batch_size = 250 
 concurrency = 3
 max_attempts_per_slot = 3
 max_exclusion_cards = 100

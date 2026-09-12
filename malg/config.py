@@ -29,6 +29,7 @@ class LLMConfig:
     enable_thinking: bool | None
     parallel_tool_calls: bool
     request_timeout_seconds: int
+    max_retries: int = 3
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,10 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
             "LLM configuration field request_timeout_seconds must be a positive integer."
         )
 
+    max_retries = llm.get("max_retries", 3)
+    if not isinstance(max_retries, int) or isinstance(max_retries, bool) or max_retries < 0:
+        raise ValueError("LLM configuration field max_retries must be a non-negative integer.")
+
     return LLMConfig(
         model=llm["model"],
         api_base=llm["api_base"],
@@ -148,6 +153,7 @@ def get_llm_config(settings: Dynaconf) -> LLMConfig:
         enable_thinking=enable_thinking,
         parallel_tool_calls=parallel_tool_calls,
         request_timeout_seconds=request_timeout_seconds,
+        max_retries=max_retries,
     )
 
 

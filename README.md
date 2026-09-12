@@ -166,6 +166,9 @@ model = "your-model"
 api_base = "https://your-litellm-endpoint.example/v1"
 api_key = "your-litellm-virtual-key"
 request_timeout_seconds = 300
+# Additional retries for client timeouts and HTTP 408, 504, or 524 responses.
+# A gateway's retry_after response field is honored; otherwise MALG backs off.
+max_retries = 3
 # Supply limits known for your gateway/model. They are not inferred.
 context_window = 131072
 max_tokens = 4096
@@ -195,6 +198,9 @@ Environment overrides use the `MALG_` prefix. For example,
 `MALG_LLM__MODEL=another-model` overrides the model without modifying a file.
 `MALG_LLM__REQUEST_TIMEOUT_SECONDS` sets the maximum time allowed while waiting
 for the non-streaming OpenAI SDK response; the default is five minutes.
+`MALG_LLM__MAX_RETRIES` controls the number of additional attempts for a timeout;
+the default is three. MALG honors a gateway-provided `retry_after` delay and otherwise
+uses a bounded exponential backoff.
 
 ## Verify
 

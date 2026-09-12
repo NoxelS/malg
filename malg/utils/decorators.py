@@ -38,6 +38,7 @@ def use_default_llm_endpoint(
         context_window=config.context_window,
         max_tokens=config.max_tokens,
         request_timeout_seconds=config.request_timeout_seconds,
+        max_retries=config.max_retries,
         extra_body=extra_body or None,
         parallel_tool_calls=config.parallel_tool_calls,
     )

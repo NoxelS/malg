@@ -6,9 +6,12 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 from nooa.unifiedllm import Tool
+from openai import InternalServerError
 from pydantic import BaseModel
 
+import malg.core.openai_llm as openai_llm
 from malg.core.openai_llm import OpenAIChatClient
 
 
@@ -20,17 +23,23 @@ class _Result(BaseModel):
 
 class _AsyncCompletions:
     def __init__(self, response: Any) -> None:
-        self.response = response
+        self.responses = list(response) if isinstance(response, list) else [response]
         self.create_request: dict[str, Any] | None = None
         self.parse_request: dict[str, Any] | None = None
 
     async def create(self, **kwargs: Any) -> Any:
         self.create_request = kwargs
-        return self.response
+        return self._next_response()
 
     async def parse(self, **kwargs: Any) -> Any:
         self.parse_request = kwargs
-        return self.response
+        return self._next_response()
+
+    def _next_response(self) -> Any:
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class _AsyncClient:
@@ -45,12 +54,15 @@ class _AsyncClient:
 
 class _SyncCompletions:
     def __init__(self, response: Any) -> None:
-        self.response = response
+        self.responses = list(response) if isinstance(response, list) else [response]
         self.create_request: dict[str, Any] | None = None
 
     def create(self, **kwargs: Any) -> Any:
         self.create_request = kwargs
-        return self.response
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class _SyncClient:
@@ -143,6 +155,48 @@ def test_acall_returns_sdk_parsed_pydantic_output() -> None:
     request = async_client.completions.parse_request
     assert request is not None
     assert request["response_format"] is _Result
+
+
+def test_acall_retries_gateway_timeout_after_server_delay(monkeypatch) -> None:
+    response = httpx.Response(
+        524,
+        json={"retry_after": 120},
+        request=httpx.Request("POST", "https://gateway.example/v1/chat/completions"),
+    )
+    timeout = InternalServerError("origin timeout", response=response, body={"retry_after": 120})
+    async_client = _AsyncClient(
+        [timeout, _response(SimpleNamespace(content="done", tool_calls=[]))]
+    )
+    sleeps: list[float] = []
+
+    async def record_sleep(delay_seconds: float) -> None:
+        sleeps.append(delay_seconds)
+
+    monkeypatch.setattr(openai_llm.asyncio, "sleep", record_sleep)
+
+    result = asyncio.run(
+        _client(async_client=async_client).acall([{"role": "user", "content": "go"}])
+    )
+
+    assert result.content == "done"
+    assert sleeps == [120.0]
+
+
+def test_owned_sdk_clients_disable_sdk_retries(monkeypatch) -> None:
+    constructed: list[dict[str, Any]] = []
+
+    class _OwnedClient:
+        def __init__(self, **kwargs: Any) -> None:
+            constructed.append(kwargs)
+
+    monkeypatch.setattr(openai_llm, "OpenAI", _OwnedClient)
+    monkeypatch.setattr(openai_llm, "AsyncOpenAI", _OwnedClient)
+    client = _client()
+
+    client._make_sync_client()
+    client._make_async_client()
+
+    assert [kwargs["max_retries"] for kwargs in constructed] == [0, 0]
 
 
 def test_call_uses_sync_client_and_closes_owned_clients() -> None:

@@ -7,12 +7,18 @@ chat-shaped conversation history.  It does not use LiteLLM for requests.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import logging
+import time
+from collections.abc import Mapping
 from typing import Any, cast
 
 from nooa.unifiedllm import LLMResponse, Tool, ToolCall, UnifiedLLM
-from openai import AsyncOpenAI, OpenAI
+from openai import APIStatusError, APITimeoutError, AsyncOpenAI, OpenAI
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIChatClient(UnifiedLLM):
@@ -27,7 +33,10 @@ class OpenAIChatClient(UnifiedLLM):
         context_window: Explicit input-token capacity used by NOOA's context
             budgeting. The adapter does not infer it from the gateway.
         max_tokens: Optional default completion-token cap.
-        request_timeout_seconds: Per-request OpenAI SDK timeout.
+        request_timeout_seconds: Per-attempt OpenAI SDK timeout.
+        max_retries: Number of additional attempts after a timeout. Retries
+            client timeouts and HTTP 408, 504, and 524 responses only. A
+            server-provided ``retry_after`` delay is honored when present.
         extra_body: Optional gateway-specific request fields.
         parallel_tool_calls: Whether a model may return a batch of function
             calls in one response. NOOA still executes such calls sequentially.
@@ -46,6 +55,7 @@ class OpenAIChatClient(UnifiedLLM):
         context_window: int | None,
         max_tokens: int | None,
         request_timeout_seconds: int,
+        max_retries: int = 3,
         extra_body: dict[str, object] | None = None,
         parallel_tool_calls: bool = False,
         sync_client: Any | None = None,
@@ -61,6 +71,7 @@ class OpenAIChatClient(UnifiedLLM):
         self.api_key = api_key
         self._context_window = context_window
         self.request_timeout_seconds = request_timeout_seconds
+        self.max_retries = max_retries
         self.parallel_tool_calls = parallel_tool_calls
         self._sync_client = sync_client
         self._async_client = async_client
@@ -84,6 +95,7 @@ class OpenAIChatClient(UnifiedLLM):
             api_key=self.api_key,
             base_url=self.api_base,
             timeout=self.request_timeout_seconds,
+            max_retries=0,
         )
 
     def _make_async_client(self) -> AsyncOpenAI:
@@ -91,6 +103,44 @@ class OpenAIChatClient(UnifiedLLM):
             api_key=self.api_key,
             base_url=self.api_base,
             timeout=self.request_timeout_seconds,
+            max_retries=0,
+        )
+
+    @staticmethod
+    def _is_retryable_timeout(error: Exception) -> bool:
+        """Return whether *error* represents a timeout safe to retry.
+
+        The gateway may surface an origin timeout as an HTTP 524 rather than
+        a client-side timeout, so both forms are handled at this boundary.
+        Other HTTP failures remain visible to NOOA without being retried.
+        """
+        return isinstance(error, APITimeoutError) or (
+            isinstance(error, APIStatusError)
+            and getattr(error, "status_code", None) in {408, 504, 524}
+        )
+
+    @staticmethod
+    def _retry_delay_seconds(error: Exception, retry_number: int) -> float:
+        """Return the server-directed delay or a bounded exponential fallback."""
+        body = getattr(error, "body", None)
+        if isinstance(body, Mapping):
+            retry_after = body.get("retry_after")
+            if (
+                isinstance(retry_after, (int, float))
+                and not isinstance(retry_after, bool)
+                and retry_after > 0
+            ):
+                return float(retry_after)
+        return float(min(2 ** (retry_number - 1), 60))
+
+    def _retry_log(self, error: Exception, retry_number: int, delay_seconds: float) -> None:
+        """Log retry metadata without recording request content or credentials."""
+        logger.warning(
+            "Retrying LLM request after %s in %.1fs (%d/%d).",
+            type(error).__name__,
+            delay_seconds,
+            retry_number,
+            self.max_retries,
         )
 
     def _sync(self) -> Any:
@@ -250,11 +300,21 @@ class OpenAIChatClient(UnifiedLLM):
         """Make one non-streaming synchronous Chat Completions request."""
         params = self._request_params(messages, tools, kwargs)
         completions = self._sync().chat.completions
-        raw_response = (
-            completions.parse(**params, response_format=output_model)
-            if output_model is not None
-            else completions.create(**params)
-        )
+        for retry_number in range(self.max_retries + 1):
+            try:
+                raw_response = (
+                    completions.parse(**params, response_format=output_model)
+                    if output_model is not None
+                    else completions.create(**params)
+                )
+                break
+            except Exception as error:
+                if not self._is_retryable_timeout(error) or retry_number == self.max_retries:
+                    raise
+                next_retry = retry_number + 1
+                delay_seconds = self._retry_delay_seconds(error, next_retry)
+                self._retry_log(error, next_retry, delay_seconds)
+                time.sleep(delay_seconds)
         return self._response(raw_response, output_model)
 
     async def acall(
@@ -267,11 +327,21 @@ class OpenAIChatClient(UnifiedLLM):
         """Make one non-streaming asynchronous Chat Completions request."""
         params = self._request_params(messages, tools, kwargs)
         completions = self._async().chat.completions
-        raw_response = (
-            await completions.parse(**params, response_format=output_model)
-            if output_model is not None
-            else await completions.create(**params)
-        )
+        for retry_number in range(self.max_retries + 1):
+            try:
+                raw_response = (
+                    await completions.parse(**params, response_format=output_model)
+                    if output_model is not None
+                    else await completions.create(**params)
+                )
+                break
+            except Exception as error:
+                if not self._is_retryable_timeout(error) or retry_number == self.max_retries:
+                    raise
+                next_retry = retry_number + 1
+                delay_seconds = self._retry_delay_seconds(error, next_retry)
+                self._retry_log(error, next_retry, delay_seconds)
+                await asyncio.sleep(delay_seconds)
         return self._response(raw_response, output_model)
 
     def close(self) -> None:
