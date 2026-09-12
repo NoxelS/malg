@@ -2,8 +2,9 @@
 
 Campaign discovery for a later lead-generation workflow.
 
-This repository provides NOOA-based campaign and ICP research for Noel Schwabenland's independent
-AI practice. It currently does not research accounts, contacts, leads, or outreach.
+This repository provides NOOA-based campaign and ICP research plus typed account-candidate and
+independent account-validation contracts for Noel Schwabenland's independent AI practice. Account
+research records public business endpoints only; it does not initiate outreach.
 
 Agents use the shared endpoint through `@use_default_llm_endpoint()`. Pass `model=` to select
 another LiteLLM model while retaining the configured endpoint and key:
@@ -213,8 +214,9 @@ make test
 
 ## API
 
-The persistence-only FastAPI service exposes campaign and ICP CRUD under `/api/v1`.
-It does not run research agents or initiate outreach.  The API owns no schema creation at
+The persistence-only FastAPI service exposes campaign, ICP, account, contact, entrypoint, and
+validation-record reads under `/api/v1`. It does not run research agents or initiate outreach.
+The API owns no schema creation at
 runtime; its container applies Alembic migrations before starting. Start it with:
 
 ```bash

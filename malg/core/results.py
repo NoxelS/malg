@@ -208,21 +208,35 @@ def write_icp_batch_result(batch: ICPBatchResult, output_root: Path) -> tuple[Pa
 
 
 def render_account_profile_markdown(profile: AccountProfile) -> str:
-    """Render a stable human-readable view of one account profile."""
+    """Render a stable human-readable view of one unpersisted account candidate."""
     sections = [
-        f"# Account: {profile.firmographics.company_name}\n\n"
-        f"**Account ID:** `{profile.account_id}`  \n"
-        f"**ICP ID:** `{profile.icp_id}`  \n"
-        f"**Region:** `{profile.region}`\n",
+        f"# Account candidate: {profile.identity.display_name}\n\n"
+        f"**Campaign ID:** `{profile.campaign_id}`  \n"
+        f"**ICP ID:** `{profile.icp_id}`\n",
+        _section("Identity", _mapping_bullets(profile.identity)),
         _section("Firmographics", _mapping_bullets(profile.firmographics)),
         _section("Operating profile", _mapping_bullets(profile.operating_profile)),
-        _section("Technographics", _mapping_bullets(profile.technographics)),
         _section(
-            "Pains and jobs to be done",
+            "ICP fit",
+            f"**Score:** {profile.fit.score}/5 — {profile.fit.rationale}\n\n"
+            + _section("Matched attributes", _bullets(profile.fit.matched_attributes)),
+        ),
+        _section(
+            "Account entrypoints",
             "\n".join(
-                f"- **{item.pain}:** {item.job_to_be_done} — {item.business_impact} (evidence: {', '.join(item.evidence_ids)})"
-                for item in profile.pains_and_jobs
-            ),
+                f"- **{endpoint.kind.value}:** {endpoint.value} ({endpoint.discovery_method.value})"
+                for endpoint in profile.account_endpoints
+            )
+            or "- None found",
+        ),
+        _section(
+            "Contacts",
+            "\n".join(
+                f"- **{contact.full_name}:** {contact.title}; "
+                f"entrypoints: {', '.join(endpoint.kind.value for endpoint in contact.endpoints) or 'none'}"
+                for contact in profile.contacts
+            )
+            or "- None found",
         ),
         _section(
             "Evidence",
@@ -234,7 +248,6 @@ def render_account_profile_markdown(profile: AccountProfile) -> str:
         ),
         _section("Assumptions", _bullets(profile.assumptions)),
         _section("Unknowns", _bullets(profile.unknowns)),
-        _section("Validation questions", _bullets(profile.validation_questions)),
     ]
     return "\n".join(sections).rstrip() + "\n"
 
@@ -242,15 +255,17 @@ def render_account_profile_markdown(profile: AccountProfile) -> str:
 def write_account_profile_result(
     profile: AccountProfile, output_root: Path, *, overwrite: bool = False
 ) -> tuple[Path, Path]:
-    """Persist canonical JSON and its Markdown rendering for one account profile."""
+    """Persist canonical JSON and Markdown for one unpersisted account candidate."""
+    campaign_id = _validate_id(profile.campaign_id)
     icp_id = _validate_id(profile.icp_id)
-    safe_region = re.sub(r"[^a-z0-9\-]", "-", profile.region.lower()).strip("-")
-    base_dir = output_root / "accounts" / icp_id / safe_region
-    json_path = base_dir / f"account_{profile.account_id}.json"
-    md_path = base_dir / f"account_{profile.account_id}.md"
+    safe_name = re.sub(r"[^a-z0-9\-]", "-", profile.identity.display_name.lower()).strip("-")
+    safe_name = safe_name[:80] or "unnamed"
+    base_dir = output_root / "accounts" / campaign_id / icp_id
+    json_path = base_dir / f"candidate_{safe_name}.json"
+    md_path = base_dir / f"candidate_{safe_name}.md"
     if not overwrite and (json_path.exists() or md_path.exists()):
         raise FileExistsError(
-            f"Refusing to overwrite existing account profile for {profile.account_id}."
+            f"Refusing to overwrite existing account candidate for {profile.identity.display_name}."
         )
 
     write_json_result(profile, json_path, overwrite=overwrite)

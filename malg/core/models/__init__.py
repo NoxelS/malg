@@ -1,10 +1,25 @@
 """Typed contracts shared by MALG agents and deterministic processing."""
 
 from malg.core.models.account import (
+    AccountCandidate,
     AccountFirmographics,
+    AccountFitAssessment,
+    AccountIdentity,
+    AccountMatchRecord,
     AccountOperatingProfile,
+    AccountProbeReport,
     AccountProfile,
-    AccountTechnographics,
+    AccountRecord,
+    AccountValidationAssessment,
+    AccountValidationOutcome,
+    CheckOutcome,
+    CommunicationEndpointCandidate,
+    ContactCandidate,
+    DiscoveryMethod,
+    EndpointKind,
+    MailDomainProbeResult,
+    UrlProbeResult,
+    ValidationCheck,
 )
 from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.evidence import EvidenceItem, EvidenceKind, EvidenceStrength, SourceType
@@ -21,11 +36,23 @@ from malg.core.models.icp import (
 )
 
 __all__ = [
+    "AccountCandidate",
     "AccountFirmographics",
+    "AccountFitAssessment",
+    "AccountIdentity",
+    "AccountMatchRecord",
     "AccountOperatingProfile",
+    "AccountProbeReport",
     "AccountProfile",
-    "AccountTechnographics",
+    "AccountRecord",
+    "AccountValidationAssessment",
+    "AccountValidationOutcome",
     "CampaignCandidate",
+    "CheckOutcome",
+    "CommunicationEndpointCandidate",
+    "ContactCandidate",
+    "DiscoveryMethod",
+    "EndpointKind",
     "EvidenceItem",
     "EvidenceKind",
     "EvidenceStrength",
@@ -38,5 +65,8 @@ __all__ = [
     "ICPRejection",
     "ICPResult",
     "ICPSegmentFoundation",
+    "MailDomainProbeResult",
     "SourceType",
+    "UrlProbeResult",
+    "ValidationCheck",
 ]

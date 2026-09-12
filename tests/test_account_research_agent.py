@@ -4,9 +4,15 @@ from nooa import Agent
 
 from malg.config import get_llm_config, load_settings
 from malg.core.agents.account_research import AccountResearchAgent
+from malg.core.agents.account_validation import AccountValidationAgent
 from malg.core.browser_support import BrowserSupport
-from malg.core.eurostat_support import EurostatSupport
-from malg.core.models.account import AccountProfile
+from malg.core.models.account import (
+    AccountCandidate,
+    AccountIdentity,
+    AccountProbeReport,
+    AccountValidationAssessment,
+)
+from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.icp import ICPResult
 from malg.core.openai_llm import OpenAIChatClient
 
@@ -15,33 +21,24 @@ def test_account_research_agent_uses_nooa_agent_model(monkeypatch) -> None:
     monkeypatch.setattr("malg.core.browser_support.create_browser_tool", lambda config: object())
     assert issubclass(AccountResearchAgent, Agent)
     assert issubclass(AccountResearchAgent, BrowserSupport)
-    assert issubclass(AccountResearchAgent, EurostatSupport)
     client = AccountResearchAgent()._llm
     config = get_llm_config(load_settings())
     assert isinstance(client, OpenAIChatClient)
     assert client.model == config.model
 
 
-def test_account_research_agent_context_defines_contract() -> None:
-    context = AccountResearchAgent.__doc__ or ""
-    research_context = AccountResearchAgent.research_account.__doc__ or ""
-
-    assert "real, existing companies" in context
-    assert "firmographics" in context
-    assert "operating profile" in context
-    assert "technographics" in context
-    assert "Do not invent" in research_context
-    assert "self.browser" in research_context
-    assert "evidence" in research_context
-    assert get_type_hints(AccountResearchAgent.research_account)["return"] == list[AccountProfile]
-    hints = get_type_hints(AccountResearchAgent.research_account)
-    assert hints["icp"] is ICPResult
-    assert hints["region"] is str
-    assert hints["top_n_accounts"] is int
-
-
-def test_account_research_agent_rejects_non_icp_input(monkeypatch) -> None:
+def test_account_agents_have_typed_side_effect_free_contracts(monkeypatch) -> None:
     monkeypatch.setattr("malg.core.browser_support.create_browser_tool", lambda config: object())
-    context = AccountResearchAgent.research_account.__doc__ or ""
-    assert "icp_id" in context
-    assert "Preserve icp_id exactly" in context
+    assert issubclass(AccountValidationAgent, Agent)
+    assert issubclass(AccountValidationAgent, BrowserSupport)
+
+    hints = get_type_hints(AccountResearchAgent.research_one)
+    assert hints["campaign"] is CampaignCandidate
+    assert hints["icp"] is ICPResult
+    assert hints["excluded_accounts"] == list[AccountIdentity]
+    assert hints["return"] is AccountCandidate
+
+    validation_hints = get_type_hints(AccountValidationAgent.validate_account)
+    assert validation_hints["candidate"] is AccountCandidate
+    assert validation_hints["probes"] is AccountProbeReport
+    assert validation_hints["return"] is AccountValidationAssessment

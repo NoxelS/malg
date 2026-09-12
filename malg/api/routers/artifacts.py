@@ -10,9 +10,26 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from malg.core.models.account import (
+    AccountCandidate,
+    AccountMatchRecord,
+    AccountRecord,
+    AccountValidationAssessment,
+    CommunicationEndpointCandidate,
+    ContactCandidate,
+)
 from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.icp import ICPResult
-from malg.database.models import ICP, Campaign
+from malg.database.artifacts import persist_account_candidate
+from malg.database.models import (
+    ICP,
+    Account,
+    AccountMatch,
+    AccountValidationRun,
+    Campaign,
+    CommunicationEndpoint,
+    Employment,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["artifacts"])
 
@@ -42,6 +59,30 @@ def _icp_or_404(session: Session, campaign_id: str, icp_id: str) -> ICP:
     return icp
 
 
+def _account_or_404(session: Session, account_id: str) -> Account:
+    """Return a global account or raise the API's stable not-found response."""
+    account = session.get(Account, account_id)
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    return account
+
+
+def _account_match_or_404(
+    session: Session, campaign_id: str, icp_id: str, account_id: str
+) -> AccountMatch:
+    """Return one campaign/ICP-scoped account match or raise a stable response."""
+    match = session.scalar(
+        select(AccountMatch).where(
+            AccountMatch.campaign_id == campaign_id,
+            AccountMatch.icp_id == icp_id,
+            AccountMatch.account_id == account_id,
+        )
+    )
+    if match is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account match not found")
+    return match
+
+
 def _commit(session: Session, *, conflict_detail: str) -> None:
     """Commit a write, translating database uniqueness errors into HTTP conflicts."""
     try:
@@ -59,6 +100,37 @@ def _campaign_response(campaign: Campaign) -> CampaignCandidate:
 def _icp_response(icp: ICP) -> ICPResult:
     """Validate and return the canonical ICP JSON stored in one row."""
     return ICPResult.model_validate(icp.payload)
+
+
+def _account_response(account: Account) -> AccountRecord:
+    """Return the canonical global account profile stored in one row."""
+    return AccountRecord.model_validate(
+        {
+            "account_id": account.account_id,
+            **account.payload,
+            "created_at": account.created_at,
+            "updated_at": account.updated_at,
+        }
+    )
+
+
+def _account_match_response(session: Session, match: AccountMatch) -> AccountMatchRecord:
+    """Return an account match with its latest append-only validation assessment."""
+    validation_run = session.scalar(
+        select(AccountValidationRun)
+        .where(AccountValidationRun.account_match_id == match.account_match_id)
+        .order_by(AccountValidationRun.created_at.desc())
+    )
+    return AccountMatchRecord.model_validate(
+        {
+            "account_match_id": match.account_match_id,
+            "account_id": match.account_id,
+            "candidate": match.payload,
+            "validation": validation_run.payload if validation_run is not None else None,
+            "created_at": match.created_at,
+            "updated_at": match.updated_at,
+        }
+    )
 
 
 @router.post("/campaigns", response_model=CampaignCandidate, status_code=status.HTTP_201_CREATED)
@@ -177,3 +249,105 @@ def delete_icp(campaign_id: str, icp_id: str, session: SessionDependency) -> Res
     session.delete(_icp_or_404(session, campaign_id, icp_id))
     _commit(session, conflict_detail="ICP deletion conflicts with existing data")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/accounts", response_model=list[AccountRecord])
+def list_accounts(session: SessionDependency) -> list[AccountRecord]:
+    """List global accounts in stable display-name order without campaign inference."""
+    return [
+        _account_response(row)
+        for row in session.scalars(select(Account).order_by(Account.display_name))
+    ]
+
+
+@router.get("/accounts/{account_id}", response_model=AccountRecord)
+def get_account(account_id: str, session: SessionDependency) -> AccountRecord:
+    """Fetch one global account identity and its current company-level profile."""
+    return _account_response(_account_or_404(session, account_id))
+
+
+@router.get("/accounts/{account_id}/contacts", response_model=list[ContactCandidate])
+def list_account_contacts(account_id: str, session: SessionDependency) -> list[ContactCandidate]:
+    """List sourced current contacts for one account without making outreach decisions."""
+    _account_or_404(session, account_id)
+    rows = session.scalars(
+        select(Employment).where(Employment.account_id == account_id).order_by(Employment.title)
+    )
+    return [ContactCandidate.model_validate(row.payload) for row in rows]
+
+
+@router.get(
+    "/accounts/{account_id}/entrypoints", response_model=list[CommunicationEndpointCandidate]
+)
+def list_account_entrypoints(
+    account_id: str, session: SessionDependency
+) -> list[CommunicationEndpointCandidate]:
+    """List account-owned public business entrypoints and their source metadata."""
+    _account_or_404(session, account_id)
+    rows = session.scalars(
+        select(CommunicationEndpoint)
+        .where(CommunicationEndpoint.account_id == account_id)
+        .order_by(CommunicationEndpoint.kind, CommunicationEndpoint.value)
+    )
+    return [CommunicationEndpointCandidate.model_validate(row.payload) for row in rows]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/icps/{icp_id}/accounts",
+    response_model=AccountMatchRecord,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_or_refresh_account_match(
+    campaign_id: str,
+    icp_id: str,
+    payload: AccountCandidate,
+    session: SessionDependency,
+) -> AccountMatchRecord:
+    """Persist a sourced candidate under an existing campaign and ICP.
+
+    This API remains persistence-only: it accepts an already-produced candidate
+    but neither invokes the research agent nor initiates communication.
+    """
+    if payload.campaign_id != campaign_id or payload.icp_id != icp_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="campaign or ICP ID mismatch",
+        )
+    match = persist_account_candidate(payload, validation=None, session=session)
+    _commit(session, conflict_detail="account candidate conflicts with existing data")
+    return _account_match_response(session, match)
+
+
+@router.get(
+    "/campaigns/{campaign_id}/icps/{icp_id}/accounts", response_model=list[AccountMatchRecord]
+)
+def list_account_matches(
+    campaign_id: str, icp_id: str, session: SessionDependency
+) -> list[AccountMatchRecord]:
+    """List a campaign ICP's account candidates in descending fit-score order."""
+    _icp_or_404(session, campaign_id, icp_id)
+    matches = session.scalars(
+        select(AccountMatch)
+        .where(AccountMatch.campaign_id == campaign_id, AccountMatch.icp_id == icp_id)
+        .order_by(AccountMatch.fit_score.desc(), AccountMatch.account_id)
+    )
+    return [_account_match_response(session, match) for match in matches]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/icps/{icp_id}/accounts/{account_id}/validations",
+    response_model=AccountMatchRecord,
+)
+def append_account_validation(
+    campaign_id: str,
+    icp_id: str,
+    account_id: str,
+    payload: AccountValidationAssessment,
+    session: SessionDependency,
+) -> AccountMatchRecord:
+    """Append an externally produced validation result to one existing account match."""
+    match = _account_match_or_404(session, campaign_id, icp_id, account_id)
+    candidate = AccountCandidate.model_validate(match.payload)
+    persist_account_candidate(candidate, validation=payload, session=session)
+    _commit(session, conflict_detail="account validation conflicts with existing data")
+    return _account_match_response(session, match)
