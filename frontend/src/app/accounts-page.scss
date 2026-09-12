@@ -1,0 +1,42 @@
+:host { display: block; }
+.accounts-page { margin: 0 auto; max-width: 96rem; padding: 3rem clamp(1.5rem, 4vw, 4rem); }
+.page-header { margin-block-end: 2.5rem; }
+.page-header__eyebrow, .account-summary-card__label { color: var(--tui-text-action); font: var(--tui-font-text-s); font-weight: 700; letter-spacing: .08em; margin: 0 0 .5rem; text-transform: uppercase; }
+h1, h2, h3, h4 { color: var(--tui-text-primary); margin: 0; }
+h1 { font: var(--tui-font-heading-3); } h2 { font: var(--tui-font-heading-5); } h3 { font: var(--tui-font-heading-4); } h4 { font: var(--tui-font-heading-6); }
+.page-header__description, .section-heading p, .account-summary-card__hint { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .75rem 0 0; }
+.account-summary-grid { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-block-end: 3rem; }
+.account-summary-card, .account-list, .account-card { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-l); box-shadow: var(--tui-shadow-small); }
+.account-summary-card { display: flex; flex-direction: column; min-height: 8rem; padding: 1.5rem; }
+.account-summary-card__value { color: var(--tui-text-primary); font: var(--tui-font-heading-4); line-height: 1; margin-block-start: auto; }
+.account-list { padding: 1.5rem; }
+.section-heading { align-items: flex-start; display: flex; justify-content: space-between; margin-block-end: 1.5rem; }
+.account-cards { display: grid; gap: 1.5rem; }
+.account-card { box-shadow: none; overflow: hidden; padding: 0; }
+.account-card__summary { align-items: flex-start; cursor: pointer; display: flex; gap: 1rem; justify-content: space-between; list-style: none; padding: 1.5rem; }
+.account-card__summary::-webkit-details-marker, .account-detail-disclosure > summary::-webkit-details-marker { display: none; }
+.account-card__summary::after, .account-detail-disclosure > summary::after { color: var(--tui-text-action); content: '＋'; flex: 0 0 auto; font-size: 1.25rem; line-height: 1; }
+.account-card[open] > .account-card__summary::after, .account-detail-disclosure[open] > summary::after { content: '−'; }
+.account-card__summary-content { min-width: 0; }
+.account-id { color: var(--tui-text-tertiary); display: block; font: var(--tui-font-text-s); margin-block-end: .35rem; overflow-wrap: anywhere; }
+.account-card__summary h3 { font-size: 1.75rem; overflow-wrap: anywhere; }
+.account-card__meta { align-items: center; display: flex; flex-wrap: wrap; gap: .75rem; margin-block-start: .75rem; }
+.account-website, .account-detail-link { color: var(--tui-text-action); font: var(--tui-font-text-s); overflow-wrap: anywhere; }
+.account-card__body { border-block-start: 1px solid var(--tui-border-normal); }
+.account-detail-grid { display: grid; gap: 1.25rem; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 1.5rem; }
+.account-detail-disclosure { border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-m); min-width: 0; padding: 1rem 1.25rem; }
+.account-detail-disclosure--wide { grid-column: span 2; }
+.account-detail-disclosure > summary { align-items: center; cursor: pointer; display: flex; font: var(--tui-font-heading-6); justify-content: space-between; list-style: none; }
+.account-detail-disclosure dl { display: grid; gap: .75rem; margin: 1rem 0 0; }
+.account-detail-disclosure dl div { display: grid; gap: .75rem; grid-template-columns: minmax(7rem, auto) minmax(0, 1fr); }
+.account-detail-disclosure dt, .account-detail-disclosure dd { font: var(--tui-font-text-s); margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.account-detail-disclosure dt { color: var(--tui-text-tertiary); }
+.account-detail-disclosure dd { color: var(--tui-text-secondary); text-align: end; }
+.account-chips { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: flex-end; }
+.account-chips [tuiChip] { max-width: 100%; overflow-wrap: anywhere; }
+.account-detail-grid--footer { border-block-start: 1px solid var(--tui-border-normal); }
+.account-detail-block { min-width: 0; }
+.account-detail-block p { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .5rem 0 0; overflow-wrap: anywhere; }
+.state-message { background: var(--tui-background-neutral-1); color: var(--tui-text-secondary); margin: 0; padding: 2rem; text-align: center; }
+.state-message--error { color: var(--tui-text-negative); }
+@media (max-width: 48rem) { .accounts-page { padding-block: 2rem; } .account-summary-grid, .account-detail-grid { grid-template-columns: 1fr; } .account-detail-disclosure--wide { grid-column: auto; } .account-card__summary { flex-direction: column; } .account-detail-disclosure dl div { grid-template-columns: 1fr; gap: .25rem; } .account-detail-disclosure dd { text-align: start; } .account-chips { justify-content: flex-start; } }
