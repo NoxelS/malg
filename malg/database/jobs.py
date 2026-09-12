@@ -149,6 +149,7 @@ def cancel_job(session: Session, job_id: str, now: datetime) -> ResearchJob | No
     session.flush()
     return job
 
+
 def delete_job(session: Session, job_id: str) -> bool:
     """Delete a terminal job record; return ``False`` for absent or active work."""
     job = session.get(ResearchJob, job_id)

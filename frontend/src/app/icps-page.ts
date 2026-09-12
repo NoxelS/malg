@@ -2,6 +2,7 @@ import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angul
 import {HttpClient} from '@angular/common/http';
 import {RouterLink} from '@angular/router';
 import {forkJoin, map} from 'rxjs';
+import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge, TuiChip} from '@taiga-ui/kit';
 import {ChipListComponent} from './components/chip-list.component';
 import {DetailDisclosureComponent, ExpandableCardComponent} from './components/expandable-card.component';
@@ -51,8 +52,7 @@ interface ICP {
 }
 
 @Component({
-  selector: 'app-icps-page',
-  imports: [RouterLink, TuiBadge, TuiChip, ChipListComponent, DetailDisclosureComponent, ExpandableCardComponent, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
+  imports: [RouterLink, TuiButton, TuiBadge, TuiChip, ChipListComponent, DetailDisclosureComponent, ExpandableCardComponent, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
   templateUrl: './icps-page.html',
   styleUrl: './icps-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -61,9 +61,15 @@ export class IcpsPage implements OnInit {
   private readonly http = inject(HttpClient);
 
   protected readonly icps = signal<readonly ICP[]>([]);
-  protected readonly campaigns = signal<ReadonlyMap<string, CampaignReference>>(new Map());
+  protected readonly campaigns = signal<readonly CampaignReference[]>([]);
+  protected readonly campaignMap = signal<ReadonlyMap<string, CampaignReference>>(new Map());
   protected readonly loading = signal(true);
   protected readonly error = signal(false);
+  protected readonly researchDialogOpen = signal(false);
+  protected readonly selectedCampaignId = signal('');
+  protected readonly researchSubmitting = signal(false);
+  protected readonly researchError = signal('');
+  protected readonly researchSuccess = signal('');
 
   protected get campaignCount(): number {
     return new Set(this.icps().map((icp) => icp.campaign_id)).size;
@@ -76,7 +82,46 @@ export class IcpsPage implements OnInit {
   }
 
   protected campaignTitle(campaignId: string): string {
-    return this.campaigns().get(campaignId)?.title ?? campaignId;
+    return this.campaignMap().get(campaignId)?.title ?? campaignId;
+  }
+
+  protected openResearchDialog(): void {
+    this.researchError.set('');
+    this.researchDialogOpen.set(true);
+  }
+
+  protected closeResearchDialog(): void {
+    if (!this.researchSubmitting()) {
+      this.researchDialogOpen.set(false);
+      this.researchError.set('');
+    }
+  }
+
+  protected updateCampaign(event: Event): void {
+    this.selectedCampaignId.set((event.target as HTMLSelectElement).value);
+    this.researchError.set('');
+  }
+
+  protected queueResearchJob(): void {
+    const campaignId = this.selectedCampaignId();
+    if (!this.campaignMap().has(campaignId)) {
+      this.researchError.set('Select a loaded campaign before submitting.');
+      return;
+    }
+    this.researchSubmitting.set(true);
+    this.researchError.set('');
+    this.http.post('/api/v1/jobs', {kind: 'icp', campaign_id: campaignId}).subscribe({
+      next: () => {
+        this.researchSubmitting.set(false);
+        this.researchDialogOpen.set(false);
+        this.selectedCampaignId.set('');
+        this.researchSuccess.set('1 ICP research job queued.');
+      },
+      error: () => {
+        this.researchSubmitting.set(false);
+        this.researchError.set('ICP research job could not be queued.');
+      },
+    });
   }
 
   ngOnInit(): void {
@@ -87,7 +132,8 @@ export class IcpsPage implements OnInit {
       })),
     ).subscribe({
       next: ({campaigns, campaignMap}) => {
-        this.campaigns.set(campaignMap);
+        this.campaigns.set(campaigns);
+        this.campaignMap.set(campaignMap);
         if (!campaigns.length) {
           this.loading.set(false);
           return;

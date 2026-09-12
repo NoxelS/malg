@@ -1,6 +1,7 @@
 import {DatePipe} from '@angular/common';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
 import {HttpClient} from '@angular/common/http';
+import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge, TuiChip} from '@taiga-ui/kit';
 import {ChipListComponent} from './components/chip-list.component';
 import {DetailDisclosureComponent, ExpandableCardComponent} from './components/expandable-card.component';
@@ -52,19 +53,40 @@ interface Account {
   readonly updated_at: string;
 }
 
+interface CampaignReference {
+  readonly campaign_id: string;
+  readonly title: string;
+}
+
+interface ICPReference {
+  readonly icp_id: string;
+  readonly title: string;
+}
+
 @Component({
   selector: 'app-accounts-page',
-  imports: [DatePipe, TuiBadge, TuiChip, ChipListComponent, DetailDisclosureComponent, ExpandableCardComponent, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
+  imports: [DatePipe, TuiButton, TuiBadge, TuiChip, ChipListComponent, DetailDisclosureComponent, ExpandableCardComponent, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
   templateUrl: './accounts-page.html',
   styleUrl: './accounts-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AccountsPage implements OnInit {
   private readonly http = inject(HttpClient);
+  private icpRequest = 0;
 
   protected readonly accounts = signal<readonly Account[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal(false);
+  protected readonly campaigns = signal<readonly CampaignReference[]>([]);
+  protected readonly selectedCampaignId = signal('');
+  protected readonly icps = signal<readonly ICPReference[]>([]);
+  protected readonly selectedIcpId = signal('');
+  protected readonly icpsLoading = signal(false);
+  protected readonly icpError = signal('');
+  protected readonly researchDialogOpen = signal(false);
+  protected readonly researchSubmitting = signal(false);
+  protected readonly researchError = signal('');
+  protected readonly researchSuccess = signal('');
 
   protected get industryCount(): number {
     return new Set(this.accounts().flatMap((account) => account.firmographics.industries)).size;
@@ -72,6 +94,72 @@ export class AccountsPage implements OnInit {
 
   protected get operatingRegionCount(): number {
     return new Set(this.accounts().flatMap((account) => account.firmographics.operating_regions)).size;
+  }
+
+  protected openResearchDialog(): void {
+    this.researchError.set('');
+    this.researchDialogOpen.set(true);
+  }
+
+  protected closeResearchDialog(): void {
+    if (!this.researchSubmitting()) {
+      this.researchDialogOpen.set(false);
+      this.researchError.set('');
+    }
+  }
+
+  protected updateCampaign(event: Event): void {
+    const campaignId = (event.target as HTMLSelectElement).value;
+    const requestId = ++this.icpRequest;
+    this.selectedCampaignId.set(campaignId);
+    this.selectedIcpId.set('');
+    this.icps.set([]);
+    this.icpError.set('');
+    this.icpsLoading.set(Boolean(campaignId));
+    if (!campaignId) return;
+    this.http.get<readonly ICPReference[]>(`/api/v1/campaigns/${campaignId}/icps`).subscribe({
+      next: (icps) => {
+        if (requestId !== this.icpRequest || campaignId !== this.selectedCampaignId()) return;
+        this.icps.set(icps);
+        this.icpsLoading.set(false);
+      },
+      error: () => {
+        if (requestId !== this.icpRequest || campaignId !== this.selectedCampaignId()) return;
+        this.icpsLoading.set(false);
+        this.icpError.set('ICPs could not be loaded for this campaign.');
+      },
+    });
+  }
+
+  protected updateIcp(event: Event): void {
+    this.selectedIcpId.set((event.target as HTMLSelectElement).value);
+    this.researchError.set('');
+  }
+
+  protected queueResearchJob(): void {
+    const campaignId = this.selectedCampaignId();
+    const icpId = this.selectedIcpId();
+    if (!this.campaigns().some((campaign) => campaign.campaign_id === campaignId) ||
+      !this.icps().some((icp) => icp.icp_id === icpId)) {
+      this.researchError.set('Select a loaded campaign and ICP before submitting.');
+      return;
+    }
+    this.researchSubmitting.set(true);
+    this.researchError.set('');
+    this.http.post('/api/v1/jobs', {kind: 'account', campaign_id: campaignId, icp_id: icpId}).subscribe({
+      next: () => {
+        this.researchSubmitting.set(false);
+        this.researchDialogOpen.set(false);
+        this.selectedCampaignId.set('');
+        this.selectedIcpId.set('');
+        this.icps.set([]);
+        this.researchSuccess.set('1 account research job queued.');
+      },
+      error: () => {
+        this.researchSubmitting.set(false);
+        this.researchError.set('Account research job could not be queued.');
+      },
+    });
   }
 
   ngOnInit(): void {
@@ -84,6 +172,10 @@ export class AccountsPage implements OnInit {
         this.error.set(true);
         this.loading.set(false);
       },
+    });
+    this.http.get<readonly CampaignReference[]>('/api/v1/campaigns').subscribe({
+      next: (campaigns) => this.campaigns.set(campaigns),
+      error: () => this.campaigns.set([]),
     });
   }
 }

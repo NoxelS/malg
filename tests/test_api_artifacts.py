@@ -100,6 +100,68 @@ def test_campaign_research_batch_is_bounded_and_persisted() -> None:
     assert len(client.get("/api/v1/jobs", params={"status": "queued"}).json()) == 3
 
 
+def test_generic_jobs_validate_and_persist_selected_scopes() -> None:
+    """Queue ICP and account jobs only for existing parent scopes."""
+    engine = _engine()
+    client = TestClient(create_app(database_engine=engine))
+    campaign = campaign_payload()
+    icp = _icp("manufacturing-ops", "Incident intake").model_dump(mode="json")
+
+    assert client.post("/api/v1/campaigns", json=campaign).status_code == 201
+    assert (
+        client.post(f"/api/v1/campaigns/{campaign['campaign_id']}/icps", json=icp).status_code
+        == 201
+    )
+
+    icp_job = client.post(
+        "/api/v1/jobs",
+        json={"kind": "icp", "campaign_id": campaign["campaign_id"]},
+    )
+    assert icp_job.status_code == 202
+    assert icp_job.json()["status"] == "queued"
+    assert icp_job.json()["kind"] == "icp"
+    assert {key: icp_job.json()[key] for key in ("campaign_id", "icp_id")} == {
+        "campaign_id": campaign["campaign_id"],
+        "icp_id": None,
+    }
+
+    account_job = client.post(
+        "/api/v1/jobs",
+        json={
+            "kind": "account",
+            "campaign_id": campaign["campaign_id"],
+            "icp_id": icp["icp_id"],
+        },
+    )
+    assert account_job.status_code == 202
+    assert account_job.json()["status"] == "queued"
+    assert account_job.json()["kind"] == "account"
+    assert {key: account_job.json()[key] for key in ("campaign_id", "icp_id")} == {
+        "campaign_id": campaign["campaign_id"],
+        "icp_id": icp["icp_id"],
+    }
+
+    assert (
+        client.post(
+            "/api/v1/jobs",
+            json={"kind": "icp", "campaign_id": "unknown-campaign"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/jobs",
+            json={
+                "kind": "account",
+                "campaign_id": "wrong-campaign",
+                "icp_id": icp["icp_id"],
+            },
+        ).status_code
+        == 404
+    )
+    assert len(client.get("/api/v1/jobs", params={"status": "queued"}).json()) == 2
+
+
 def test_jobs_overview_lists_all_lifecycle_records_and_cancels_queued_only() -> None:
     """The jobs overview preserves durable records and the queued-only action boundary."""
     engine = _engine()
@@ -157,4 +219,3 @@ def test_jobs_overview_lists_all_lifecycle_records_and_cancels_queued_only() -> 
     assert cancelled.json()["status"] == "cancelled"
     assert client.post("/api/v1/jobs/queued-job/cancel", json={}).status_code == 409
     assert client.post("/api/v1/jobs/running-job/cancel", json={}).status_code == 409
-
