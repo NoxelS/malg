@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Checks and image builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.9.22"
+          enable-cache: true
+
+      - name: Run checks
+        run: make check
+
+      - name: Validate backend build context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .dockerignore
+          for path in user.config.toml .env memory results; do
+            if git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
+              echo "runtime data or user configuration is tracked: $path" >&2
+              exit 1
+            fi
+          done
+          grep -Fxq 'user.config.toml' .dockerignore
+          grep -Fxq 'memory' .dockerignore
+          grep -Fxq 'results' .dockerignore
+
+      - name: Validate frontend build context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f frontend/.dockerignore
+          test ! -e frontend/user.config.toml
+          test ! -e frontend/.env
+          grep -Fxq 'node_modules' frontend/.dockerignore
+          grep -Fxq 'dist' frontend/.dockerignore
+
+      - name: Build backend image without pushing
+        run: docker build --file docker/Dockerfile --tag malg:ci .
+
+      - name: Build frontend image without pushing
+        run: docker build --file frontend/Dockerfile --tag malg-frontend:ci frontend
+
+  postgres-integration:
+    name: PostgreSQL and pgvector integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: malg
+          POSTGRES_PASSWORD: malg
+          POSTGRES_DB: malg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U malg -d malg"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.9.22"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Apply PostgreSQL migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://malg:malg@127.0.0.1:5432/malg
+        run: uv run alembic upgrade head
+
+      - name: Run PostgreSQL memory and API integration tests
+        env:
+          DATABASE_URL: postgresql+psycopg://malg:malg@127.0.0.1:5432/malg
+        run: uv run pytest tests/test_api_artifacts.py tests/test_persistent_memory_support.py -q

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,8 +28,6 @@ from malg.database.artifacts import persist_account_candidate
 from malg.database.models import ICP, Account, Campaign
 from malg.database.session import make_engine, make_session_factory
 from malg.utils.console_progress import ConsoleProgress
-
-CAMPAIGN_PATH = Path("results/campaigns/1.json")
 
 
 def load_first_persisted_icp(
@@ -91,19 +88,14 @@ async def find_one_campaign() -> CampaignCandidate:
         close_persistent_memory(agent)
 
 
-def load_saved_campaign(path: Path = CAMPAIGN_PATH) -> CampaignCandidate:
-    """Load and validate the explicit campaign artifact used by the ICP smoke run."""
-    return CampaignCandidate.model_validate(json.loads(path.read_text(encoding="utf-8")))
-
-
 async def find_ten_icps(
-    campaign: CampaignCandidate | None = None,
+    campaign: CampaignCandidate,
     *,
+    session: Session | None = None,
     on_accepted: Callable[[ICPResult], None] | None = None,
 ) -> ICPBatchResult:
-    """Research the next configured ICP batch for a saved or supplied campaign."""
-    return await research_icps(campaign or load_saved_campaign(), on_accepted=on_accepted)
-
+    """Research the next configured ICP batch for a supplied durable campaign."""
+    return await research_icps(campaign, session=session, on_accepted=on_accepted)
 
 async def main() -> None:
     """Research, validate, and persist one account for the first stored ICP."""

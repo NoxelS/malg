@@ -2,50 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import os
-import re
-import tempfile
-from pathlib import Path
-
 from pydantic import BaseModel
 
 from malg.core.models.account import AccountProfile
-from malg.core.models.icp import ICPBatchResult, ICPResult
-
-SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
-
-
-def _validate_id(value: str) -> str:
-    if not SAFE_ID.fullmatch(value):
-        raise ValueError(f"Unsafe result identifier: {value!r}")
-    return value
-
-
-def _atomic_write(path: Path, content: str, *, overwrite: bool = False) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and not overwrite:
-        raise FileExistsError(f"Refusing to overwrite existing result: {path}")
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", dir=path.parent, text=True
-    )
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary_name, path)
-    except BaseException:
-        Path(temporary_name).unlink(missing_ok=True)
-        raise
-    return path
-
-
-def write_json_result(value: BaseModel, path: Path, *, overwrite: bool = False) -> Path:
-    payload = value.model_dump(mode="json")
-    return _atomic_write(
-        path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", overwrite=overwrite
-    )
+from malg.core.models.icp import ICPResult
 
 
 def _bullets(values: list[str]) -> str:
@@ -146,65 +106,10 @@ def render_icp_markdown(icp: ICPResult) -> str:
     return "\n".join(sections).rstrip() + "\n"
 
 
-def write_icp_result(
-    icp: ICPResult, output_root: Path, *, overwrite: bool = False
-) -> tuple[Path, Path]:
-    """Persist canonical JSON and its Markdown rendering using trusted identifiers."""
-    campaign_id = _validate_id(icp.campaign_id)
-    markdown_path = output_root / "ICP" / f"{campaign_id}.md"
-    json_path = output_root / "ICP" / f"{campaign_id}.json"
-    if not overwrite and (markdown_path.exists() or json_path.exists()):
-        raise FileExistsError(f"Refusing to overwrite existing ICP for {campaign_id}.")
-
-    # JSON is canonical; write it first. A later Markdown failure remains recoverable.
-    write_json_result(icp, json_path, overwrite=overwrite)
-    _atomic_write(markdown_path, render_icp_markdown(icp), overwrite=overwrite)
-    return json_path, markdown_path
 
 
-def render_icp_batch_markdown(batch: ICPBatchResult) -> str:
-    """Render one ICP batch and its accepted identities for quick human review."""
-    sections = [
-        "# ICP research batch\n\n"
-        f"**Campaign ID:** `{batch.campaign_id}`  \n"
-        f"**Run ID:** `{batch.run_id}`  \n"
-        f"**Requested / accepted:** {batch.requested_count} / {len(batch.icps)}\n",
-        _section(
-            "Accepted ICPs",
-            "\n".join(
-                f"- **{icp.icp_id}:** {icp.title} — `{icp.identity.segment_key()}`"
-                for icp in batch.icps
-            )
-            or "- None accepted",
-        ),
-        _section(
-            "Rejected attempts",
-            "\n".join(
-                f"- Attempt {rejection.attempt}: {rejection.reason}"
-                for rejection in batch.rejections
-            )
-            or "- None",
-        ),
-    ]
-    if batch.exhaustion_reason:
-        sections.append(_section("Partial batch reason", batch.exhaustion_reason))
-    return "\n".join(sections).rstrip() + "\n"
 
 
-def write_icp_batch_result(batch: ICPBatchResult, output_root: Path) -> tuple[Path, Path]:
-    """Persist a batch and each accepted ICP without overwriting an earlier run."""
-    campaign_id = _validate_id(batch.campaign_id)
-    run_id = _validate_id(batch.run_id)
-    base_dir = output_root / "icps" / campaign_id / run_id
-    json_path = base_dir / "batch.json"
-    markdown_path = base_dir / "batch.md"
-    write_json_result(batch, json_path)
-    _atomic_write(markdown_path, render_icp_batch_markdown(batch))
-    for icp in batch.icps:
-        icp_id = _validate_id(icp.icp_id)
-        write_json_result(icp, base_dir / f"{icp_id}.json")
-        _atomic_write(base_dir / f"{icp_id}.md", render_icp_markdown(icp))
-    return json_path, markdown_path
 
 
 def render_account_profile_markdown(profile: AccountProfile) -> str:
@@ -252,22 +157,3 @@ def render_account_profile_markdown(profile: AccountProfile) -> str:
     return "\n".join(sections).rstrip() + "\n"
 
 
-def write_account_profile_result(
-    profile: AccountProfile, output_root: Path, *, overwrite: bool = False
-) -> tuple[Path, Path]:
-    """Persist canonical JSON and Markdown for one unpersisted account candidate."""
-    campaign_id = _validate_id(profile.campaign_id)
-    icp_id = _validate_id(profile.icp_id)
-    safe_name = re.sub(r"[^a-z0-9\-]", "-", profile.identity.display_name.lower()).strip("-")
-    safe_name = safe_name[:80] or "unnamed"
-    base_dir = output_root / "accounts" / campaign_id / icp_id
-    json_path = base_dir / f"candidate_{safe_name}.json"
-    md_path = base_dir / f"candidate_{safe_name}.md"
-    if not overwrite and (json_path.exists() or md_path.exists()):
-        raise FileExistsError(
-            f"Refusing to overwrite existing account candidate for {profile.identity.display_name}."
-        )
-
-    write_json_result(profile, json_path, overwrite=overwrite)
-    _atomic_write(md_path, render_account_profile_markdown(profile), overwrite=overwrite)
-    return json_path, md_path

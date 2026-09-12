@@ -1,20 +1,11 @@
-"""Scoped, durable NOOA memory for MALG research agents.
-
-Each agent type receives an independent SQLite database.  The database path is
-selected by the host, not generated code: Compose mounts a named volume at
-``/memory`` and supplies ``MALG_MEMORY_DIRECTORY``.  This POC deliberately
-uses only explicit memory operations; it does not inject memories, auto-write
-events, or run reflection in the background.
-"""
+"""Scoped, durable NOOA memory for MALG research agents in PostgreSQL."""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any, ClassVar, cast
 from urllib.parse import urlparse
 
-from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dynamically.
+from nooa import Agent  # type: ignore[attr-defined]
 from nooa_memory import (
     ForgetPolicy,
     MemoryConfig,
@@ -24,38 +15,61 @@ from nooa_memory import (
     SpontaneousConfig,
     WritePolicy,
 )
+from sqlalchemy.orm import Session, sessionmaker
 
+from malg.database.memory import PostgresMemoryStore
+from malg.database.session import make_engine, make_session_factory
 from malg.utils.console_progress import ConsoleProgress
 
 
-class PersistentMemorySupport(MemoryToolsMixin, Agent):
-    """Give one agent type explicit long-term memory in its own SQLite file.
+class PostgresMemoryManager(MemoryManager):
+    """NOOA manager using MALG's shared PostgreSQL memory store."""
 
-    Subclasses must set a stable, lowercase ``memory_scope``.  A scope selects
-    both the SQLite file and NOOA owner, preventing one agent type from
-    recalling another type's research in this proof of concept.
+    def __init__(
+        self,
+        agent: Agent,
+        config: MemoryConfig | None = None,
+        *,
+        session_factory: sessionmaker[Session],
+        **kwargs: Any,
+    ) -> None:
+        self._session_factory = session_factory
+        super().__init__(agent, config, **kwargs)
+
+    def _make_store(self, agent: Agent) -> PostgresMemoryStore:
+        """Create a store after validating the configured embedder dimension."""
+        return PostgresMemoryStore(self._session_factory, embedding_dim=self.embedder.dim)
+
+
+class PersistentMemorySupport(MemoryToolsMixin, Agent):
+    """Give one agent type scoped durable memory in PostgreSQL.
+
+    Callers may provide an existing ``session_factory`` or ``database_url``.
+    The store owns no durable local files and uses ``memory_scope`` as owner.
     """
 
     memory_scope: ClassVar[str]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Construct the NOOA agent and install its scoped memory manager."""
+        """Construct the agent and install its PostgreSQL memory manager."""
+        session_factory = cast(sessionmaker[Session] | None, kwargs.pop("session_factory", None))
+        database_url = cast(str | None, kwargs.pop("database_url", None))
         super().__init__(*args, **kwargs)
         scope = self._validated_memory_scope()
         self._memory_progress: ConsoleProgress | None = None
-        directory = Path(os.environ.get("MALG_MEMORY_DIRECTORY", "/tmp/malg-memory"))
-        directory.mkdir(parents=True, exist_ok=True)
-        MemoryManager.install(
+        if session_factory is None:
+            session_factory = make_session_factory(make_engine(database_url))
+        PostgresMemoryManager.install(
             self,
             config=MemoryConfig(
                 enabled=True,
-                path=str(directory / f"{scope}.sqlite"),
                 owner=scope,
                 spontaneous=SpontaneousConfig(enabled=False),
                 reflection=ReflectionPolicy(enabled=False),
                 write=WritePolicy(on_events=()),
                 forget=ForgetPolicy(enabled=False),
             ),
+            session_factory=session_factory,
         )
 
     def _set_memory_progress(self, progress: ConsoleProgress) -> None:

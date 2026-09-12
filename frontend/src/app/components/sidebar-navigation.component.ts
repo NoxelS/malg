@@ -231,5 +231,6 @@ export class SidebarNavigationComponent {
     {path: '/accounts', name: 'Accounts', description: 'Organization profiles and firmographics.', icon: '□'},
     {path: '/icps', name: 'ICP Overview', description: 'Ideal customer segments and buying context.', icon: '△'},
     {path: '/jobs', name: 'Jobs', description: 'Queued work and recent outcomes.', icon: '◍'},
+    {path: '/memory', name: 'Memory', description: 'Durable agent findings and recall history.', icon: '◆'},
   ];
 }

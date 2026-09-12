@@ -14,6 +14,9 @@ def test_persistence_schema_uses_postgresql_jsonb_and_account_relationships() ->
         "account_matches",
         "account_validation_runs",
         "accounts",
+        "agent_memories",
+        "agent_memory_edges",
+        "agent_memory_maintenance",
         "campaigns",
         "communication_endpoints",
         "contacts",
@@ -23,6 +26,10 @@ def test_persistence_schema_uses_postgresql_jsonb_and_account_relationships() ->
         "worker_heartbeats",
     }
     assert "JSONB" in str(CreateTable(tables["campaigns"]).compile(dialect=postgresql.dialect()))
+    memory_ddl = str(
+        CreateTable(tables["agent_memories"]).compile(dialect=postgresql.dialect())
+    )
+    assert "VECTOR(256)" in memory_ddl
     icp_ddl = str(CreateTable(tables["icps"]).compile(dialect=postgresql.dialect()))
     assert (
         "FOREIGN KEY(campaign_id) REFERENCES campaigns (campaign_id) ON DELETE CASCADE" in icp_ddl

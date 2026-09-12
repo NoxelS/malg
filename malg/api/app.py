@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from importlib.metadata import version as distribution_version
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -27,7 +28,7 @@ def create_app(*, database_engine: Engine | None = None) -> FastAPI:
     """
     engine = database_engine or make_engine()
     sessions = make_session_factory(engine)
-    app = FastAPI(title="MALG API", version="1.0.0")
+    app = FastAPI(title="MALG API", version=distribution_version("malg"))
     app.state.database_engine = engine
 
     def configured_session() -> Generator[Session]:

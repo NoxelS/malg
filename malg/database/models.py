@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -326,3 +327,57 @@ class WorkerHeartbeat(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AgentMemory(Base):
+    """Durable NOOA memory record stored in PostgreSQL."""
+
+    __tablename__ = "agent_memories"
+    __table_args__ = (
+        Index("ix_agent_memories_owner_archived", "owner", "archived"),
+        Index("ix_agent_memories_content", "content"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    importance: Mapped[float] = mapped_column(nullable=False)
+    salience: Mapped[float] = mapped_column(nullable=False)
+    strength: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[float] = mapped_column(nullable=False)
+    last_accessed_at: Mapped[float] = mapped_column(nullable=False)
+    access_count: Mapped[int] = mapped_column(nullable=False)
+    archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+    owner: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    status: Mapped[str | None] = mapped_column(String(16))
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(256).with_variant(JSON, "sqlite"), nullable=True
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False)
+
+
+class AgentMemoryEdge(Base):
+    """Directed typed association; targets may be dangling."""
+
+    __tablename__ = "agent_memory_edges"
+    __table_args__ = (
+        UniqueConstraint("source_id", "target_id", "type", name="uq_agent_memory_edges"),
+        Index("ix_agent_memory_edges_source", "source_id"),
+        Index("ix_agent_memory_edges_target", "target_id"),
+    )
+    source_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    target_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    type: Mapped[str] = mapped_column(String(32), primary_key=True)
+    weight: Mapped[float] = mapped_column(nullable=False)
+    created_at: Mapped[float] = mapped_column(nullable=False)
+
+
+class AgentMemoryMaintenance(Base):
+    """Append-only maintenance reports for the memory subsystem."""
+
+    __tablename__ = "agent_memory_maintenance"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ts: Mapped[float] = mapped_column(nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    report: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False)

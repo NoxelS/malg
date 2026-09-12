@@ -40,3 +40,4 @@
   completed Python work. Report what validation proves and what it does not.
 - Do not alter generated files, lockfiles, infrastructure, or external systems
   unless explicitly required.
+- Use conventional commits when committing.

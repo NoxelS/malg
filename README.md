@@ -103,46 +103,44 @@ leads, or prospects; it does not create ICPs, messages, rankings, or quotas.
 
 ## Persistent campaign-research memory
 
-Campaign research has an explicit, durable NOOA memory. The agent can recall, search,
-refine, archive, and associate its own findings, and `remember_source()` stores a concise
-finding with a direct HTTP(S) source URL and optional Eurostat dataset code. Memory is scoped
-per agent type: campaign research uses only `campaign-research.sqlite`; other agent types do
-not share or recall it.
+Campaign research has explicit, durable NOOA memory backed by PostgreSQL. The agent can recall,
+search, refine, archive, and associate its own findings, and `remember_source()` stores a concise
+finding with a direct HTTP(S) source URL and optional Eurostat dataset code. Memory is scoped per
+agent type and persists across API and worker restarts; no repository memory directory or SQLite
+memory files are used.
 
-The Docker POC bind-mounts the repository's gitignored `memory/` directory at
-`/app/.nooa/memory`, so you can inspect its SQLite files locally (for example,
-`memory/campaign-research.sqlite`). A tracked `.gitkeep` preserves the empty directory, while
-generated memory remains untracked. It is made writable for the unprivileged MALG user before
-each `make up`. This POC uses explicit operations only: it does not auto-write events, inject
-recalled content automatically, or run reflection.
+The local Compose stack stores PostgreSQL state in its named `postgres-data` volume. Apply
+migrations before using the API or workers:
 
-The trace viewer receives the same directory at `/app/.nooa/memory`, which is its discovery path
-for the Memory tab. NOOA memory events identify the originating database with that same path. The
-viewer serves read-only routes, though NOOA performs an idempotent schema check when it first
-opens a database. Recreate the tools with `make restart-tools` after changing the mount.
+```bash
+docker compose -f docker/compose.yaml up -d postgres
+DATABASE_URL=postgresql+psycopg://malg:malg-local-password@localhost:5432/malg \
+  uv run alembic upgrade head
+```
+
+The read-only Memory page is available at `/memory` when the frontend is running. The trace
+viewer uses a temporary database and does not inspect agent memory storage.
 
 ## ICP batches with durable non-overlap
 
-`ICPResearchAgent` is stateless between runs. The separate `icp-history.sqlite` ledger is the
-authoritative campaign-scoped record: it atomically claims an ICP's structured segment identity
-(industry, geography, size, workflow, buyer, deployment posture) before results are published.
-The ledger guarantees that a restarted run does not accept the same identity again.
+`ICPResearchAgent` is stateless between runs. PostgreSQL uniqueness constraints are the sole
+durable authority for campaign-scoped deduplication, so a restarted run cannot accept the same
+structured segment identity again.
 
 The host generates ICPs with at most three concurrent agent calls by default, validates each one,
 and retries duplicates up to the configured limit. `[default.icp]` configures `batch_size`,
-`concurrency`, attempt limits, bounded exclusion cards, and `output_root`; `MALG_ICP__...`
-environment variables override those settings. Batches are written under
-`results/icps/<campaign-id>/<run-id>/`.
+`concurrency`, attempt limits, and bounded exclusion cards; `MALG_ICP__...` environment variables
+override those settings. Accepted campaigns and ICPs are persisted in PostgreSQL rather than
+written to result files.
 
 Each `research_one` call uses five smaller structured generations: segment identity, operations,
 evidence and fit, buyer signals, then entry planning. Python assembles those validated sections
 into the canonical `ICPResult` and rechecks cross-section evidence references. This avoids
 requiring the model endpoint to produce the complete 19-definition ICP schema in one response.
 
-## Saved-campaign ICP entry point
+## Campaign ICP entry point
 
-The entry point validates `results/campaigns/1.json` and requests the next ten distinct ICPs for
-that campaign. A fresh invocation consults the durable ledger and asks for another ten:
+The CLI operates on campaigns persisted in PostgreSQL. Configure `DATABASE_URL` and run:
 
 ```bash
 uv run python -m malg
@@ -154,12 +152,11 @@ Requires Python 3.12 or 3.13.
 
 ```bash
 uv sync --group dev
-cp default.config.toml user.config.toml
 ```
 
-Set the key in the gitignored `user.config.toml`, or use `MALG_LLM__API_KEY` in `.env` or the
-shell. `user.config.toml` can override only the fields you need, for example an
-OpenAI-compatible endpoint:
+Set `MALG_LLM__API_KEY` and other settings in the local ignored `.env`, or export them in the
+shell. Container services receive configuration exclusively from environment variables; no user
+configuration file is copied into or mounted into an image. For an OpenAI-compatible endpoint:
 
 ```toml
 [default.llm]
@@ -191,9 +188,8 @@ request client.
 Configuration precedence is:
 
 1. `default.config.toml`
-2. `user.config.toml`
-3. `.env`
-4. exported environment variables
+2. `.env`
+3. exported environment variables
 
 Environment overrides use the `MALG_` prefix. For example,
 `MALG_LLM__MODEL=another-model` overrides the model without modifying a file.
@@ -229,8 +225,8 @@ with `MALG_POSTGRES_DB`, `MALG_POSTGRES_USER`, and `MALG_POSTGRES_PASSWORD` befo
 
 ## Frontend
 
-`frontend/` is a standalone Angular application using Taiga UI. It currently provides a small
-welcome page only; it does not call the API or implement authentication.
+`frontend/` is a standalone Angular application using Taiga UI. The read-only Memory page loads
+durable records from the same-origin `/api/v1/memories` endpoint.
 
 Start it locally with:
 
@@ -245,25 +241,19 @@ Or build and serve the production image at <http://127.0.0.1:4200>:
 make frontend-up
 ```
 
-After configuring a reachable endpoint and its key, run the bounded saved-campaign ICP smoke test:
-
-```bash
-uv run python -m malg
-```
 
 NOOA generation methods can execute LLM-generated Python. Run the live smoke test only in an
 appropriately isolated environment.
 
 ## Sandboxed NOOA smoke test
 
-The `docker/compose.yaml` service mounts the gitignored `user.config.toml` read-only and exposes
-only `results/` as a writable host-data mount. The smoke agent has no Docker socket access, Linux
-capabilities, writable image filesystem, or root user. Its other writable locations are
-size-limited `tmpfs` mounts. It also limits the process count, memory, and CPU.
-Docker's default seccomp and (on Linux hosts) AppArmor profiles remain in force.
+Backend, worker, and trace-viewer Compose services run as UID 65532 with read-only image
+filesystems, all Linux capabilities dropped, and bounded writable `tmpfs` mounts for `/tmp` and
+`/home/malg`. They do not mount repository memory, results, or user configuration paths. Docker's
+default seccomp and (on Linux hosts) AppArmor profiles remain in force.
 
-From the repository root, configure `user.config.toml` as described in [Setup](#setup), then
-start the detached browser and trace tools:
+Configure secrets through environment variables or a local ignored `.env`, then start the detached
+browser and trace tools:
 
 ```bash
 make restart-tools
@@ -297,3 +287,21 @@ It has no authentication layer, so keep it private to the Compose network. Light
 needs outbound access to browse the web; use a dedicated egress proxy or network policy before
 treating that traffic as allowlisted. The image currently follows Lightpanda's `nightly` channel;
 pin it to a reviewed digest before production deployment.
+
+## Production images and GitHub configuration
+
+MALG publishes the immutable backend image `ghcr.io/noxels/malg` and standalone frontend image
+`ghcr.io/noxels/malg-frontend`. Flux should consume a release tag such as `v0.2.0` together with
+the digest recorded in that GitHub Release; the workflows also publish the exact commit-SHA tag.
+There is intentionally no mutable `latest` tag. The backend image runs the API with
+`uvicorn malg.api.app:app --host 0.0.0.0 --port 8000` or the worker with `python -m malg.worker`.
+
+Before enabling releases, grant GitHub Actions repository contents write permission and configure
+the Actions release actor (`github-actions[bot]`, or the configured GitHub App/bot token) to bypass
+main branch protection for its generated version commit. The release workflow runs only for a
+merged pull request targeting `main`, increments `pyproject.toml` from `0.<minor>.0` to the next
+minor, then creates the matching annotated tag. It does not run for unmerged pull requests.
+
+Grant Flux pull access to both GHCR packages, or make the packages public. Cluster configuration
+owns image selection, digest pinning, and rollout; this repository does not apply Kubernetes
+resources.

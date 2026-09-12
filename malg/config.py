@@ -67,13 +67,12 @@ class EurostatConfig:
 
 @dataclass(frozen=True)
 class ICPConfig:
-    """Host-owned limits and output settings for ICP batch research."""
+    """Host-owned limits for ICP batch research."""
 
     batch_size: int
     concurrency: int
     max_attempts_per_slot: int
     max_exclusion_cards: int
-    output_root: Path
 
 
 @dataclass(frozen=True)
@@ -337,14 +336,10 @@ def get_icp_config(settings: Dynaconf) -> ICPConfig:
         names = ", ".join(invalid_fields)
         raise ValueError(f"ICP configuration field(s) must be positive integers: {names}.")
 
-    output_root = icp.get("output_root")
-    if not isinstance(output_root, str) or not output_root:
-        raise ValueError("ICP configuration field output_root must be a non-empty string.")
 
     return ICPConfig(
         batch_size=icp["batch_size"],
         concurrency=icp["concurrency"],
         max_attempts_per_slot=icp["max_attempts_per_slot"],
         max_exclusion_cards=icp["max_exclusion_cards"],
-        output_root=Path(output_root),
     )

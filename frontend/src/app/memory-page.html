@@ -1,0 +1,62 @@
+<app-page-layout>
+  <app-page-header eyebrow="Operations" title="Memory" description="Durable agent findings and recall history." />
+
+  <div class="memory-toolbar">
+    <label class="archive-toggle">
+      <input type="checkbox" [checked]="includeArchived()" (change)="toggleArchived($event)" />
+      <span>Include archived</span>
+    </label>
+    @if (!loading() && !error() && memories().length) {
+      <span class="memory-count">{{ memories().length }} of {{ total() }}</span>
+    }
+  </div>
+
+  @if (loading()) {
+    <app-state-message message="Loading memories…" />
+  } @else if (error()) {
+    <app-state-message message="Memories could not be loaded right now." tone="error" />
+  } @else if (!memories().length) {
+    <app-state-message message="No durable memories yet." />
+  } @else {
+    <section class="memory-list" aria-label="Durable memories">
+      @for (memory of memories(); track memory.id) {
+        <article class="memory-card" [class.memory-card--archived]="memory.archived">
+          <header class="memory-card__header">
+            <div class="memory-card__identity">
+              <span class="memory-card__eyebrow">{{ memory.type }}</span>
+              <h2 [title]="memory.id">{{ memory.id }}</h2>
+            </div>
+            @if (memory.archived) { <span tuiBadge appearance="secondary">Archived</span> }
+          </header>
+
+          <p class="memory-content">{{ memory.content }}</p>
+          <dl class="memory-meta">
+            <div><dt>Owner</dt><dd>{{ memory.owner }}</dd></div>
+            <div><dt>Importance</dt><dd>{{ memory.importance }}</dd></div>
+            <div><dt>Created</dt><dd>{{ memory.created_at | date:'medium' }}</dd></div>
+            @if (memory.status) { <div><dt>Todo status</dt><dd>{{ memory.status }}</dd></div> }
+            @if (memory.salience !== undefined) { <div><dt>Salience</dt><dd>{{ memory.salience }}</dd></div> }
+            @if (memory.strength !== undefined) { <div><dt>Strength</dt><dd>{{ memory.strength }}</dd></div> }
+          </dl>
+          @if (memory.tags.length) {
+            <div class="memory-tags" aria-label="Tags">
+              @for (tag of memory.tags; track tag) { <span tuiBadge appearance="secondary">{{ tag }}</span> }
+            </div>
+          }
+          @if (memory.edges?.length || memory.references?.length) {
+            <details class="memory-details">
+              <summary>Associations and references</summary>
+              @if (memory.edges?.length) { <p><strong>Edges</strong> <code>{{ memory.edges | json }}</code></p> }
+              @if (memory.references?.length) { <p><strong>References</strong> <code>{{ memory.references | json }}</code></p> }
+            </details>
+          }
+        </article>
+      }
+    </section>
+    @if (memories().length < total()) {
+      <button class="load-more" type="button" (click)="loadMore()" [disabled]="loadingMore()">
+        {{ loadingMore() ? 'Loading…' : 'Load more' }}
+      </button>
+    }
+  }
+</app-page-layout>
