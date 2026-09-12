@@ -6,8 +6,8 @@ on:
     branches: [main]
 
 permissions:
+  actions: write
   contents: write
-
 concurrency:
   group: release-main
   cancel-in-progress: false
@@ -77,3 +77,9 @@ jobs:
         run: |
           git push origin HEAD:main
           git push origin "v$VERSION"
+
+      - name: Trigger image publishing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh workflow run publish-images.yml --ref "v$VERSION"
