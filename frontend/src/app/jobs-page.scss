@@ -1,0 +1,25 @@
+:host { display: block; }
+
+.cancel-error { background: var(--tui-background-negative); color: var(--tui-text-negative); margin: 0 0 1.5rem; padding: 1rem 1.25rem; }
+.job-list { display: grid; gap: 1rem; }
+.job-card { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-inline-start: .3rem solid var(--tui-border-normal); border-radius: var(--tui-radius-l); box-shadow: var(--tui-shadow-small); min-width: 0; padding: 1.5rem; }
+.job-card.queued { border-inline-start-color: var(--tui-text-action); }
+.job-card.running { border-inline-start-color: var(--tui-text-positive); }
+.job-card.succeeded { border-inline-start-color: var(--tui-text-positive); }
+.job-card.failed { border-inline-start-color: var(--tui-text-negative); }
+.job-card.cancelled { border-inline-start-color: var(--tui-text-tertiary); }
+.job-card__header { align-items: flex-start; display: flex; gap: 1rem; justify-content: space-between; }
+.job-card__identity { min-width: 0; }
+.job-card__eyebrow { color: var(--tui-text-action); font: var(--tui-font-text-s); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+h2 { color: var(--tui-text-primary); font: var(--tui-font-heading-5); margin: .5rem 0 0; overflow-wrap: anywhere; }
+.job-status { flex: 0 0 auto; text-transform: capitalize; }
+.job-meta { display: grid; gap: 1rem 2rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 1.5rem 0; }
+.job-meta div { min-width: 0; }
+dt { color: var(--tui-text-tertiary); font: var(--tui-font-text-s); }
+dd { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .25rem 0 0; overflow-wrap: anywhere; }
+.job-failure { border-block-start: 1px solid var(--tui-border-normal); color: var(--tui-text-negative); display: grid; gap: .35rem; margin: 0 0 1.25rem; padding-block-start: 1.25rem; overflow-wrap: anywhere; }
+.job-failure strong { font: var(--tui-font-text-s); text-transform: uppercase; }
+@media (max-width: 48rem) {
+  .job-card__header { flex-direction: column; }
+  .job-meta { grid-template-columns: 1fr; }
+}

@@ -12,12 +12,13 @@ from sqlalchemy.orm import Session
 from malg.api.routers.artifacts import SessionDependency, _campaign_or_404, _icp_or_404
 from malg.core.models.jobs import (
     AccountResearchJobRequest,
+    CampaignResearchJobBatchRequest,
     ICPResearchJobRequest,
     ResearchJobRecord,
     ResearchJobRequest,
     ResearchJobStatus,
 )
-from malg.database.jobs import cancel_job, enqueue_job
+from malg.database.jobs import cancel_job, enqueue_campaign_jobs, enqueue_job
 from malg.database.models import ResearchJob
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -61,6 +62,20 @@ def create_job(payload: ResearchJobRequest, session: SessionDependency) -> Resea
     job = enqueue_job(payload, session)
     session.commit()
     return _record(job)
+
+
+@router.post(
+    "/campaigns",
+    response_model=list[ResearchJobRecord],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_campaign_jobs(
+    payload: CampaignResearchJobBatchRequest, session: SessionDependency
+) -> list[ResearchJobRecord]:
+    """Enqueue a bounded batch of independent campaign research jobs."""
+    jobs = enqueue_campaign_jobs(payload.amount, session)
+    session.commit()
+    return [_record(job) for job in jobs]
 
 
 @router.get("", response_model=list[ResearchJobRecord])

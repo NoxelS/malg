@@ -2,6 +2,14 @@ import {DatePipe} from '@angular/common';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
 import {HttpClient} from '@angular/common/http';
 import {TuiBadge, TuiChip} from '@taiga-ui/kit';
+import {ChipListComponent} from './components/chip-list.component';
+import {DetailDisclosureComponent, ExpandableCardComponent} from './components/expandable-card.component';
+import {PageHeaderComponent} from './components/page-header.component';
+import {PageLayoutComponent} from './components/page-layout.component';
+import {SectionHeadingComponent} from './components/section-heading.component';
+import {StateMessageComponent} from './components/state-message.component';
+import {SummaryCardComponent} from './components/summary-card.component';
+import {SummaryGridComponent} from './components/summary-grid.component';
 
 interface AccountIdentity {
   readonly display_name: string;
@@ -46,7 +54,7 @@ interface Account {
 
 @Component({
   selector: 'app-accounts-page',
-  imports: [DatePipe, TuiBadge, TuiChip],
+  imports: [DatePipe, TuiBadge, TuiChip, ChipListComponent, DetailDisclosureComponent, ExpandableCardComponent, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
   templateUrl: './accounts-page.html',
   styleUrl: './accounts-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -1,0 +1,42 @@
+<app-page-layout>
+  <app-page-header eyebrow="Operations" title="Jobs" description="Queued research work and completed outcomes." />
+
+  @if (loading()) {
+    <app-state-message message="Loading jobs…" />
+  } @else if (error()) {
+    <app-state-message message="Jobs could not be loaded right now." tone="error" />
+  } @else if (!jobs().length) {
+    <app-state-message message="No research jobs yet." />
+  } @else {
+    @if (cancelError()) {
+      <p class="cancel-error" role="alert">This job could not be cancelled. Refresh the page to see its current state.</p>
+    }
+    <section class="job-list" aria-label="Research jobs">
+      @for (job of jobs(); track job.job_id) {
+        <article class="job-card" [class]="job.status">
+          <header class="job-card__header">
+            <div class="job-card__identity">
+              <span class="job-card__eyebrow">{{ job.kind }} research</span>
+              <h2 [title]="job.job_id">{{ job.job_id }}</h2>
+            </div>
+            <span tuiBadge appearance="secondary" class="job-status">{{ job.status }}</span>
+          </header>
+          <dl class="job-meta">
+            <div><dt>Attempts</dt><dd>{{ job.attempt_count }}</dd></div>
+            <div><dt>Created</dt><dd>{{ job.created_at | date:'medium' }}</dd></div>
+            @if (job.started_at) { <div><dt>Started</dt><dd>{{ job.started_at | date:'medium' }}</dd></div> }
+            @if (job.finished_at) { <div><dt>Finished</dt><dd>{{ job.finished_at | date:'medium' }}</dd></div> }
+          </dl>
+          @if (job.failure_detail) {
+            <p class="job-failure"><strong>Failure detail</strong>{{ job.failure_detail }}</p>
+          }
+          @if (job.status === 'queued') {
+            <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="cancelJob(job)">
+              {{ pendingJobId() === job.job_id ? 'Cancelling…' : 'Cancel job' }}
+            </button>
+          }
+        </article>
+      }
+    </section>
+  }
+</app-page-layout>

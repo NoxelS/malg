@@ -8,57 +8,8 @@
   min-height: 100dvh;
 }
 
-.sidebar {
-  background: var(--tui-background-base);
-  border-inline-end: 1px solid var(--tui-border-normal);
-  box-sizing: border-box;
-  display: flex;
+app-sidebar-navigation {
   flex: 0 0 18rem;
-  flex-direction: column;
-  gap: 2.5rem;
-  min-height: 100dvh;
-  padding: 2rem 1.25rem;
-}
-
-.brand {
-  color: var(--tui-text-primary);
-  display: block;
-  text-decoration: none;
-}
-
-.brand__logo {
-  color: var(--tui-text-action);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.45rem;
-  line-height: 1.25;
-  margin: 0;
-  overflow: visible;
-  white-space: pre;
-}
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.nav__link {
-  background: var(--tui-background-base) !important;
-  border: 1px solid var(--malg-pink) !important;
-  border-radius: 0 !important;
-  color: var(--malg-pink) !important;
-  justify-content: flex-start;
-  text-decoration: none;
-  width: 100%;
-}
-
-.nav__link--active {
-  background: var(--tui-background-base) !important;
-  color: var(--malg-pink) !important;
-}
-
-.nav__link:hover {
-  background: var(--malg-pink-pale) !important;
 }
 
 .content {
@@ -68,25 +19,7 @@
 }
 
 @media (max-width: 42rem) {
-  .sidebar {
-    flex-basis: 5rem;
-    gap: 2rem;
-    padding: 1rem 0.75rem;
-  }
-
-  .brand__logo {
-    font-size: 0.18rem;
-  }
-
-  .nav__link {
-    font-size: 0;
-    justify-content: center;
-    padding-inline: 0;
-  }
-
-  .nav__link::before {
-    color: currentColor;
-    content: '◆';
-    font-size: 0.75rem;
+  app-sidebar-navigation {
+    flex-basis: 5.5rem;
   }
 }

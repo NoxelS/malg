@@ -1,7 +1,16 @@
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
 import {DatePipe} from '@angular/common';
 import {HttpClient} from '@angular/common/http';
+import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge, TuiChip} from '@taiga-ui/kit';
+import {ChipListComponent} from './components/chip-list.component';
+import {DetailDisclosureComponent, ExpandableCardComponent} from './components/expandable-card.component';
+import {PageHeaderComponent} from './components/page-header.component';
+import {PageLayoutComponent} from './components/page-layout.component';
+import {SectionHeadingComponent} from './components/section-heading.component';
+import {StateMessageComponent} from './components/state-message.component';
+import {SummaryCardComponent} from './components/summary-card.component';
+import {SummaryGridComponent} from './components/summary-grid.component';
 
 interface Evidence {
   readonly evidence_id: string;
@@ -43,7 +52,7 @@ interface Campaign {
 
 @Component({
   selector: 'app-campaigns-page',
-  imports: [DatePipe, TuiBadge, TuiChip],
+  imports: [DatePipe, TuiButton, TuiBadge, TuiChip, ChipListComponent, DetailDisclosureComponent, ExpandableCardComponent, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
   templateUrl: './campaigns-page.html',
   styleUrl: './campaigns-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -53,6 +62,52 @@ export class CampaignsPage implements OnInit {
 
   protected readonly campaigns = signal<readonly Campaign[]>([]);
   protected readonly loading = signal(true);
+
+  protected readonly researchDialogOpen = signal(false);
+  protected readonly researchAmount = signal(1);
+  protected readonly researchSubmitting = signal(false);
+  protected readonly researchError = signal('');
+  protected readonly researchSuccess = signal('');
+
+  protected openResearchDialog(): void {
+    this.researchError.set('');
+    this.researchDialogOpen.set(true);
+  }
+
+  protected closeResearchDialog(): void {
+    if (!this.researchSubmitting()) {
+      this.researchDialogOpen.set(false);
+      this.researchError.set('');
+    }
+  }
+
+  protected updateResearchAmount(event: Event): void {
+    const value = Number((event.target as HTMLInputElement).value);
+    this.researchAmount.set(Number.isFinite(value) ? value : 0);
+  }
+
+  protected queueResearchJobs(): void {
+    const amount = this.researchAmount();
+    if (!Number.isInteger(amount) || amount < 1 || amount > 100) {
+      this.researchError.set('Enter a whole number from 1 to 100.');
+      return;
+    }
+
+    this.researchSubmitting.set(true);
+    this.researchError.set('');
+    this.http.post<readonly unknown[]>('/api/v1/jobs/campaigns', {amount}).subscribe({
+      next: () => {
+        this.researchSubmitting.set(false);
+        this.researchDialogOpen.set(false);
+        this.researchAmount.set(1);
+        this.researchSuccess.set(`${amount} campaign research job${amount === 1 ? '' : 's'} queued.`);
+      },
+      error: () => {
+        this.researchSubmitting.set(false);
+        this.researchError.set('Campaign research jobs could not be queued.');
+      },
+    });
+  }
   protected readonly error = signal(false);
   protected get industryCount(): number {
     return new Set(this.campaigns().flatMap((campaign) => campaign.industries)).size;

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from copy import deepcopy
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -14,7 +15,9 @@ from tests.test_campaign_research_agent import campaign_payload
 from tests.test_icp_batch_runner import _icp
 
 from malg.api.app import create_app
+from malg.core.models.jobs import ResearchJobStatus
 from malg.database import Base
+from malg.database.models import ResearchJob
 
 
 def _engine() -> Engine:
@@ -69,3 +72,75 @@ def test_campaign_and_icp_crud_are_scoped_and_validated() -> None:
     assert client.delete(f"/api/v1/campaigns/{campaign['campaign_id']}").status_code == 204
     assert client.get(f"/api/v1/campaigns/{campaign['campaign_id']}").status_code == 404
     assert client.get(f"/api/v1/campaigns/{campaign['campaign_id']}/icps").status_code == 404
+
+
+def test_campaign_research_batch_is_bounded_and_persisted() -> None:
+    """Queue valid campaign batches and reject invalid amounts atomically."""
+    engine = _engine()
+    client = TestClient(create_app(database_engine=engine))
+
+    response = client.post("/api/v1/jobs/campaigns", json={"amount": 3})
+    assert response.status_code == 202
+    records = response.json()
+    assert len(records) == 3
+    assert len({record["job_id"] for record in records}) == 3
+    assert all(record["kind"] == "campaign" for record in records)
+    assert all(record["status"] == "queued" for record in records)
+    assert all(record["attempt_count"] == 0 for record in records)
+
+    queued = client.get("/api/v1/jobs", params={"status": "queued"})
+    assert queued.status_code == 200
+    assert {record["job_id"] for record in queued.json()} == {
+        record["job_id"] for record in records
+    }
+
+    for amount in (0, 101, 1.5, True):
+        invalid = client.post("/api/v1/jobs/campaigns", json={"amount": amount})
+        assert invalid.status_code == 422
+    assert len(client.get("/api/v1/jobs", params={"status": "queued"}).json()) == 3
+
+
+def test_jobs_overview_lists_all_lifecycle_records_and_cancels_queued_only() -> None:
+    """The jobs overview preserves durable records and the queued-only action boundary."""
+    engine = _engine()
+    created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    with engine.begin() as connection:
+        from sqlalchemy.orm import Session
+
+        with Session(connection) as session:
+            for status in ResearchJobStatus:
+                session.add(
+                    ResearchJob(
+                        job_id=f"{status.value}-job",
+                        kind="campaign",
+                        status=status.value,
+                        attempt_count=1,
+                        created_at=created_at,
+                        started_at=created_at if status != ResearchJobStatus.QUEUED else None,
+                        finished_at=created_at
+                        if status
+                        in {
+                            ResearchJobStatus.SUCCEEDED,
+                            ResearchJobStatus.FAILED,
+                            ResearchJobStatus.CANCELLED,
+                        }
+                        else None,
+                        failure_detail="persisted failure"
+                        if status == ResearchJobStatus.FAILED
+                        else None,
+                    )
+                )
+            session.commit()
+    client = TestClient(create_app(database_engine=engine))
+    listed = client.get("/api/v1/jobs")
+    assert listed.status_code == 200
+    records = {record["status"]: record for record in listed.json()}
+    assert set(records) == {status.value for status in ResearchJobStatus}
+    assert records["failed"]["failure_detail"] == "persisted failure"
+    assert records["succeeded"]["finished_at"] is not None
+
+    cancelled = client.post("/api/v1/jobs/queued-job/cancel", json={})
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert client.post("/api/v1/jobs/queued-job/cancel", json={}).status_code == 409
+    assert client.post("/api/v1/jobs/running-job/cancel", json={}).status_code == 409

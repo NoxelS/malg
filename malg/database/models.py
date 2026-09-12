@@ -303,6 +303,7 @@ class ResearchJob(Base):
     attempt_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     claim_token: Mapped[str | None] = mapped_column(String(128))
     claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failure_detail: Mapped[str | None] = mapped_column(Text)
@@ -312,3 +313,16 @@ class ResearchJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class WorkerHeartbeat(Base):
+    """Latest durable liveness timestamp for one worker process."""
+
+    __tablename__ = "worker_heartbeats"
+    __table_args__ = (Index("ix_worker_heartbeats_last_seen_at", "last_seen_at"),)
+
+    worker_token: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

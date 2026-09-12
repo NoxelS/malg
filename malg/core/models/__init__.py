@@ -22,6 +22,12 @@ from malg.core.models.account import (
     ValidationCheck,
 )
 from malg.core.models.campaign import CampaignCandidate
+from malg.core.models.dashboard import (
+    DashboardJobCounts,
+    DashboardSummary,
+    WorkerJobSummary,
+    WorkerSummary,
+)
 from malg.core.models.evidence import EvidenceItem, EvidenceKind, EvidenceStrength, SourceType
 from malg.core.models.icp import (
     ICPBatchResult,
@@ -35,9 +41,8 @@ from malg.core.models.icp import (
     ICPSegmentFoundation,
 )
 from malg.core.models.jobs import (
-    AccountResearchJobRequest,
+    CampaignResearchJobBatchRequest,
     CampaignResearchJobRequest,
-    ICPResearchJobRequest,
     ResearchJobKind,
     ResearchJobRecord,
     ResearchJobRequest,
@@ -58,10 +63,13 @@ __all__ = [
     "AccountValidationAssessment",
     "AccountValidationOutcome",
     "CampaignCandidate",
+    "CampaignResearchJobBatchRequest",
     "CampaignResearchJobRequest",
     "CheckOutcome",
     "CommunicationEndpointCandidate",
     "ContactCandidate",
+    "DashboardJobCounts",
+    "DashboardSummary",
     "DiscoveryMethod",
     "EndpointKind",
     "EvidenceItem",
@@ -85,4 +93,6 @@ __all__ = [
     "SourceType",
     "UrlProbeResult",
     "ValidationCheck",
+    "WorkerJobSummary",
+    "WorkerSummary",
 ]

@@ -3,6 +3,14 @@ import {HttpClient} from '@angular/common/http';
 import {RouterLink} from '@angular/router';
 import {forkJoin, map} from 'rxjs';
 import {TuiBadge, TuiChip} from '@taiga-ui/kit';
+import {ChipListComponent} from './components/chip-list.component';
+import {DetailDisclosureComponent, ExpandableCardComponent} from './components/expandable-card.component';
+import {PageHeaderComponent} from './components/page-header.component';
+import {PageLayoutComponent} from './components/page-layout.component';
+import {SectionHeadingComponent} from './components/section-heading.component';
+import {StateMessageComponent} from './components/state-message.component';
+import {SummaryCardComponent} from './components/summary-card.component';
+import {SummaryGridComponent} from './components/summary-grid.component';
 
 interface CampaignReference {
   readonly campaign_id: string;
@@ -44,7 +52,7 @@ interface ICP {
 
 @Component({
   selector: 'app-icps-page',
-  imports: [RouterLink, TuiBadge, TuiChip],
+  imports: [RouterLink, TuiBadge, TuiChip, ChipListComponent, DetailDisclosureComponent, ExpandableCardComponent, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
   templateUrl: './icps-page.html',
   styleUrl: './icps-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

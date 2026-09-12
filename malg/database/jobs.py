@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from malg.core.models.jobs import (
     AccountResearchJobRequest,
     ICPResearchJobRequest,
+    ResearchJobKind,
     ResearchJobRequest,
     ResearchJobStatus,
 )
@@ -29,6 +30,21 @@ def enqueue_job(request: ResearchJobRequest, session: Session) -> ResearchJob:
     session.add(job)
     session.flush()
     return job
+
+
+def enqueue_campaign_jobs(amount: int, session: Session) -> list[ResearchJob]:
+    """Insert a bounded batch of independently queued campaign jobs."""
+    jobs = [
+        ResearchJob(
+            job_id=str(uuid4()),
+            kind=ResearchJobKind.CAMPAIGN.value,
+            status=ResearchJobStatus.QUEUED.value,
+        )
+        for _ in range(amount)
+    ]
+    session.add_all(jobs)
+    session.flush()
+    return jobs
 
 
 def claim_next_job(
@@ -50,6 +66,7 @@ def claim_next_job(
             expired_job.status = ResearchJobStatus.QUEUED.value
         expired_job.claim_token = None
         expired_job.claim_expires_at = None
+        expired_job.claimed_at = None
     session.flush()
     job: ResearchJob | None = session.scalar(
         select(ResearchJob)
@@ -63,6 +80,7 @@ def claim_next_job(
     job.attempt_count += 1
     job.claim_token = worker_token
     job.claim_expires_at = now + timedelta(seconds=lease_seconds)
+    job.claimed_at = now
     job.started_at = job.started_at or now
     session.flush()
     return job
@@ -101,6 +119,7 @@ def complete_job(
     job.finished_at = now
     job.claim_token = None
     job.claim_expires_at = None
+    job.claimed_at = None
     session.flush()
     return job
 
@@ -115,6 +134,7 @@ def fail_job(
     job.finished_at = now
     job.claim_token = None
     job.claim_expires_at = None
+    job.claimed_at = None
     session.flush()
     return job
 
@@ -128,6 +148,23 @@ def cancel_job(session: Session, job_id: str, now: datetime) -> ResearchJob | No
     job.finished_at = now
     session.flush()
     return job
+
+
+def cancel_running_jobs(session: Session, now: datetime) -> int:
+    """Cancel every running claim interrupted by a worker replacement."""
+    jobs = session.scalars(
+        select(ResearchJob).where(ResearchJob.status == ResearchJobStatus.RUNNING.value)
+    )
+    count = 0
+    for job in jobs:
+        job.status = ResearchJobStatus.CANCELLED.value
+        job.finished_at = now
+        job.claim_token = None
+        job.claim_expires_at = None
+        job.claimed_at = None
+        count += 1
+    session.flush()
+    return count
 
 
 def _claimed(session: Session, job_id: str, claim_token: str) -> ResearchJob:

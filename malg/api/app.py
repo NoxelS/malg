@@ -10,7 +10,9 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
 from malg.api.routers.artifacts import get_session, router
+from malg.api.routers.dashboard import dashboard_router
 from malg.api.routers.jobs import router as jobs_router
+from malg.config import get_worker_config, load_settings
 from malg.database.session import make_engine, make_session_factory, session_dependency
 
 
@@ -35,6 +37,8 @@ def create_app(*, database_engine: Engine | None = None) -> FastAPI:
     app.dependency_overrides[get_session] = configured_session
     app.include_router(router)
     app.include_router(jobs_router)
+    worker_config = get_worker_config(load_settings())
+    app.include_router(dashboard_router(worker_config.heartbeat_timeout_seconds))
 
     @app.get("/health")
     def health() -> dict[str, str]:

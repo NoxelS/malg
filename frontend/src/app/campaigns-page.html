@@ -1,44 +1,23 @@
-<div class="campaigns-page">
-  <header class="page-header">
-    <p class="page-header__eyebrow">Workspace</p>
-    <h1>Campaigns</h1>
-    <p class="page-header__description">Evidence-backed campaign boundaries for your next opportunity.</p>
-  </header>
-
-  <section class="summary-grid" aria-label="Campaign summary">
-    <article class="summary-card"><span class="summary-card__label">Campaigns</span><strong class="summary-card__value">{{ campaigns().length }}</strong><span class="summary-card__hint">Total discovered</span></article>
-    <article class="summary-card"><span class="summary-card__label">Industries</span><strong class="summary-card__value">{{ industryCount }}</strong><span class="summary-card__hint">Across all campaigns</span></article>
-    <article class="summary-card"><span class="summary-card__label">Avg. confidence</span><strong class="summary-card__value">{{ averageConfidence }}<small>/5</small></strong><span class="summary-card__hint">Evidence confidence</span></article>
-  </section>
-
+<app-page-layout>
+  <app-page-header eyebrow="Workspace" title="Campaigns" description="Evidence-backed campaign boundaries for your next opportunity."><button page-header-actions tuiButton type="button" appearance="primary" (click)="openResearchDialog()">Research new</button></app-page-header>
+  @if (researchSuccess()) { <p class="queue-message" role="status">{{ researchSuccess() }}</p> }
+  @if (researchDialogOpen()) {
+    <div class="research-overlay" role="presentation"><section class="research-dialog" role="dialog" aria-modal="true" aria-labelledby="research-dialog-title"><h2 id="research-dialog-title">Research new campaigns</h2><p class="research-dialog__description">Queue independent campaign research jobs for the worker.</p><label class="field-label" for="campaign-amount">Amount of campaigns to generate</label><input id="campaign-amount" class="research-dialog__input" type="number" min="1" max="100" step="1" [value]="researchAmount()" (input)="updateResearchAmount($event)" />@if (researchError()) { <p class="research-dialog__error" role="alert">{{ researchError() }}</p> }<div class="research-dialog__actions"><button tuiButton type="button" appearance="flat" [disabled]="researchSubmitting()" (click)="closeResearchDialog()">Cancel</button><button tuiButton type="button" appearance="primary" [disabled]="researchSubmitting()" (click)="queueResearchJobs()">Queue campaigns</button></div></section></div>
+  }
+  <app-summary-grid aria-label="Campaign summary"><app-summary-card label="Campaigns" [value]="campaigns().length" hint="Total discovered" /><app-summary-card label="Industries" [value]="industryCount" hint="Across all campaigns" /><app-summary-card label="Avg. confidence" [value]="averageConfidence" suffix="/5" hint="Evidence confidence" /></app-summary-grid>
   <section class="campaign-list" aria-labelledby="campaign-list-heading">
-    <div class="section-heading"><div><h2 id="campaign-list-heading">All campaigns</h2><p>Expand a campaign to explore its complete research boundary.</p></div><span tuiBadge appearance="primary">{{ campaigns().length }} total</span></div>
-    @if (loading()) { <p class="state-message">Loading campaigns…</p> } @else if (error()) { <p class="state-message state-message--error">Campaigns could not be loaded right now.</p> } @else if (!campaigns().length) { <p class="state-message">No campaigns have been created yet.</p> } @else {
-      <div class="campaign-cards">
-        @for (campaign of campaigns(); track campaign.campaign_id) {
-          <details class="campaign-card" [id]="campaign.campaign_id">
-            <summary class="campaign-card__summary"><div><span class="campaign-id">{{ campaign.campaign_id }}</span><h3>{{ campaign.title }}</h3><p>{{ campaign.positioning }}</p></div><span tuiBadge appearance="primary">{{ campaign.confidence }}/5</span></summary>
-            <div class="campaign-card__body">
-              <div class="detail-grid">
-                <section class="detail-block detail-block--wide"><h4>Problem statement</h4><p>{{ campaign.problem_statement }}</p></section>
-                <section class="detail-block detail-block--wide"><h4>Why now</h4><p>{{ campaign.why_now }}</p></section>
-                <details class="detail-disclosure"><summary>Industries</summary><div class="chips">@for (item of campaign.industries; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div></details>
-                <details class="detail-disclosure"><summary>Geographies</summary><div class="chips">@for (item of campaign.geographies; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div></details>
-                <details class="detail-disclosure"><summary>Company size focus</summary><div class="chips">@for (item of campaign.company_size_focus; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div></details>
-                <details class="detail-disclosure"><summary>Target workflows</summary><div class="chips">@for (item of campaign.target_workflows; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div></details>
-                <details class="detail-disclosure"><summary>Buyer role hypotheses</summary><ul>@for (item of campaign.buyer_role_hypotheses; track item) {<li>{{ item }}</li>}</ul></details>
-                <details class="detail-disclosure"><summary>Qualification signals</summary><ul>@for (item of campaign.qualification_signals; track item) {<li>{{ item }}</li>}</ul></details>
-                <details class="detail-disclosure"><summary>Exclusions</summary><ul>@for (item of campaign.exclusions; track item) {<li>{{ item }}</li>}</ul></details>
-                <details class="detail-disclosure"><summary>Entry offer hypothesis</summary><p>{{ campaign.entry_offer_hypothesis }}</p></details>
-              </div>
-
-              <details class="evidence-section"><summary class="section-summary"><span><strong>Evidence</strong><small>{{ campaign.evidence.length }} source-backed claims</small></span><span tuiBadge appearance="secondary">{{ campaign.evidence.length }}</span></summary><div class="evidence-grid">@for (item of campaign.evidence; track item.evidence_id) {<article class="evidence-card"><div class="evidence-card__meta"><span tuiBadge appearance="secondary">{{ item.strength }}</span><span>{{ item.evidence_kind }}</span></div><h5>{{ item.claim }}</h5><a [href]="item.source_url" target="_blank" rel="noopener">{{ item.source_title }}</a><dl><div><dt>Source</dt><dd>{{ item.source_type }}</dd></div>@if (item.dataset_code) {<div><dt>Dataset</dt><dd>{{ item.dataset_code }}</dd></div>}<div><dt>Geography</dt><dd>{{ item.geography.join(', ') }}</dd></div>@if (item.value !== null) {<div><dt>Value</dt><dd>{{ item.value }}{{ item.unit ? ' ' + item.unit : '' }}</dd></div>}@if (item.population) {<div><dt>Population</dt><dd>{{ item.population }}</dd></div>}@if (item.observation_date) {<div><dt>Observed</dt><dd>{{ item.observation_date }}</dd></div>}<div><dt>Retrieved</dt><dd>{{ item.retrieved_at | date:'mediumDate' }}</dd></div></dl></article>}</div></details>
-
-              <div class="detail-grid detail-grid--footer"><details class="detail-disclosure"><summary>Assumptions</summary><ul>@for (item of campaign.assumptions; track item) {<li>{{ item }}</li>}</ul></details><details class="detail-disclosure"><summary>Unknowns</summary><ul>@for (item of campaign.unknowns; track item) {<li>{{ item }}</li>}</ul></details><details class="detail-disclosure detail-block--wide"><summary>Next research questions</summary><ul>@for (item of campaign.next_research_questions; track item) {<li>{{ item }}</li>}</ul></details></div>
-            </div>
-          </details>
-        }
-      </div>
+    <app-section-heading headingId="campaign-list-heading" title="All campaigns" description="Expand a campaign to explore its complete research boundary"><span section-heading-action tuiBadge appearance="primary">{{ campaigns().length }} total</span></app-section-heading>
+    @if (loading()) { <app-state-message message="Loading campaigns…" /> } @else if (error()) { <app-state-message message="Campaigns could not be loaded right now." tone="error" /> } @else if (!campaigns().length) { <app-state-message message="No campaigns have been created yet." /> } @else {
+      <div class="campaign-cards">@for (campaign of campaigns(); track campaign.campaign_id) {
+        <app-expandable-card [cardId]="campaign.campaign_id"><div expandable-card-summary class="campaign-card__summary"><div><span class="campaign-id">{{ campaign.campaign_id }}</span><h3>{{ campaign.title }}</h3><p>{{ campaign.positioning }}</p></div><span tuiBadge appearance="primary">{{ campaign.confidence }}/5</span></div><div expandable-card-body class="campaign-card__body">
+          <div class="detail-grid"><section class="detail-block detail-block--wide"><h4>Problem statement</h4><p>{{ campaign.problem_statement }}</p></section><section class="detail-block detail-block--wide"><h4>Why now</h4><p>{{ campaign.why_now }}</p></section>
+            <app-detail-disclosure title="Industries"><app-chip-list>@for (item of campaign.industries; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list></app-detail-disclosure><app-detail-disclosure title="Geographies"><app-chip-list>@for (item of campaign.geographies; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list></app-detail-disclosure><app-detail-disclosure title="Company size focus"><app-chip-list>@for (item of campaign.company_size_focus; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list></app-detail-disclosure><app-detail-disclosure title="Target workflows"><app-chip-list>@for (item of campaign.target_workflows; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list></app-detail-disclosure>
+            <app-detail-disclosure title="Buyer role hypotheses"><ul>@for (item of campaign.buyer_role_hypotheses; track item) {<li>{{ item }}</li>}</ul></app-detail-disclosure><app-detail-disclosure title="Qualification signals"><ul>@for (item of campaign.qualification_signals; track item) {<li>{{ item }}</li>}</ul></app-detail-disclosure><app-detail-disclosure title="Exclusions"><ul>@for (item of campaign.exclusions; track item) {<li>{{ item }}</li>}</ul></app-detail-disclosure><app-detail-disclosure title="Entry offer hypothesis"><p>{{ campaign.entry_offer_hypothesis }}</p></app-detail-disclosure>
+          </div>
+          <details class="evidence-section"><summary class="section-summary"><span><strong>Evidence</strong><small>{{ campaign.evidence.length }} source-backed claims</small></span><span tuiBadge appearance="secondary">{{ campaign.evidence.length }}</span></summary><div class="evidence-grid">@for (item of campaign.evidence; track item.evidence_id) {<article class="evidence-card"><div class="evidence-card__meta"><span tuiBadge appearance="secondary">{{ item.strength }}</span><span>{{ item.evidence_kind }}</span></div><h5>{{ item.claim }}</h5><a [href]="item.source_url" target="_blank" rel="noopener">{{ item.source_title }}</a><dl><div><dt>Source</dt><dd>{{ item.source_type }}</dd></div>@if (item.dataset_code) {<div><dt>Dataset</dt><dd>{{ item.dataset_code }}</dd></div>}<div><dt>Geography</dt><dd>{{ item.geography.join(', ') }}</dd></div>@if (item.value !== null) {<div><dt>Value</dt><dd>{{ item.value }}{{ item.unit ? ' ' + item.unit : '' }}</dd></div>}@if (item.population) {<div><dt>Population</dt><dd>{{ item.population }}</dd></div>}@if (item.observation_date) {<div><dt>Observed</dt><dd>{{ item.observation_date }}</dd></div>}<div><dt>Retrieved</dt><dd>{{ item.retrieved_at | date:'mediumDate' }}</dd></div></dl></article>}</div></details>
+          <div class="detail-grid detail-grid--footer"><app-detail-disclosure title="Assumptions"><ul>@for (item of campaign.assumptions; track item) {<li>{{ item }}</li>}</ul></app-detail-disclosure><app-detail-disclosure title="Unknowns"><ul>@for (item of campaign.unknowns; track item) {<li>{{ item }}</li>}</ul></app-detail-disclosure><app-detail-disclosure title="Next research questions" [wide]="true"><ul>@for (item of campaign.next_research_questions; track item) {<li>{{ item }}</li>}</ul></app-detail-disclosure></div>
+        </div></app-expandable-card>
+      }</div>
     }
   </section>
-</div>
+</app-page-layout>

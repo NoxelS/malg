@@ -83,16 +83,22 @@ class WorkerConfig:
     poll_interval_seconds: int = 1
     lease_seconds: int = 7200
     max_attempts: int = 3
+    heartbeat_timeout_seconds: int = 15
 
 
 def get_worker_config(settings: Dynaconf) -> WorkerConfig:
-    """Read and validate positive worker lease settings."""
+    """Read and validate positive worker lease and liveness settings."""
     worker = settings.get("worker")
     if not isinstance(worker, Mapping):
         raise ValueError("Missing [default.worker] configuration.")
     invalid = [
         field
-        for field in ("poll_interval_seconds", "lease_seconds", "max_attempts")
+        for field in (
+            "poll_interval_seconds",
+            "lease_seconds",
+            "max_attempts",
+            "heartbeat_timeout_seconds",
+        )
         if not isinstance(worker.get(field), int)
         or isinstance(worker[field], bool)
         or worker[field] <= 0
@@ -101,10 +107,13 @@ def get_worker_config(settings: Dynaconf) -> WorkerConfig:
         raise ValueError(
             f"Worker configuration field(s) must be positive integers: {', '.join(invalid)}."
         )
+    if worker["heartbeat_timeout_seconds"] < 2 * worker["poll_interval_seconds"]:
+        raise ValueError("heartbeat_timeout_seconds must be at least twice poll_interval_seconds.")
     return WorkerConfig(
         poll_interval_seconds=worker["poll_interval_seconds"],
         lease_seconds=worker["lease_seconds"],
         max_attempts=worker["max_attempts"],
+        heartbeat_timeout_seconds=worker["heartbeat_timeout_seconds"],
     )
 
 

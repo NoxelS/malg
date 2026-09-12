@@ -20,8 +20,15 @@ from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.icp import ICPIdentity, ICPResult
 from malg.core.persistent_memory_support import close_persistent_memory
 from malg.database.artifacts import persist_account_candidate, persist_campaign, persist_icp
-from malg.database.jobs import claim_next_job, complete_job, fail_job, renew_claim
+from malg.database.jobs import (
+    cancel_running_jobs,
+    claim_next_job,
+    complete_job,
+    fail_job,
+    renew_claim,
+)
 from malg.database.models import ICP, Account, Campaign, ResearchJob
+from malg.database.workers import record_worker_heartbeat
 
 
 class ResearchWorker:
@@ -37,6 +44,17 @@ class ResearchWorker:
         self.config = config
         self.icp_config = icp_config
         self.worker_token = str(uuid4())
+
+    async def heartbeat(self) -> None:
+        now = datetime.now(UTC)
+        with self.session_factory.begin() as session:
+            record_worker_heartbeat(session, self.worker_token, now)
+
+    def reset_interrupted_jobs(self) -> int:
+        """Cancel claims left running when this worker process was replaced."""
+        now = datetime.now(UTC)
+        with self.session_factory.begin() as session:
+            return cancel_running_jobs(session, now)
 
     async def run_once(self) -> bool:
         """Claim and execute one job, returning whether work was claimed."""
@@ -184,7 +202,20 @@ class ResearchWorker:
 
 
 async def worker_loop(worker: ResearchWorker) -> None:
-    """Run the worker until cancelled by the process supervisor."""
-    while True:
-        if not await worker.run_once():
+    """Run the worker and independent liveness heartbeat until cancelled."""
+    worker.reset_interrupted_jobs()
+
+    async def heartbeat_loop() -> None:
+        while True:
+            await worker.heartbeat()
             await asyncio.sleep(worker.config.poll_interval_seconds)
+
+    heartbeat_task = asyncio.create_task(heartbeat_loop())
+    try:
+        while True:
+            if not await worker.run_once():
+                await asyncio.sleep(worker.config.poll_interval_seconds)
+    finally:
+        heartbeat_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat_task

@@ -43,3 +43,4 @@ output_root = "results"
 poll_interval_seconds = 1
 lease_seconds = 7200
 max_attempts = 3
+heartbeat_timeout_seconds = 15

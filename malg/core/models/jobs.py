@@ -34,6 +34,12 @@ class CampaignResearchJobRequest(BaseModel):
     kind: Literal[ResearchJobKind.CAMPAIGN] = ResearchJobKind.CAMPAIGN
 
 
+class CampaignResearchJobBatchRequest(BaseModel):
+    """Request a bounded batch of independently researched campaigns."""
+
+    amount: int = Field(strict=True, ge=1, le=100)
+
+
 class ICPResearchJobRequest(BaseModel):
     """Request one ICP beneath an existing campaign."""
 

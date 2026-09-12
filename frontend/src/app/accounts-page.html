@@ -1,86 +1,14 @@
-<div class="accounts-page">
-  <header class="page-header">
-    <p class="page-header__eyebrow">Workspace</p>
-    <h1>Accounts</h1>
-    <p class="page-header__description">Persisted, evidence-backed organization profiles for your workspace.</p>
-  </header>
-
-  <section class="account-summary-grid" aria-label="Account summary">
-    <article class="account-summary-card"><span class="account-summary-card__label">Accounts</span><strong class="account-summary-card__value">{{ accounts().length }}</strong><span class="account-summary-card__hint">Total persisted</span></article>
-    <article class="account-summary-card"><span class="account-summary-card__label">Industries</span><strong class="account-summary-card__value">{{ industryCount }}</strong><span class="account-summary-card__hint">Unique industries represented</span></article>
-    <article class="account-summary-card"><span class="account-summary-card__label">Operating regions</span><strong class="account-summary-card__value">{{ operatingRegionCount }}</strong><span class="account-summary-card__hint">Unique regions represented</span></article>
+<app-page-layout>
+  <app-page-header eyebrow="Workspace" title="Accounts" description="Persisted, evidence-backed organization profiles for your workspace." />
+  <app-summary-grid aria-label="Account summary"><app-summary-card label="Accounts" [value]="accounts().length" hint="Total persisted" /><app-summary-card label="Industries" [value]="industryCount" hint="Unique industries represented" /><app-summary-card label="Operating regions" [value]="operatingRegionCount" hint="Unique regions represented" /></app-summary-grid>
+  <section class="account-list" aria-labelledby="account-list-heading"><app-section-heading headingId="account-list-heading" title="All accounts" description="Expand an account to explore its complete organization profile"><span section-heading-action tuiBadge appearance="primary">{{ accounts().length }} total</span></app-section-heading>
+    @if (loading()) { <app-state-message message="Loading accounts…" /> } @else if (error()) { <app-state-message message="Accounts could not be loaded right now." tone="error" /> } @else if (!accounts().length) { <app-state-message message="No accounts have been created yet." /> } @else { <div class="account-cards">@for (account of accounts(); track account.account_id) {
+      <app-expandable-card [cardId]="account.account_id"><div expandable-card-summary class="account-card__summary"><div class="account-card__summary-content"><span class="account-id">{{ account.account_id }}</span><h3>{{ account.identity.display_name }}</h3><div class="account-card__meta"><span tuiBadge appearance="primary">{{ account.identity.operational_status }}</span>@if (account.identity.official_website) {<a class="account-website" [href]="account.identity.official_website" target="_blank" rel="noopener">{{ account.identity.official_website }}</a>}</div></div></div><div expandable-card-body class="account-card__body">
+        <div class="account-detail-grid"><app-detail-disclosure title="Identity" [open]="true" [wide]="true"><dl><div><dt>Display name</dt><dd>{{ account.identity.display_name }}</dd></div><div><dt>Legal name</dt><dd>@if (account.identity.legal_name) { {{ account.identity.legal_name }} } @else { — }</dd></div><div><dt>Aliases</dt><dd>@if (account.identity.aliases.length) { <app-chip-list align="end">@for (item of account.identity.aliases; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list> } @else { — }</dd></div><div><dt>Legal form</dt><dd>@if (account.identity.legal_form) { {{ account.identity.legal_form }} } @else { — }</dd></div><div><dt>Registry jurisdiction</dt><dd>@if (account.identity.registry_jurisdiction) { {{ account.identity.registry_jurisdiction }} } @else { — }</dd></div><div><dt>Registration number</dt><dd>@if (account.identity.registration_number) { {{ account.identity.registration_number }} } @else { — }</dd></div><div><dt>LEI</dt><dd>@if (account.identity.lei) { {{ account.identity.lei }} } @else { — }</dd></div><div><dt>VAT ID</dt><dd>@if (account.identity.vat_id) { {{ account.identity.vat_id }} } @else { — }</dd></div><div><dt>Registered office</dt><dd>@if (account.identity.registered_office) { {{ account.identity.registered_office }} } @else { — }</dd></div><div><dt>Headquarters</dt><dd>@if (account.identity.headquarters) { {{ account.identity.headquarters }} } @else { — }</dd></div><div><dt>Operational status</dt><dd>{{ account.identity.operational_status }}</dd></div><div><dt>Official website</dt><dd>@if (account.identity.official_website) { <a class="account-detail-link" [href]="account.identity.official_website" target="_blank" rel="noopener">{{ account.identity.official_website }}</a> } @else { — }</dd></div><div><dt>Official domains</dt><dd>@if (account.identity.official_domains.length) { <app-chip-list align="end">@for (item of account.identity.official_domains; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list> } @else { — }</dd></div></dl></app-detail-disclosure>
+          <app-detail-disclosure title="Firmographics"><dl><div><dt>Industries</dt><dd>@if (account.firmographics.industries.length) { <app-chip-list align="end">@for (item of account.firmographics.industries; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list> } @else { — }</dd></div><div><dt>NACE codes</dt><dd>@if (account.firmographics.nace_codes.length) { <app-chip-list align="end">@for (item of account.firmographics.nace_codes; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list> } @else { — }</dd></div><div><dt>Employees</dt><dd>{{ account.firmographics.employee_range || '—' }}</dd></div><div><dt>Turnover</dt><dd>{{ account.firmographics.turnover_range || '—' }}</dd></div><div><dt>Operating regions</dt><dd>@if (account.firmographics.operating_regions.length) { <app-chip-list align="end">@for (item of account.firmographics.operating_regions; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list> } @else { — }</dd></div><div><dt>Ownership or group</dt><dd>{{ account.firmographics.ownership_or_group || '—' }}</dd></div></dl></app-detail-disclosure>
+          <app-detail-disclosure title="Operating profile"><dl><div><dt>Key workflows</dt><dd><app-chip-list align="end">@for (item of account.operating_profile.key_workflows; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list></dd></div><div><dt>Current tools</dt><dd><app-chip-list align="end">@for (item of account.operating_profile.current_tools; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list></dd></div><div><dt>Deployment posture</dt><dd><app-chip-list align="end">@for (item of account.operating_profile.deployment_posture; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list></dd></div><div><dt>Security requirements</dt><dd><app-chip-list align="end">@for (item of account.operating_profile.security_requirements; track item) {<span tuiChip size="xxs">{{ item }}</span>}</app-chip-list></dd></div></dl></app-detail-disclosure></div>
+        <div class="account-detail-grid account-detail-grid--footer"><section class="account-detail-block"><h4>Created</h4><p>{{ account.created_at | date: 'medium' }}</p></section><section class="account-detail-block"><h4>Updated</h4><p>{{ account.updated_at | date: 'medium' }}</p></section></div>
+      </div></app-expandable-card>
+    }</div> }
   </section>
-
-  <section class="account-list" aria-labelledby="account-list-heading">
-    <div class="section-heading"><div><h2 id="account-list-heading">All accounts</h2><p>Expand an account to explore its complete organization profile.</p></div><span tuiBadge appearance="primary">{{ accounts().length }} total</span></div>
-    @if (loading()) { <p class="state-message">Loading accounts…</p> } @else if (error()) { <p class="state-message state-message--error">Accounts could not be loaded right now.</p> } @else if (!accounts().length) { <p class="state-message">No accounts have been created yet.</p> } @else {
-      <div class="account-cards">
-        @for (account of accounts(); track account.account_id) {
-          <details class="account-card" [id]="account.account_id">
-            <summary class="account-card__summary">
-              <div class="account-card__summary-content">
-                <span class="account-id">{{ account.account_id }}</span>
-                <h3>{{ account.identity.display_name }}</h3>
-                <div class="account-card__meta">
-                  <span tuiBadge appearance="primary">{{ account.identity.operational_status }}</span>
-                  @if (account.identity.official_website) {
-                    <a class="account-website" [href]="account.identity.official_website" target="_blank" rel="noopener">{{ account.identity.official_website }}</a>
-                  }
-                </div>
-              </div>
-            </summary>
-            <div class="account-card__body">
-              <div class="account-detail-grid">
-                <details class="account-detail-disclosure account-detail-disclosure--wide" open>
-                  <summary>Identity</summary>
-                  <dl>
-                    <div><dt>Display name</dt><dd>{{ account.identity.display_name }}</dd></div>
-                    <div><dt>Legal name</dt><dd>@if (account.identity.legal_name) { {{ account.identity.legal_name }} } @else { — }</dd></div>
-                    <div><dt>Aliases</dt><dd>@if (account.identity.aliases.length) { <div class="account-chips">@for (item of account.identity.aliases; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                    <div><dt>Legal form</dt><dd>@if (account.identity.legal_form) { {{ account.identity.legal_form }} } @else { — }</dd></div>
-                    <div><dt>Registry jurisdiction</dt><dd>@if (account.identity.registry_jurisdiction) { {{ account.identity.registry_jurisdiction }} } @else { — }</dd></div>
-                    <div><dt>Registration number</dt><dd>@if (account.identity.registration_number) { {{ account.identity.registration_number }} } @else { — }</dd></div>
-                    <div><dt>LEI</dt><dd>@if (account.identity.lei) { {{ account.identity.lei }} } @else { — }</dd></div>
-                    <div><dt>VAT ID</dt><dd>@if (account.identity.vat_id) { {{ account.identity.vat_id }} } @else { — }</dd></div>
-                    <div><dt>Registered office</dt><dd>@if (account.identity.registered_office) { {{ account.identity.registered_office }} } @else { — }</dd></div>
-                    <div><dt>Headquarters</dt><dd>@if (account.identity.headquarters) { {{ account.identity.headquarters }} } @else { — }</dd></div>
-                    <div><dt>Operational status</dt><dd>{{ account.identity.operational_status }}</dd></div>
-                    <div><dt>Official website</dt><dd>@if (account.identity.official_website) { <a class="account-detail-link" [href]="account.identity.official_website" target="_blank" rel="noopener">{{ account.identity.official_website }}</a> } @else { — }</dd></div>
-                    <div><dt>Official domains</dt><dd>@if (account.identity.official_domains.length) { <div class="account-chips">@for (item of account.identity.official_domains; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                  </dl>
-                </details>
-
-                <details class="account-detail-disclosure">
-                  <summary>Firmographics</summary>
-                  <dl>
-                    <div><dt>Industries</dt><dd>@if (account.firmographics.industries.length) { <div class="account-chips">@for (item of account.firmographics.industries; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                    <div><dt>NACE codes</dt><dd>@if (account.firmographics.nace_codes.length) { <div class="account-chips">@for (item of account.firmographics.nace_codes; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                    <div><dt>Employees</dt><dd>@if (account.firmographics.employee_range) { {{ account.firmographics.employee_range }} } @else { — }</dd></div>
-                    <div><dt>Turnover</dt><dd>@if (account.firmographics.turnover_range) { {{ account.firmographics.turnover_range }} } @else { — }</dd></div>
-                    <div><dt>Operating regions</dt><dd>@if (account.firmographics.operating_regions.length) { <div class="account-chips">@for (item of account.firmographics.operating_regions; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                    <div><dt>Ownership or group</dt><dd>@if (account.firmographics.ownership_or_group) { {{ account.firmographics.ownership_or_group }} } @else { — }</dd></div>
-                  </dl>
-                </details>
-
-                <details class="account-detail-disclosure">
-                  <summary>Operating profile</summary>
-                  <dl>
-                    <div><dt>Key workflows</dt><dd>@if (account.operating_profile.key_workflows.length) { <div class="account-chips">@for (item of account.operating_profile.key_workflows; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                    <div><dt>Current tools</dt><dd>@if (account.operating_profile.current_tools.length) { <div class="account-chips">@for (item of account.operating_profile.current_tools; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                    <div><dt>Deployment posture</dt><dd>@if (account.operating_profile.deployment_posture.length) { <div class="account-chips">@for (item of account.operating_profile.deployment_posture; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                    <div><dt>Security requirements</dt><dd>@if (account.operating_profile.security_requirements.length) { <div class="account-chips">@for (item of account.operating_profile.security_requirements; track item) {<span tuiChip size="xxs">{{ item }}</span>}</div> } @else { — }</dd></div>
-                  </dl>
-                </details>
-              </div>
-
-              <div class="account-detail-grid account-detail-grid--footer">
-                <section class="account-detail-block"><h4>Created</h4><p>{{ account.created_at | date: 'medium' }}</p></section>
-                <section class="account-detail-block"><h4>Updated</h4><p>{{ account.updated_at | date: 'medium' }}</p></section>
-              </div>
-            </div>
-          </details>
-        }
-      </div>
-    }
-  </section>
-</div>
+</app-page-layout>
