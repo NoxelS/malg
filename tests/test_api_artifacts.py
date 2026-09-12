@@ -7,14 +7,12 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
-from tests.fixtures import _icp
+from tests.fixtures import _icp, authenticated_client
 from tests.test_campaign_research_agent import campaign_payload
 
-from malg.api.app import create_app
 from malg.core.models.jobs import ResearchJobStatus
 from malg.database import Base
 from malg.database.models import ResearchJob
@@ -37,7 +35,7 @@ def _engine() -> Engine:
 def test_campaign_and_icp_crud_are_scoped_and_validated() -> None:
     """Create, replace, list, and delete the two canonical artifact types."""
     engine = _engine()
-    client = TestClient(create_app(database_engine=engine))
+    client = authenticated_client(engine)
     campaign = campaign_payload()
     icp = _icp("manufacturing-ops", "Incident intake").model_dump(mode="json")
 
@@ -77,7 +75,7 @@ def test_campaign_and_icp_crud_are_scoped_and_validated() -> None:
 def test_campaign_research_batch_is_bounded_and_persisted() -> None:
     """Queue valid campaign batches and reject invalid amounts atomically."""
     engine = _engine()
-    client = TestClient(create_app(database_engine=engine))
+    client = authenticated_client(engine)
 
     response = client.post("/api/v1/jobs/campaigns", json={"amount": 3})
     assert response.status_code == 202
@@ -103,7 +101,7 @@ def test_campaign_research_batch_is_bounded_and_persisted() -> None:
 def test_generic_jobs_validate_and_persist_selected_scopes() -> None:
     """Queue ICP and account jobs only for existing parent scopes."""
     engine = _engine()
-    client = TestClient(create_app(database_engine=engine))
+    client = authenticated_client(engine)
     campaign = campaign_payload()
     icp = _icp("manufacturing-ops", "Incident intake").model_dump(mode="json")
 
@@ -193,7 +191,7 @@ def test_jobs_overview_lists_all_lifecycle_records_and_cancels_queued_only() -> 
                     )
                 )
             session.commit()
-    client = TestClient(create_app(database_engine=engine))
+    client = authenticated_client(engine)
     listed = client.get("/api/v1/jobs")
     assert listed.status_code == 200
     records = {record["status"]: record for record in listed.json()}

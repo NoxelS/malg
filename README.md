@@ -211,9 +211,31 @@ make test
 ## API
 
 The persistence-only FastAPI service exposes campaign, ICP, account, contact, entrypoint, and
-validation-record reads under `/api/v1`. It does not run research agents or initiate outreach.
-The API owns no schema creation at
-runtime; its container applies Alembic migrations before starting. Start it with:
+validation-record reads under `/api/v1`. Every versioned endpoint requires an HTTP bearer token;
+`/health` and `/ready` remain unauthenticated for liveness probes. Authentication is one
+configuration-backed account, defaulting to username `admin` with no password.
+
+Set the credentials through environment variables (container services receive configuration
+exclusively from environment variables):
+
+```bash
+export MALG_AUTH__USERNAME=admin
+export MALG_AUTH__PASSWORD='replace-with-a-secret'
+```
+
+Acquire a token and use it on API requests:
+
+```bash
+TOKEN=$(curl -s http://127.0.0.1:8000/api/v1/auth/token \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"replace-with-a-secret"}' | jq -r .access_token)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/api/v1/dashboard
+```
+
+When `MALG_AUTH__PASSWORD` is blank or absent, authentication is fail-closed: login returns
+`503` and versioned routes remain inaccessible. Changing the password invalidates existing tokens.
+The API owns no schema creation at runtime; its container applies Alembic migrations before
+starting. Start it with:
 
 ```bash
 make api-up
@@ -225,8 +247,10 @@ with `MALG_POSTGRES_DB`, `MALG_POSTGRES_USER`, and `MALG_POSTGRES_PASSWORD` befo
 
 ## Frontend
 
-`frontend/` is a standalone Angular application using Taiga UI. The read-only Memory page loads
-durable records from the same-origin `/api/v1/memories` endpoint.
+`frontend/` is a standalone Angular application using Taiga UI. Visit `/login` to authenticate.
+The Angular `ApiService` is the exclusive same-origin MALG API client; it stores the bearer token
+only in `sessionStorage`, attaches it to every versioned request, and owns logout and expiry
+redirect behavior. The read-only Memory page loads durable records through that service.
 
 Start it locally with:
 

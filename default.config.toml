@@ -1,3 +1,7 @@
+[default.auth]
+username = "admin"
+password = ""
+
 [default.llm]
 model = "gpt-4.1-mini"
 api_base = "https://api.openai.com/v1"

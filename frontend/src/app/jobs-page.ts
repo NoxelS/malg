@@ -1,6 +1,6 @@
 import {DatePipe} from '@angular/common';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
+import {ApiService} from './api-service';
 import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge} from '@taiga-ui/kit';
 import {PageHeaderComponent} from './components/page-header.component';
@@ -29,7 +29,7 @@ interface ResearchJob {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class JobsPage implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
 
   protected readonly jobs = signal<readonly ResearchJob[]>([]);
   protected readonly loading = signal(true);
@@ -38,7 +38,7 @@ export class JobsPage implements OnInit {
   protected readonly pendingJobId = signal<string | null>(null);
 
   ngOnInit(): void {
-    this.http.get<readonly ResearchJob[]>('/api/v1/jobs').subscribe({
+    this.api.listJobs().subscribe({
       next: (jobs) => {
         this.jobs.set(jobs);
         this.loading.set(false);
@@ -58,7 +58,7 @@ export class JobsPage implements OnInit {
     if (job.status !== 'queued' || this.pendingJobId()) return;
     this.pendingJobId.set(job.job_id);
     this.actionError.set(null);
-    this.http.post<ResearchJob>(`/api/v1/jobs/${job.job_id}/cancel`, {}).subscribe({
+    this.api.cancelJob(job.job_id).subscribe({
       next: (updated) => {
         this.jobs.update((jobs) => jobs.map((item) => item.job_id === updated.job_id ? updated : item));
         this.pendingJobId.set(null);
@@ -74,7 +74,7 @@ export class JobsPage implements OnInit {
     if (!this.isDeletable(job) || this.pendingJobId()) return;
     this.pendingJobId.set(job.job_id);
     this.actionError.set(null);
-    this.http.delete<void>(`/api/v1/jobs/${job.job_id}`).subscribe({
+    this.api.deleteJob(job.job_id).subscribe({
       next: () => {
         this.jobs.update((jobs) => jobs.filter((item) => item.job_id !== job.job_id));
         this.pendingJobId.set(null);

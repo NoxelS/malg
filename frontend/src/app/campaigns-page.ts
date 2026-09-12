@@ -1,6 +1,6 @@
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
 import {DatePipe} from '@angular/common';
-import {HttpClient} from '@angular/common/http';
+import {ApiService} from './api-service';
 import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge, TuiChip} from '@taiga-ui/kit';
 import {ChipListComponent} from './components/chip-list.component';
@@ -58,7 +58,7 @@ interface Campaign {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CampaignsPage implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
 
   protected readonly campaigns = signal<readonly Campaign[]>([]);
   protected readonly loading = signal(true);
@@ -95,7 +95,7 @@ export class CampaignsPage implements OnInit {
 
     this.researchSubmitting.set(true);
     this.researchError.set('');
-    this.http.post<readonly unknown[]>('/api/v1/jobs/campaigns', {amount}).subscribe({
+    this.api.enqueueCampaignJobs(amount).subscribe({
       next: () => {
         this.researchSubmitting.set(false);
         this.researchDialogOpen.set(false);
@@ -126,7 +126,7 @@ export class CampaignsPage implements OnInit {
   }
 
   ngOnInit(): void {
-    this.http.get<readonly Campaign[]>('/api/v1/campaigns').subscribe({
+    this.api.listCampaigns().subscribe({
       next: (campaigns) => {
         this.campaigns.set(campaigns);
         this.loading.set(false);

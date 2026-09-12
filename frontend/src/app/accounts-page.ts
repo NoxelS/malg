@@ -1,6 +1,6 @@
 import {DatePipe} from '@angular/common';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
+import {ApiService} from './api-service';
 import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge, TuiChip} from '@taiga-ui/kit';
 import {ChipListComponent} from './components/chip-list.component';
@@ -71,7 +71,7 @@ interface ICPReference {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AccountsPage implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
   private icpRequest = 0;
 
   protected readonly accounts = signal<readonly Account[]>([]);
@@ -117,7 +117,7 @@ export class AccountsPage implements OnInit {
     this.icpError.set('');
     this.icpsLoading.set(Boolean(campaignId));
     if (!campaignId) return;
-    this.http.get<readonly ICPReference[]>(`/api/v1/campaigns/${campaignId}/icps`).subscribe({
+    this.api.listCampaignIcps(campaignId).subscribe({
       next: (icps) => {
         if (requestId !== this.icpRequest || campaignId !== this.selectedCampaignId()) return;
         this.icps.set(icps);
@@ -146,7 +146,7 @@ export class AccountsPage implements OnInit {
     }
     this.researchSubmitting.set(true);
     this.researchError.set('');
-    this.http.post('/api/v1/jobs', {kind: 'account', campaign_id: campaignId, icp_id: icpId}).subscribe({
+    this.api.enqueueAccountJob(campaignId, icpId).subscribe({
       next: () => {
         this.researchSubmitting.set(false);
         this.researchDialogOpen.set(false);
@@ -163,7 +163,7 @@ export class AccountsPage implements OnInit {
   }
 
   ngOnInit(): void {
-    this.http.get<readonly Account[]>('/api/v1/accounts').subscribe({
+    this.api.listAccounts().subscribe({
       next: (accounts) => {
         this.accounts.set(accounts);
         this.loading.set(false);
@@ -173,7 +173,7 @@ export class AccountsPage implements OnInit {
         this.loading.set(false);
       },
     });
-    this.http.get<readonly CampaignReference[]>('/api/v1/campaigns').subscribe({
+    this.api.listCampaigns().subscribe({
       next: (campaigns) => this.campaigns.set(campaigns),
       error: () => this.campaigns.set([]),
     });

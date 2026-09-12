@@ -85,6 +85,30 @@ class WorkerConfig:
     heartbeat_timeout_seconds: int = 15
 
 
+@dataclass(frozen=True)
+class AuthConfig:
+    """Configuration for MALG's single administrator-equivalent account."""
+
+    username: str
+    password: str
+
+
+def get_auth_config(settings: Dynaconf) -> AuthConfig:
+    """Read authentication credentials, allowing blank password disablement."""
+    auth = settings.get("auth")
+    if not isinstance(auth, Mapping):
+        raise ValueError("Missing [default.auth] configuration.")
+    username = auth.get("username")
+    password = auth.get("password")
+    if not isinstance(username, str):
+        raise ValueError("Auth configuration field username must be a string.")
+    if not username:
+        raise ValueError("Auth configuration field username must be non-empty.")
+    if not isinstance(password, str):
+        raise ValueError("Auth configuration field password must be a string.")
+    return AuthConfig(username=username, password=password)
+
+
 def get_worker_config(settings: Dynaconf) -> WorkerConfig:
     """Read and validate positive worker lease and liveness settings."""
     worker = settings.get("worker")

@@ -1,5 +1,7 @@
-import {ChangeDetectionStrategy, Component} from '@angular/core';
-import {RouterLink, RouterLinkActive} from '@angular/router';
+import {ChangeDetectionStrategy, Component, inject} from '@angular/core';
+import {Router, RouterLink, RouterLinkActive} from '@angular/router';
+
+import {ApiService} from '../api-service';
 
 type NavigationItem = {
   readonly path: string;
@@ -40,6 +42,7 @@ type NavigationItem = {
             <span class="nav__arrow" aria-hidden="true">→</span>
           </a>
         }
+      <button class="logout" type="button" (click)="logout()">Log out</button>
       </nav>
     </aside>
   `,
@@ -230,6 +233,8 @@ type NavigationItem = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SidebarNavigationComponent {
+  private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
   readonly version = 'v0.4.0';
   readonly navigation: readonly NavigationItem[] = [
     {path: '/dashboard', name: 'Dashboard', description: 'Live activity, jobs, and worker health.', icon: '◌'},
@@ -239,4 +244,9 @@ export class SidebarNavigationComponent {
     {path: '/jobs', name: 'Jobs', description: 'Queued work and recent outcomes.', icon: '◍'},
     {path: '/memory', name: 'Memory', description: 'Durable agent findings and recall history.', icon: '◆'},
   ];
+
+  logout(): void {
+    this.api.logout();
+    void this.router.navigate(['/login']);
+  }
 }

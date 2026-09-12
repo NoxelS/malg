@@ -1,6 +1,6 @@
 import {DatePipe, JsonPipe} from '@angular/common';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
+import {ApiService} from './api-service';
 import {TuiBadge} from '@taiga-ui/kit';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
@@ -37,7 +37,7 @@ interface MemoryPageResponse {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MemoryPage implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
   private readonly pageSize = 50;
 
   protected readonly memories = signal<readonly Memory[]>([]);
@@ -69,9 +69,7 @@ export class MemoryPage implements OnInit {
       this.loadingMore.set(true);
     }
     const offset = reset ? 0 : this.memories().length;
-    this.http.get<MemoryPageResponse>('/api/v1/memories', {
-      params: {limit: this.pageSize, offset, include_archived: this.includeArchived()},
-    }).subscribe({
+    this.api.listMemories(this.pageSize, offset, this.includeArchived()).subscribe({
       next: (page) => {
         this.memories.update((items) => reset ? page.items : [...items, ...page.items]);
         this.total.set(page.total);

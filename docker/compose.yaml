@@ -56,6 +56,8 @@ services:
       - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
     environment:
       DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
+      MALG_AUTH__USERNAME: ${MALG_AUTH__USERNAME:-admin}
+      MALG_AUTH__PASSWORD: ${MALG_AUTH__PASSWORD:-}
       PYTHONDONTWRITEBYTECODE: "1"
     depends_on:
       postgres:

@@ -1,6 +1,6 @@
 import {DatePipe} from '@angular/common';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
+import {ApiService} from './api-service';
 import {forkJoin} from 'rxjs';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
@@ -57,7 +57,7 @@ interface WorkerView extends WorkerSummary {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DashboardPage implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
 
   protected readonly summary = signal<DashboardSummary | null>(null);
   protected readonly workers = signal<readonly WorkerView[]>([]);
@@ -66,12 +66,12 @@ export class DashboardPage implements OnInit {
 
   ngOnInit(): void {
     forkJoin({
-      summary: this.http.get<DashboardSummary>('/api/v1/dashboard'),
-      workers: this.http.get<readonly WorkerSummary[]>('/api/v1/workers'),
+      summary: this.api.listDashboard(),
+      workers: this.api.listWorkers(),
     }).subscribe({
       next: ({summary, workers}) => {
         this.summary.set(summary);
-        this.workers.set(workers.map((worker) => ({
+        this.workers.set(workers.map((worker: WorkerSummary) => ({
           ...worker,
           runningFor: worker.job ? this.durationSince(worker.job.claimed_at) : null,
         })));

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from tests.fixtures import authenticated_client
 
-from malg.api.app import create_app
 from malg.database.models import ICP, Account, Base, Campaign, ResearchJob, WorkerHeartbeat
 
 
@@ -84,7 +83,7 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
             WorkerHeartbeat(worker_token="stale-worker", last_seen_at=now - timedelta(seconds=30))
         )
 
-    client = TestClient(create_app(database_engine=engine))
+    client = authenticated_client(engine)
     assert client.get("/api/v1/dashboard").json() == {
         "active_workers": 2,
         "campaigns": 1,
