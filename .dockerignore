@@ -8,3 +8,5 @@ __pycache__
 user.config.toml
 tests
 docker
+memory
+results
