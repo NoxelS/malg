@@ -336,7 +336,6 @@ def get_icp_config(settings: Dynaconf) -> ICPConfig:
         names = ", ".join(invalid_fields)
         raise ValueError(f"ICP configuration field(s) must be positive integers: {names}.")
 
-
     return ICPConfig(
         batch_size=icp["batch_size"],
         concurrency=icp["concurrency"],

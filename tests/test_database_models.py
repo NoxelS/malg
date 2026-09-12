@@ -26,9 +26,7 @@ def test_persistence_schema_uses_postgresql_jsonb_and_account_relationships() ->
         "worker_heartbeats",
     }
     assert "JSONB" in str(CreateTable(tables["campaigns"]).compile(dialect=postgresql.dialect()))
-    memory_ddl = str(
-        CreateTable(tables["agent_memories"]).compile(dialect=postgresql.dialect())
-    )
+    memory_ddl = str(CreateTable(tables["agent_memories"]).compile(dialect=postgresql.dialect()))
     assert "VECTOR(256)" in memory_ddl
     icp_ddl = str(CreateTable(tables["icps"]).compile(dialect=postgresql.dialect()))
     assert (

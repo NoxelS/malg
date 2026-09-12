@@ -97,6 +97,7 @@ async def find_ten_icps(
     """Research the next configured ICP batch for a supplied durable campaign."""
     return await research_icps(campaign, session=session, on_accepted=on_accepted)
 
+
 async def main() -> None:
     """Research, validate, and persist one account for the first stored ICP."""
     engine = make_engine()

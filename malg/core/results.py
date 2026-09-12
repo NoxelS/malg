@@ -106,12 +106,6 @@ def render_icp_markdown(icp: ICPResult) -> str:
     return "\n".join(sections).rstrip() + "\n"
 
 
-
-
-
-
-
-
 def render_account_profile_markdown(profile: AccountProfile) -> str:
     """Render a stable human-readable view of one unpersisted account candidate."""
     sections = [
@@ -155,5 +149,3 @@ def render_account_profile_markdown(profile: AccountProfile) -> str:
         _section("Unknowns", _bullets(profile.unknowns)),
     ]
     return "\n".join(sections).rstrip() + "\n"
-
-

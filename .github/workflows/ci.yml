@@ -97,4 +97,4 @@ jobs:
       - name: Run PostgreSQL memory and API integration tests
         env:
           DATABASE_URL: postgresql+psycopg://malg:malg@127.0.0.1:5432/malg
-        run: uv run pytest tests/test_api_artifacts.py tests/test_persistent_memory_support.py -q
+        run: uv run pytest tests/test_postgres_memory.py -q

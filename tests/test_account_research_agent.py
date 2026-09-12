@@ -9,9 +9,9 @@ from nooa import Agent
 from sqlalchemy import create_engine, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
+from tests.fixtures import _icp
 from tests.test_account_artifacts import account_candidate_payload
 from tests.test_campaign_research_agent import campaign_payload
-from tests.test_icp_batch_runner import _icp
 
 from malg import __main__
 from malg.config import get_llm_config, load_settings

@@ -10,8 +10,8 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
+from tests.fixtures import _icp
 from tests.test_campaign_research_agent import campaign_payload
-from tests.test_icp_batch_runner import _icp
 
 from malg.api.app import create_app
 from malg.core.models.account import AccountCandidate, CommunicationEndpointCandidate

@@ -179,7 +179,7 @@ def test_icp_config_reads_environment_overrides(tmp_path: Path, monkeypatch) -> 
     config_file = tmp_path / "default.config.toml"
     config_file.write_text(
         "[default.icp]\nbatch_size = 10\nconcurrency = 3\nmax_attempts_per_slot = 3\n"
-        "max_exclusion_cards = 100\noutput_root = 'results'\n"
+        "max_exclusion_cards = 100\n"
     )
     monkeypatch.setenv("MALG_ICP__BATCH_SIZE", "4")
 
@@ -189,14 +189,13 @@ def test_icp_config_reads_environment_overrides(tmp_path: Path, monkeypatch) -> 
     assert config.concurrency == 3
     assert config.max_attempts_per_slot == 3
     assert config.max_exclusion_cards == 100
-    assert config.output_root == Path("results")
 
 
 def test_icp_config_rejects_non_positive_batch_size(tmp_path: Path) -> None:
     config_file = tmp_path / "default.config.toml"
     config_file.write_text(
         "[default.icp]\nbatch_size = 0\nconcurrency = 3\nmax_attempts_per_slot = 3\n"
-        "max_exclusion_cards = 100\noutput_root = 'results'\n"
+        "max_exclusion_cards = 100\n"
     )
 
     with pytest.raises(ValueError, match="batch_size"):

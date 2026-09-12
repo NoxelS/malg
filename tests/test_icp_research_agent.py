@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from tests.test_icp_batch_runner import _campaign, _icp
+from tests.fixtures import _campaign, _icp
 
 from malg.core.agents.icp_research import ICPResearchAgent
 from malg.core.models.campaign import CampaignCandidate
