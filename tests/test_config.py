@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from malg.config import (
+    AuthConfig,
+    get_auth_config,
     get_browser_config,
     get_eurostat_config,
     get_icp_config,
@@ -12,6 +14,35 @@ from malg.config import (
     get_search_config,
     load_settings,
 )
+
+
+def test_auth_config_defaults_and_environment_overrides(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text("[default.auth]\nusername = 'admin'\npassword = ''\n")
+    monkeypatch.setenv("MALG_AUTH__USERNAME", "operator")
+    monkeypatch.setenv("MALG_AUTH__PASSWORD", "secret")
+    config = get_auth_config(load_settings(settings_files=(config_file,), load_dotenv=False))
+    assert config.username == "operator"
+    assert config.password == "secret"
+
+
+def test_auth_config_blank_password_disables_authentication(tmp_path: Path) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text("[default.auth]\nusername = 'admin'\npassword = ''\n")
+    config = get_auth_config(load_settings(settings_files=(config_file,), load_dotenv=False))
+    assert config == AuthConfig(username="admin", password="")
+
+
+@pytest.mark.parametrize("field", ["username", "password"])
+def test_auth_config_rejects_invalid_field_types(tmp_path: Path, field: str) -> None:
+    config_file = tmp_path / "default.config.toml"
+    config_file.write_text(
+        "[default.auth]\nusername = 1\npassword = ''\n"
+        if field == "username"
+        else "[default.auth]\nusername = 'admin'\npassword = 1\n"
+    )
+    with pytest.raises(ValueError, match=field):
+        get_auth_config(load_settings(settings_files=(config_file,), load_dotenv=False))
 
 
 def test_user_config_overrides_default(tmp_path: Path) -> None:

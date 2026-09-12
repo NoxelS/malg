@@ -1,7 +1,7 @@
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
+import {ApiService} from './api-service';
 import {RouterLink} from '@angular/router';
-import {forkJoin, map} from 'rxjs';
+import {Observable, forkJoin, map} from 'rxjs';
 import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge, TuiChip} from '@taiga-ui/kit';
 import {ChipListComponent} from './components/chip-list.component';
@@ -58,7 +58,7 @@ interface ICP {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class IcpsPage implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
 
   protected readonly icps = signal<readonly ICP[]>([]);
   protected readonly campaigns = signal<readonly CampaignReference[]>([]);
@@ -110,7 +110,7 @@ export class IcpsPage implements OnInit {
     }
     this.researchSubmitting.set(true);
     this.researchError.set('');
-    this.http.post('/api/v1/jobs', {kind: 'icp', campaign_id: campaignId}).subscribe({
+    this.api.enqueueIcpJob(campaignId).subscribe({
       next: () => {
         this.researchSubmitting.set(false);
         this.researchDialogOpen.set(false);
@@ -125,10 +125,12 @@ export class IcpsPage implements OnInit {
   }
 
   ngOnInit(): void {
-    this.http.get<readonly CampaignReference[]>('/api/v1/campaigns').pipe(
+    (this.api.listCampaigns() as Observable<readonly CampaignReference[]>).pipe(
       map((campaigns) => ({
         campaigns,
-        campaignMap: new Map(campaigns.map((campaign) => [campaign.campaign_id, campaign])),
+        campaignMap: new Map<string, CampaignReference>(
+          campaigns.map((campaign: CampaignReference) => [campaign.campaign_id, campaign]),
+        ),
       })),
     ).subscribe({
       next: ({campaigns, campaignMap}) => {
@@ -139,8 +141,8 @@ export class IcpsPage implements OnInit {
           return;
         }
 
-        forkJoin(campaigns.map((campaign) =>
-          this.http.get<readonly ICP[]>(`/api/v1/campaigns/${campaign.campaign_id}/icps`),
+        forkJoin(campaigns.map((campaign: CampaignReference) =>
+          this.api.listCampaignIcps(campaign.campaign_id) as Observable<readonly ICP[]>,
         )).subscribe({
           next: (icpGroups) => {
             this.icps.set(icpGroups.flat());

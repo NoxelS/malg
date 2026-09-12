@@ -1,5 +1,5 @@
-import {Component} from '@angular/core';
-import {RouterOutlet} from '@angular/router';
+import {Component, inject} from '@angular/core';
+import {Router, RouterOutlet} from '@angular/router';
 import {TuiRoot} from '@taiga-ui/core';
 
 import {SidebarNavigationComponent} from './components/sidebar-navigation.component';
@@ -10,4 +10,10 @@ import {SidebarNavigationComponent} from './components/sidebar-navigation.compon
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })
-export class App {}
+export class App {
+  private readonly router = inject(Router);
+
+  protected get showShell(): boolean {
+    return !this.router.url.startsWith('/login');
+  }
+}

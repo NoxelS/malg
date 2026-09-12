@@ -5,15 +5,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
-from tests.fixtures import _icp
+from tests.fixtures import _icp, authenticated_client
 from tests.test_campaign_research_agent import campaign_payload
 
-from malg.api.app import create_app
 from malg.core.models.account import AccountCandidate, CommunicationEndpointCandidate
 from malg.database import Base
 
@@ -133,11 +131,10 @@ def test_account_candidate_requires_resolved_fit_evidence_and_observed_linkedin(
 
 
 def test_account_api_persists_global_identity_campaign_match_contacts_and_validation() -> None:
-    client = TestClient(create_app(database_engine=_engine()))
+    client = authenticated_client(_engine())
     campaign = campaign_payload()
     icp = _icp("manufacturing-ops", "Incident intake").model_dump(mode="json")
     candidate = account_candidate_payload()
-
     assert client.post("/api/v1/campaigns", json=campaign).status_code == 201
     assert (
         client.post(f"/api/v1/campaigns/{campaign['campaign_id']}/icps", json=icp).status_code
