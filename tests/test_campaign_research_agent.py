@@ -75,6 +75,17 @@ def campaign_payload() -> dict[str, object]:
 
 def test_campaign_research_agent_uses_nooa_eurostat_agent(monkeypatch) -> None:
     monkeypatch.setattr("malg.core.browser_support.create_browser_tool", lambda config: object())
+
+    class FakeMemoryStore:
+        path = "test-memory-store"
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "malg.core.persistent_memory_support.PostgresMemoryManager._make_store",
+        lambda self, agent: FakeMemoryStore(),
+    )
     assert issubclass(CampaignResearchAgent, Agent)
     assert issubclass(CampaignResearchAgent, BrowserSupport)
     assert issubclass(CampaignResearchAgent, EurostatSupport)
