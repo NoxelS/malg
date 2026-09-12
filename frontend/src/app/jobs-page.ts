@@ -34,7 +34,7 @@ export class JobsPage implements OnInit {
   protected readonly jobs = signal<readonly ResearchJob[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal(false);
-  protected readonly cancelError = signal(false);
+  protected readonly actionError = signal<'cancel' | 'delete' | null>(null);
   protected readonly pendingJobId = signal<string | null>(null);
 
   ngOnInit(): void {
@@ -50,10 +50,14 @@ export class JobsPage implements OnInit {
     });
   }
 
+  protected isDeletable(job: ResearchJob): boolean {
+    return job.status === 'cancelled' || job.status === 'succeeded' || job.status === 'failed';
+  }
+
   protected cancelJob(job: ResearchJob): void {
     if (job.status !== 'queued' || this.pendingJobId()) return;
     this.pendingJobId.set(job.job_id);
-    this.cancelError.set(false);
+    this.actionError.set(null);
     this.http.post<ResearchJob>(`/api/v1/jobs/${job.job_id}/cancel`, {}).subscribe({
       next: (updated) => {
         this.jobs.update((jobs) => jobs.map((item) => item.job_id === updated.job_id ? updated : item));
@@ -61,7 +65,23 @@ export class JobsPage implements OnInit {
       },
       error: () => {
         this.pendingJobId.set(null);
-        this.cancelError.set(true);
+        this.actionError.set('cancel');
+      },
+    });
+  }
+
+  protected deleteJob(job: ResearchJob): void {
+    if (!this.isDeletable(job) || this.pendingJobId()) return;
+    this.pendingJobId.set(job.job_id);
+    this.actionError.set(null);
+    this.http.delete<void>(`/api/v1/jobs/${job.job_id}`).subscribe({
+      next: () => {
+        this.jobs.update((jobs) => jobs.filter((item) => item.job_id !== job.job_id));
+        this.pendingJobId.set(null);
+      },
+      error: () => {
+        this.pendingJobId.set(null);
+        this.actionError.set('delete');
       },
     });
   }

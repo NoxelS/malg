@@ -139,8 +139,22 @@ def test_jobs_overview_lists_all_lifecycle_records_and_cancels_queued_only() -> 
     assert records["failed"]["failure_detail"] == "persisted failure"
     assert records["succeeded"]["finished_at"] is not None
 
+    for job_id in ("succeeded-job", "failed-job", "cancelled-job"):
+        deleted = client.delete(f"/api/v1/jobs/{job_id}")
+        assert deleted.status_code == 204
+    remaining = client.get("/api/v1/jobs")
+    assert remaining.status_code == 200
+    assert {record["status"] for record in remaining.json()} == {"queued", "running"}
+    assert client.delete("/api/v1/jobs/queued-job").status_code == 409
+    assert client.delete("/api/v1/jobs/running-job").status_code == 409
+    assert client.delete("/api/v1/jobs/missing-job").status_code == 404
+
+    listed = client.get("/api/v1/jobs")
+    assert {record["status"] for record in listed.json()} == {"queued", "running"}
+
     cancelled = client.post("/api/v1/jobs/queued-job/cancel", json={})
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
     assert client.post("/api/v1/jobs/queued-job/cancel", json={}).status_code == 409
     assert client.post("/api/v1/jobs/running-job/cancel", json={}).status_code == 409
+

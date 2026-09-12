@@ -1,6 +1,6 @@
 :host { display: block; }
 
-.cancel-error { background: var(--tui-background-negative); color: var(--tui-text-negative); margin: 0 0 1.5rem; padding: 1rem 1.25rem; }
+.action-error { background: var(--tui-background-negative); color: var(--tui-text-negative); margin: 0 0 1.5rem; padding: 1rem 1.25rem; }
 .job-list { display: grid; gap: 1rem; }
 .job-card { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-inline-start: .3rem solid var(--tui-border-normal); border-radius: var(--tui-radius-l); box-shadow: var(--tui-shadow-small); min-width: 0; padding: 1.5rem; }
 .job-card.queued { border-inline-start-color: var(--tui-text-action); }

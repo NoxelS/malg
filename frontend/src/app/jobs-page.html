@@ -8,8 +8,11 @@
   } @else if (!jobs().length) {
     <app-state-message message="No research jobs yet." />
   } @else {
-    @if (cancelError()) {
-      <p class="cancel-error" role="alert">This job could not be cancelled. Refresh the page to see its current state.</p>
+    @if (actionError() === 'cancel') {
+      <p class="action-error" role="alert">This job could not be cancelled. Refresh the page to see its current state.</p>
+    }
+    @if (actionError() === 'delete') {
+      <p class="action-error" role="alert">This job could not be deleted. Refresh the page to see its current state.</p>
     }
     <section class="job-list" aria-label="Research jobs">
       @for (job of jobs(); track job.job_id) {
@@ -33,6 +36,11 @@
           @if (job.status === 'queued') {
             <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="cancelJob(job)">
               {{ pendingJobId() === job.job_id ? 'Cancelling…' : 'Cancel job' }}
+            </button>
+          }
+          @if (isDeletable(job)) {
+            <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="deleteJob(job)">
+              {{ pendingJobId() === job.job_id ? 'Deleting…' : 'Delete job' }}
             </button>
           }
         </article>

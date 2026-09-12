@@ -18,7 +18,7 @@ from malg.core.models.jobs import (
     ResearchJobRequest,
     ResearchJobStatus,
 )
-from malg.database.jobs import cancel_job, enqueue_campaign_jobs, enqueue_job
+from malg.database.jobs import cancel_job, delete_job, enqueue_campaign_jobs, enqueue_job
 from malg.database.models import ResearchJob
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -105,3 +105,12 @@ def cancel_research_job(job_id: str, session: SessionDependency) -> ResearchJobR
         raise HTTPException(status_code=409, detail="job cannot be cancelled")
     session.commit()
     return _record(job)
+
+
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_research_job(job_id: str, session: SessionDependency) -> None:
+    """Delete a terminal job record without touching its research artifacts."""
+    _job_or_404(session, job_id)
+    if not delete_job(session, job_id):
+        raise HTTPException(status_code=409, detail="job cannot be deleted")
+    session.commit()

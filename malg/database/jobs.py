@@ -149,6 +149,19 @@ def cancel_job(session: Session, job_id: str, now: datetime) -> ResearchJob | No
     session.flush()
     return job
 
+def delete_job(session: Session, job_id: str) -> bool:
+    """Delete a terminal job record; return ``False`` for absent or active work."""
+    job = session.get(ResearchJob, job_id)
+    if job is None or job.status not in {
+        ResearchJobStatus.SUCCEEDED.value,
+        ResearchJobStatus.FAILED.value,
+        ResearchJobStatus.CANCELLED.value,
+    }:
+        return False
+    session.delete(job)
+    session.flush()
+    return True
+
 
 def cancel_running_jobs(session: Session, now: datetime) -> int:
     """Cancel every running claim interrupted by a worker replacement."""
