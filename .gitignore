@@ -1,0 +1,74 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+.envrc
+user.config.toml
+
+# Python bytecode and virtual environments
+__pycache__/
+*.py[codz]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+__pypackages__/
+
+# Python builds and package metadata
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Tests, coverage, linters, and type checkers
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.hypothesis/
+.tox/
+.nox/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Notebooks and documentation builds
+.ipynb_checkpoints/
+docs/_build/
+site/
+
+# Local runtime data and temporary files
+results/*
+!results/.gitkeep
+memory/*
+!memory/.gitkeep
+*.log
+*.pid
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# macOS Finder and resource-fork metadata
+.DS_Store
+.localized
+__MACOSX/
+.AppleDouble
+.LSOverride
+Icon[
+]
+._*
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.fseventsd

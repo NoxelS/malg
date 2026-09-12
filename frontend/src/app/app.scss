@@ -1,0 +1,25 @@
+:host {
+  display: block;
+  min-height: 100dvh;
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100dvh;
+}
+
+app-sidebar-navigation {
+  flex: 0 0 18rem;
+}
+
+.content {
+  background: var(--tui-background-neutral-1);
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 42rem) {
+  app-sidebar-navigation {
+    flex-basis: 5.5rem;
+  }
+}

@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out resulting main with tags
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute and commit next version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          current=$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("pyproject.toml").read_text()
+          match = re.search(r'^version = "([^"]+)"$', text, re.MULTILINE)
+          if match is None or not re.fullmatch(r"0\.[0-9]+\.0", match.group(1)):
+              raise SystemExit("pyproject.toml version must strictly match 0.<minor>.0")
+          print(match.group(1))
+          PY
+          )
+          minor=${current#0.}
+          minor=${minor%.0}
+          next="0.$((minor + 1)).0"
+          VERSION="$next" python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          path = Path("pyproject.toml")
+          text = path.read_text()
+          next_version = os.environ["VERSION"]
+          updated, count = re.subn(
+              r'^version = "0\.[0-9]+\.0"$',
+              'version = "' + next_version + '"',
+              text,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          if count != 1:
+              raise SystemExit("expected exactly one project version")
+          path.write_text(updated)
+          PY
+          if git diff --name-only | grep -vFxq pyproject.toml; then
+            echo "release workflow changed files other than pyproject.toml" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "chore(release): $next"
+          git tag -a "v$next" -m "v$next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Push release commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git push origin HEAD:main
+          git push origin "v$VERSION"

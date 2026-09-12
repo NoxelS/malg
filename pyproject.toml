@@ -1,0 +1,103 @@
+[project]
+name = "malg"
+version = "0.1.0"
+description = "Evidence-backed, human-approved campaign research for private AI systems."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Noel Pascal Schwabenland" }]
+keywords = ["agents", "ai", "campaign-research", "lead-generation", "private-ai"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "alembic>=1.14,<2",
+    "dynaconf>=3.2",
+    "eurostat>=1.1,<2",
+    # NOOA's MCP client targets the 1.x streamable-HTTP transport API.
+    "mcp>=1,<2",
+    "nooa[cli,mcp,viewer]>=0.0.10,<0.1",
+    "nooa-memory>=0.0.10,<0.1",
+    "openai>=2.53,<3",
+    "pandas>=2.2,<3",
+    "pydantic>=2.5,<3",
+    "pgvector>=0.3,<1",
+    "psycopg[binary]>=3.2,<4",
+    "sqlalchemy>=2.0,<3",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.34,<1",
+]
+
+[project.urls]
+Repository = "https://github.com/NoxelS/malg"
+Issues = "https://github.com/NoxelS/malg/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["malg"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "pandas-stubs>=2.2,<3",
+    "ruff>=0.9",
+]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+extend-exclude = ["labs-OO-Agents"]
+line-length = 100
+src = ["malg"]
+target-version = "py312"
+
+[tool.ruff.lint]
+ignore = ["E501"]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM", "PT", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["malg"]
+
+[tool.mypy]
+check_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+files = ["malg"]
+no_implicit_optional = true
+python_version = "3.12"
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["dynaconf", "eurostat", "nooa", "nooa.*", "nooa_memory"]
+follow_untyped_imports = false
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["malg.core.agents.*"]
+disable_error_code = ["empty-body"]
+
+[tool.coverage.run]
+branch = true
+source = ["malg"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = true

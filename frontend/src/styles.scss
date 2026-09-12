@@ -1,0 +1,42 @@
+/*
+ * Taiga UI components consume these semantic tokens. Keeping the palette here
+ * makes pink the application-wide primary colour rather than styling each
+ * component instance separately.
+ */
+:root,
+[tuiTheme='light'],
+[tuiTheme='dark'] {
+  --malg-pink: #d61f69;
+  --malg-pink-hover: #e4377e;
+  --malg-pink-pressed: #ab1550;
+  --malg-pink-pale: rgba(214, 31, 105, 0.12);
+  --malg-pink-pale-hover: rgba(214, 31, 105, 0.2);
+
+  --tui-background-accent-1: var(--malg-pink);
+  --tui-background-accent-1-hover: var(--malg-pink-hover);
+  --tui-background-accent-1-pressed: var(--malg-pink-pressed);
+  --tui-background-accent-2: var(--malg-pink);
+  --tui-background-accent-2-hover: var(--malg-pink-hover);
+  --tui-background-accent-2-pressed: var(--malg-pink-pressed);
+  --tui-border-focus: var(--malg-pink);
+  --tui-service-selection-background: var(--malg-pink-pale);
+  --tui-text-action: var(--malg-pink);
+  --tui-text-action-hover: var(--malg-pink-hover);
+  --tui-text-primary-on-accent-1: #fff;
+  --tui-text-primary-on-accent-2: #fff;
+  --tui-chart-categorical-00: var(--malg-pink);
+  --tui-chart-categorical-01: #ed7cae;
+  --tui-chart-categorical-14: #b51556;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: Inter, Arial, sans-serif;
+}
+.queue-message { background: var(--tui-background-positive); border: 1px solid var(--tui-text-positive); border-radius: var(--tui-radius-m); color: var(--tui-text-primary); font: var(--tui-font-text-m); margin: -1rem 0 2rem; padding: 1rem 1.25rem; }
+.research-overlay { align-items: center; background: color-mix(in srgb, var(--tui-background-base) 72%, transparent); display: flex; inset: 0; justify-content: center; padding: 1.5rem; position: fixed; z-index: 10; } .research-dialog { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-l); box-shadow: var(--tui-shadow-large); max-width: 32rem; padding: 2rem; width: 100%; } .research-dialog h2 { color: var(--tui-text-primary); margin-block-end: .75rem; } .research-dialog__description { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: 0 0 1.5rem; } .field-label { color: var(--tui-text-action); display: block; font: var(--tui-font-text-s); font-weight: 700; letter-spacing: .08em; margin-block-end: .5rem; text-transform: uppercase; } .research-dialog__input { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-m); box-sizing: border-box; color: var(--tui-text-primary); font: var(--tui-font-text-l); padding: .75rem 1rem; width: 100%; } .research-dialog__input:focus { border-color: var(--tui-text-action); outline: 2px solid var(--tui-text-action); outline-offset: 1px; } .research-dialog__error { color: var(--tui-text-negative); font: var(--tui-font-text-s); margin: .75rem 0 0; } .research-dialog__actions { display: flex; gap: .75rem; justify-content: flex-end; margin-block-start: 2rem; }

@@ -1,0 +1,215 @@
+services:
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: ghcr.io/noxels/malg-frontend:local
+    init: true
+    user: "101:101"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,size=8m,mode=0755,uid=101,gid=101
+      - /var/run:rw,noexec,nosuid,size=1m,mode=0755,uid=101,gid=101
+    ports:
+      - "127.0.0.1:4200:8080"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
+    init: true
+    environment:
+      POSTGRES_DB: ${MALG_POSTGRES_DB:-malg}
+      POSTGRES_USER: ${MALG_POSTGRES_USER:-malg}
+      POSTGRES_PASSWORD: ${MALG_POSTGRES_PASSWORD:-malg-local-password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/noxels/malg:local
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532
+      - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
+    environment:
+      DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
+      PYTHONDONTWRITEBYTECODE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["/bin/sh", "-c", "alembic upgrade head && exec uvicorn malg.api.app:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/noxels/malg:local
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532
+      - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
+    environment:
+      DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
+      HOME: /home/malg
+      OTLP_ENDPOINT: http://trace-proxy:5001/v1/traces
+      TRACE_EXPERIMENT: malg-browser
+      TMPDIR: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lightpanda:
+        condition: service_started
+      searxng:
+        condition: service_started
+      trace-viewer:
+        condition: service_started
+    command: ["python", "-m", "malg.worker"]
+    restart: unless-stopped
+
+  lightpanda:
+    image: lightpanda/browser:nightly
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532
+    environment:
+      HOME: /tmp
+      LIGHTPANDA_DISABLE_TELEMETRY: "true"
+      LIGHTPANDA_DISABLE_CORE_DUMP: "true"
+      TMPDIR: /tmp
+    command: ["/bin/lightpanda", "mcp", "--host", "0.0.0.0", "--port", "9223"]
+    # The MCP endpoint is reachable only by services on this Compose network.
+    # Do not publish it to the host: it has no authentication layer.
+    restart: unless-stopped
+
+  searxng:
+    image: docker.io/searxng/searxng:2026.9.8-3fdc6d753
+    init: true
+    user: "977:977"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+      - /var/cache/searxng:rw,noexec,nosuid,size=64m,mode=0755,uid=977,gid=977
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-malg-local-searx}
+    volumes:
+      - type: bind
+        source: ./searxng/settings.yml
+        target: /etc/searxng/settings.yml
+        read_only: true
+        bind:
+          create_host_path: false
+    # The search API is private to this Compose network; do not publish its port.
+    restart: unless-stopped
+
+  trace-viewer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/noxels/malg:local
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777,uid=65532,gid=65532
+      - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
+    environment:
+      HOME: /home/malg
+      NOOA_VIEWER_AUTH_TOKEN: ${NOOA_VIEWER_AUTH_TOKEN:-malg-local-trace}
+      TMPDIR: /tmp
+    command: ["nooa", "start-dev", "--host", "0.0.0.0", "--port", "5001", "--db", "/tmp/traces.db"]
+    # Trace data remains available while this long-lived service is running.
+    # The database intentionally lives on tmpfs to avoid retaining prompts and page content.
+    restart: "unless-stopped"
+
+  trace-proxy:
+    image: nginx:1.27-alpine
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: "0.25"
+    tmpfs:
+      - /etc/nginx/conf.d:rw,noexec,nosuid,size=1m,mode=0755
+      - /var/cache/nginx:rw,noexec,nosuid,size=8m,mode=0755
+      - /var/run:rw,noexec,nosuid,size=1m,mode=0755
+    environment:
+      NOOA_VIEWER_AUTH_TOKEN: ${NOOA_VIEWER_AUTH_TOKEN:-malg-local-trace}
+    volumes:
+      - type: bind
+        source: ./trace-proxy.conf.template
+        target: /etc/nginx/templates/default.conf.template
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      trace-viewer:
+        condition: service_started
+    ports:
+      - "127.0.0.1:5002:5001"
+    restart: "unless-stopped"
+
+volumes:
+  postgres-data:
