@@ -23,6 +23,12 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.9.22"
+          enable-cache: true
+
 
       - name: Compute and commit next version
         id: version
@@ -60,13 +66,14 @@ jobs:
               raise SystemExit("expected exactly one project version")
           path.write_text(updated)
           PY
-          if git diff --name-only | grep -vFxq pyproject.toml; then
-            echo "release workflow changed files other than pyproject.toml" >&2
+          uv lock
+          if git diff --name-only | grep -Evx '(pyproject\.toml|uv\.lock)'; then
+            echo "release workflow changed files outside pyproject.toml and uv.lock" >&2
             exit 1
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml
+          git add pyproject.toml uv.lock
           git commit -m "chore(release): $next"
           git tag -a "v$next" -m "v$next"
           echo "version=$next" >> "$GITHUB_OUTPUT"
