@@ -17,6 +17,7 @@ type NavigationItem = {
         <span class="brand__mark" aria-hidden="true">M</span>
         <span class="brand__copy" aria-hidden="true">
           <span class="brand__title">MALG</span>
+          <span class="brand__version">{{ version }}</span>
           <span class="brand__subtitle">Research workspace</span>
         </span>
       </a>
@@ -97,6 +98,10 @@ type NavigationItem = {
 
     .brand__subtitle {
       color: var(--tui-text-secondary);
+      font: var(--tui-font-text-s);
+    }
+    .brand__version {
+      color: var(--tui-text-tertiary);
       font: var(--tui-font-text-s);
     }
 
@@ -225,6 +230,7 @@ type NavigationItem = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SidebarNavigationComponent {
+  readonly version = 'v0.4.0';
   readonly navigation: readonly NavigationItem[] = [
     {path: '/dashboard', name: 'Dashboard', description: 'Live activity, jobs, and worker health.', icon: '◌'},
     {path: '/campaigns', name: 'Campaigns', description: 'Research boundaries and evidence.', icon: '◇'},
