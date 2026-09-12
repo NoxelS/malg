@@ -35,49 +35,48 @@ from malg.database.models import (
 )
 
 
+def persist_campaign(candidate: CampaignCandidate, session: Session) -> Campaign:
+    """Persist one canonical campaign and reject duplicate identity."""
+    campaign = Campaign(
+        campaign_id=candidate.campaign_id,
+        title=candidate.title,
+        payload=candidate.model_dump(mode="json"),
+    )
+    session.add(campaign)
+    session.flush()
+    return campaign
+
+
+def persist_icp(candidate: ICPResult, session: Session) -> ICP:
+    """Persist one ICP beneath its existing campaign."""
+    if session.get(Campaign, candidate.campaign_id) is None:
+        raise ValueError("ICP candidate campaign does not exist.")
+    icp = ICP(
+        campaign_id=candidate.campaign_id,
+        icp_id=candidate.icp_id,
+        segment_key=candidate.identity.segment_key(),
+        title=candidate.title,
+        payload=candidate.model_dump(mode="json"),
+    )
+    session.add(icp)
+    session.flush()
+    return icp
+
+
 def persist_icps(
     campaign: CampaignCandidate,
     icps: Iterable[ICPResult],
     session_factory: sessionmaker[Session],
 ) -> None:
-    """Store validated ICPs from a run in one transaction.
-
-    Args:
-        campaign: The saved campaign artifact that scopes the ICPs. It is
-            inserted only when absent because the relational schema requires
-            an ICP parent; this does not start campaign research or updates.
-        icps: Validated ICP artifacts to store.
-        session_factory: Factory bound to an already-migrated database.
-
-    Raises:
-        ValueError: If an ICP belongs to another campaign.
-        sqlalchemy.exc.IntegrityError: If an ICP ID or segment already exists.
-    """
+    """Store validated ICPs from a run in one transaction."""
     icp_list = list(icps)
     if any(icp.campaign_id != campaign.campaign_id for icp in icp_list):
         raise ValueError("Every persisted ICP must belong to the saved campaign.")
-
     with session_factory.begin() as session:
         if session.get(Campaign, campaign.campaign_id) is None:
-            session.add(
-                Campaign(
-                    campaign_id=campaign.campaign_id,
-                    title=campaign.title,
-                    payload=campaign.model_dump(mode="json"),
-                )
-            )
-        session.add_all(
-            [
-                ICP(
-                    campaign_id=icp.campaign_id,
-                    icp_id=icp.icp_id,
-                    segment_key=icp.identity.segment_key(),
-                    title=icp.title,
-                    payload=icp.model_dump(mode="json"),
-                )
-                for icp in icp_list
-            ]
-        )
+            persist_campaign(campaign, session)
+        for icp in icp_list:
+            persist_icp(icp, session)
 
 
 def _normalized_text(value: str) -> str:

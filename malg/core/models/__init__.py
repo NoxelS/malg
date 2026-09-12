@@ -34,6 +34,15 @@ from malg.core.models.icp import (
     ICPResult,
     ICPSegmentFoundation,
 )
+from malg.core.models.jobs import (
+    AccountResearchJobRequest,
+    CampaignResearchJobRequest,
+    ICPResearchJobRequest,
+    ResearchJobKind,
+    ResearchJobRecord,
+    ResearchJobRequest,
+    ResearchJobStatus,
+)
 
 __all__ = [
     "AccountCandidate",
@@ -45,9 +54,11 @@ __all__ = [
     "AccountProbeReport",
     "AccountProfile",
     "AccountRecord",
+    "AccountResearchJobRequest",
     "AccountValidationAssessment",
     "AccountValidationOutcome",
     "CampaignCandidate",
+    "CampaignResearchJobRequest",
     "CheckOutcome",
     "CommunicationEndpointCandidate",
     "ContactCandidate",
@@ -63,9 +74,14 @@ __all__ = [
     "ICPIdentity",
     "ICPOperatingFoundation",
     "ICPRejection",
+    "ICPResearchJobRequest",
     "ICPResult",
     "ICPSegmentFoundation",
     "MailDomainProbeResult",
+    "ResearchJobKind",
+    "ResearchJobRecord",
+    "ResearchJobRequest",
+    "ResearchJobStatus",
     "SourceType",
     "UrlProbeResult",
     "ValidationCheck",

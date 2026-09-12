@@ -113,7 +113,7 @@ The Docker POC bind-mounts the repository's gitignored `memory/` directory at
 `/app/.nooa/memory`, so you can inspect its SQLite files locally (for example,
 `memory/campaign-research.sqlite`). A tracked `.gitkeep` preserves the empty directory, while
 generated memory remains untracked. It is made writable for the unprivileged MALG user before
-each `make run`. This POC uses explicit operations only: it does not auto-write events, inject
+each `make up`. This POC uses explicit operations only: it does not auto-write events, inject
 recalled content automatically, or run reflection.
 
 The trace viewer receives the same directory at `/app/.nooa/memory`, which is its discovery path
@@ -271,14 +271,14 @@ make restart-tools
 
 `make restart-tools` rebuilds the local tool image and recreates Lightpanda, the trace viewer,
 and the trace proxy. Lightpanda uses `restart: unless-stopped`, so an internal browser crash is
-restarted automatically. Then run the ephemeral MALG agent container:
+restarted automatically.
 
 ```bash
-make run
+make up
 ```
 
-`make run` rebuilds only the MALG image and runs it against the Compose services, waiting for
-PostgreSQL to become healthy before the agent starts. Open
+`make up` builds and starts the tools, API, frontend, and three workers; `make workers` rebuilds
+and recreates only those three worker replicas. Open
 `http://localhost:5002` to inspect generation turns, generated code, browser tool calls, and
 their results. The viewer is bound only to localhost; its trace database is kept in the
 container's temporary filesystem and is discarded when the viewer is recreated. A local proxy

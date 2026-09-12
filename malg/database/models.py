@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     String,
     Text,
     UniqueConstraint,
@@ -282,3 +283,32 @@ class AccountValidationRun(Base):
     )
 
     account_match: Mapped[AccountMatch] = relationship(back_populates="validation_runs")
+
+
+class ResearchJob(Base):
+    """A durable claimable unit of campaign, ICP, or account research."""
+
+    __tablename__ = "research_jobs"
+    __table_args__ = (
+        Index("ix_research_jobs_status_created_at", "status", "created_at"),
+        Index("ix_research_jobs_claim_expires_at", "claim_expires_at"),
+    )
+
+    job_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    campaign_id: Mapped[str | None] = mapped_column(String(80))
+    icp_id: Mapped[str | None] = mapped_column(String(80))
+    account_match_id: Mapped[str | None] = mapped_column(String(36))
+    attempt_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    claim_token: Mapped[str | None] = mapped_column(String(128))
+    claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_detail: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )

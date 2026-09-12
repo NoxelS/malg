@@ -119,6 +119,59 @@ services:
     # Docker's default seccomp and AppArmor profiles remain enabled.
     restart: "no"
 
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: malg-worker:local
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777,uid=65532,gid=65532
+      - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
+    environment:
+      DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
+      HOME: /home/malg
+      MALG_MEMORY_DIRECTORY: /app/.nooa/memory
+      OTLP_ENDPOINT: http://trace-proxy:5001/v1/traces
+      TRACE_EXPERIMENT: malg-browser
+      TMPDIR: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lightpanda:
+        condition: service_started
+      searxng:
+        condition: service_started
+      trace-viewer:
+        condition: service_started
+    volumes:
+      - type: bind
+        source: ../memory
+        target: /app/.nooa/memory
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../user.config.toml
+        target: /app/user.config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../results
+        target: /app/results
+        bind:
+          create_host_path: false
+    command: ["python", "-m", "malg.worker"]
+    restart: unless-stopped
+
   memory-init:
     image: alpine:3.21
     init: true

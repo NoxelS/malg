@@ -19,6 +19,7 @@ def test_persistence_schema_uses_postgresql_jsonb_and_account_relationships() ->
         "contacts",
         "employments",
         "icps",
+        "research_jobs",
     }
     assert "JSONB" in str(CreateTable(tables["campaigns"]).compile(dialect=postgresql.dialect()))
     icp_ddl = str(CreateTable(tables["icps"]).compile(dialect=postgresql.dialect()))

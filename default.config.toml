@@ -38,3 +38,8 @@ concurrency = 3
 max_attempts_per_slot = 3
 max_exclusion_cards = 100
 output_root = "results"
+
+[default.worker]
+poll_interval_seconds = 1
+lease_seconds = 7200
+max_attempts = 3

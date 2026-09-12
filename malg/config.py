@@ -76,6 +76,38 @@ class ICPConfig:
     output_root: Path
 
 
+@dataclass(frozen=True)
+class WorkerConfig:
+    """Lease and polling settings for one durable worker process."""
+
+    poll_interval_seconds: int = 1
+    lease_seconds: int = 7200
+    max_attempts: int = 3
+
+
+def get_worker_config(settings: Dynaconf) -> WorkerConfig:
+    """Read and validate positive worker lease settings."""
+    worker = settings.get("worker")
+    if not isinstance(worker, Mapping):
+        raise ValueError("Missing [default.worker] configuration.")
+    invalid = [
+        field
+        for field in ("poll_interval_seconds", "lease_seconds", "max_attempts")
+        if not isinstance(worker.get(field), int)
+        or isinstance(worker[field], bool)
+        or worker[field] <= 0
+    ]
+    if invalid:
+        raise ValueError(
+            f"Worker configuration field(s) must be positive integers: {', '.join(invalid)}."
+        )
+    return WorkerConfig(
+        poll_interval_seconds=worker["poll_interval_seconds"],
+        lease_seconds=worker["lease_seconds"],
+        max_attempts=worker["max_attempts"],
+    )
+
+
 def load_settings(
     *,
     settings_files: Sequence[str | Path] = DEFAULT_CONFIG_FILES,

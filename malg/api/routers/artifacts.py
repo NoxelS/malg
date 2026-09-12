@@ -20,7 +20,7 @@ from malg.core.models.account import (
 )
 from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.icp import ICPResult
-from malg.database.artifacts import persist_account_candidate
+from malg.database.artifacts import persist_account_candidate, persist_campaign, persist_icp
 from malg.database.models import (
     ICP,
     Account,
@@ -136,14 +136,14 @@ def _account_match_response(session: Session, match: AccountMatch) -> AccountMat
 @router.post("/campaigns", response_model=CampaignCandidate, status_code=status.HTTP_201_CREATED)
 def create_campaign(payload: CampaignCandidate, session: SessionDependency) -> CampaignCandidate:
     """Persist a new canonical campaign, rejecting an existing campaign ID."""
-    session.add(
-        Campaign(
-            campaign_id=payload.campaign_id,
-            title=payload.title,
-            payload=payload.model_dump(mode="json"),
-        )
-    )
-    _commit(session, conflict_detail="campaign already exists")
+    try:
+        persist_campaign(payload, session)
+        _commit(session, conflict_detail="campaign already exists")
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="campaign already exists"
+        ) from error
     return payload
 
 
@@ -196,16 +196,15 @@ def create_icp(campaign_id: str, payload: ICPResult, session: SessionDependency)
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="campaign ID mismatch"
         )
     _campaign_or_404(session, campaign_id)
-    session.add(
-        ICP(
-            campaign_id=campaign_id,
-            icp_id=payload.icp_id,
-            segment_key=payload.identity.segment_key(),
-            title=payload.title,
-            payload=payload.model_dump(mode="json"),
-        )
-    )
-    _commit(session, conflict_detail="ICP ID or segment already exists for campaign")
+    try:
+        persist_icp(payload, session)
+        _commit(session, conflict_detail="ICP ID or segment already exists for campaign")
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="ICP ID or segment already exists for campaign",
+        ) from error
     return payload
 
 
