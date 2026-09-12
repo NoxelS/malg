@@ -40,5 +40,14 @@
         </div>
       }
     </section>
+
+    <section class="dashboard-section" aria-labelledby="durations-heading">
+      <app-section-heading headingId="durations-heading" title="Average successful job duration" description="Execution time sampled from successful jobs" />
+      <div class="jobs-grid">
+        @for (duration of data.job_durations; track duration.kind) {
+          <article class="metric-card"><span>{{ duration.kind }}</span><strong>{{ formatAverageDuration(duration.average_duration_seconds) }}</strong></article>
+        }
+      </div>
+    </section>
   }
 </app-page-layout>

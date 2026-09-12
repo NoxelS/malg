@@ -18,12 +18,20 @@ class DashboardJobCounts(BaseModel):
     cancelled: int = 0
 
 
+class DashboardJobDuration(BaseModel):
+    """Average execution time for one research job kind."""
+
+    kind: ResearchJobKind
+    average_duration_seconds: float | None
+
+
 class DashboardSummary(BaseModel):
     active_workers: int
     campaigns: int
     icps: int
     accounts: int
     jobs: DashboardJobCounts
+    job_durations: list[DashboardJobDuration]
 
 
 class WorkerJobSummary(BaseModel):

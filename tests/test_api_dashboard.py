@@ -51,6 +51,33 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
                     claimed_at=now if status == "running" else None,
                 )
             )
+        session.add(
+            ResearchJob(
+                job_id="campaign-fast-job",
+                kind="campaign",
+                status="succeeded",
+                started_at=now - timedelta(seconds=30),
+                finished_at=now,
+            )
+        )
+        session.add(
+            ResearchJob(
+                job_id="campaign-slow-job",
+                kind="campaign",
+                status="succeeded",
+                started_at=now - timedelta(seconds=90),
+                finished_at=now,
+            )
+        )
+        session.add(
+            ResearchJob(
+                job_id="icp-job",
+                kind="icp",
+                status="succeeded",
+                started_at=now - timedelta(seconds=120),
+                finished_at=now,
+            )
+        )
         session.add(WorkerHeartbeat(worker_token="idle-worker", last_seen_at=now))
         session.add(WorkerHeartbeat(worker_token="running-worker", last_seen_at=now))
         session.add(
@@ -63,7 +90,12 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
         "campaigns": 1,
         "icps": 1,
         "accounts": 1,
-        "jobs": {"queued": 1, "running": 1, "succeeded": 1, "failed": 1, "cancelled": 1},
+        "jobs": {"queued": 1, "running": 1, "succeeded": 4, "failed": 1, "cancelled": 1},
+        "job_durations": [
+            {"kind": "campaign", "average_duration_seconds": 60.0},
+            {"kind": "icp", "average_duration_seconds": 120.0},
+            {"kind": "account", "average_duration_seconds": None},
+        ],
     }
     workers = client.get("/api/v1/workers").json()
     assert [worker["worker_id"] for worker in workers] == ["running-worker", "idle-worker"]

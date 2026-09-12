@@ -24,6 +24,7 @@ from malg.core.models.account import (
 from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.dashboard import (
     DashboardJobCounts,
+    DashboardJobDuration,
     DashboardSummary,
     WorkerJobSummary,
     WorkerSummary,
@@ -69,6 +70,7 @@ __all__ = [
     "CommunicationEndpointCandidate",
     "ContactCandidate",
     "DashboardJobCounts",
+    "DashboardJobDuration",
     "DashboardSummary",
     "DiscoveryMethod",
     "EndpointKind",

@@ -16,12 +16,18 @@ interface DashboardJobCounts {
   readonly cancelled: number;
 }
 
+interface DashboardJobDuration {
+  readonly kind: string;
+  readonly average_duration_seconds: number | null;
+}
+
 interface DashboardSummary {
   readonly active_workers: number;
   readonly campaigns: number;
   readonly icps: number;
   readonly accounts: number;
   readonly jobs: DashboardJobCounts;
+  readonly job_durations: readonly DashboardJobDuration[];
 }
 
 interface WorkerJobSummary {
@@ -78,8 +84,15 @@ export class DashboardPage implements OnInit {
     });
   }
 
+  protected formatAverageDuration(seconds: number | null): string {
+    return seconds === null ? 'No successful jobs yet' : this.formatDuration(Math.round(seconds));
+  }
+
   private durationSince(timestamp: string): string {
-    const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(timestamp)) / 1000));
+    return this.formatDuration(Math.max(0, Math.floor((Date.now() - Date.parse(timestamp)) / 1000)));
+  }
+
+  private formatDuration(seconds: number): string {
     if (seconds < 60) return `${seconds}s`;
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m`;
