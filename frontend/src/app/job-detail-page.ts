@@ -1,4 +1,4 @@
-import {DatePipe, JsonPipe} from '@angular/common';
+import {DatePipe} from '@angular/common';
 import {HttpErrorResponse} from '@angular/common/http';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
 import {ActivatedRoute, RouterLink} from '@angular/router';
@@ -10,6 +10,8 @@ import {TuiBadge} from '@taiga-ui/kit';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
 import {StateMessageComponent} from './components/state-message.component';
+import {TracePropertyListComponent} from './components/trace-property-list.component';
+import {TraceTurnCardComponent} from './components/trace-turn-card.component';
 
 interface SectionFailure {
   readonly endpoint: 'LLM turns' | 'Trace events';
@@ -44,7 +46,7 @@ const emptyRunState = (): RunState => ({
 
 @Component({
   selector: 'app-job-detail-page',
-  imports: [DatePipe, JsonPipe, RouterLink, TuiBadge, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent],
+  imports: [DatePipe, RouterLink, TuiBadge, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent, TracePropertyListComponent, TraceTurnCardComponent],
   templateUrl: './job-detail-page.html',
   styleUrl: './job-detail-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -18,14 +18,9 @@ dd { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .25
 .metadata-grid--run { font-size: .95rem; }
 .failure-block, .trace-error { background: var(--tui-background-negative); color: var(--tui-text-negative); padding: 1rem; overflow-wrap: anywhere; }
 .failure-block p { margin: .5rem 0; }
-pre { background: var(--tui-background-neutral-1); color: var(--tui-text-primary); margin: .75rem 0 0; max-height: 20rem; max-width: 100%; overflow: auto; padding: .75rem; white-space: pre; }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
+.failure-block__traceback { color: var(--tui-text-secondary); font: var(--tui-font-text-s); white-space: pre-wrap; }
 .trace-subsection { display: grid; gap: 1rem; min-width: 0; }
-.turn-card, .event-row { border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-m); min-width: 0; padding: 1rem; }
-.turn-card header, .event-row header { align-items: baseline; display: flex; flex-wrap: wrap; gap: .75rem; justify-content: space-between; }
-.turn-card header span, .event-row header span, .empty { color: var(--tui-text-secondary); font: var(--tui-font-text-s); }
-.turn-meta { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; margin: 1rem 0; }
-.turn-meta div { min-width: 0; }
-.payload-disclosure { border-block-start: 1px solid var(--tui-border-normal); margin-block-start: .75rem; padding-block-start: .75rem; }
-.payload-disclosure summary { color: var(--tui-text-action); cursor: pointer; font: var(--tui-font-text-s); }
+.event-row { border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-m); min-width: 0; padding: 1rem; }
+.event-row header { align-items: baseline; display: flex; flex-wrap: wrap; gap: .75rem; justify-content: space-between; }
+.event-row header span, .empty { color: var(--tui-text-secondary); font: var(--tui-font-text-s); }
 @media (max-width: 48rem) { .metadata-grid, .metadata-grid--run { grid-template-columns: 1fr; } .metadata-grid__wide { grid-column: auto; } .run-card__summary { flex-direction: column; } }
