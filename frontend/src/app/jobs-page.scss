@@ -19,6 +19,8 @@ dt { color: var(--tui-text-tertiary); font: var(--tui-font-text-s); }
 dd { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .25rem 0 0; overflow-wrap: anywhere; }
 .job-failure { border-block-start: 1px solid var(--tui-border-normal); color: var(--tui-text-negative); display: grid; gap: .35rem; margin: 0 0 1.25rem; padding-block-start: 1.25rem; overflow-wrap: anywhere; }
 .job-failure strong { font: var(--tui-font-text-s); text-transform: uppercase; }
+.job-card__actions { align-items: center; display: flex; flex-wrap: wrap; gap: .75rem; }
+@media (max-width: 48rem) { .job-card__actions > * { flex: 1 1 auto; } }
 @media (max-width: 48rem) {
   .job-card__header { flex-direction: column; }
   .job-meta { grid-template-columns: 1fr; }

@@ -1,5 +1,6 @@
 import {DatePipe} from '@angular/common';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
+import {RouterLink} from '@angular/router';
 import {ApiService} from './api-service';
 import {forkJoin} from 'rxjs';
 import {PageHeaderComponent} from './components/page-header.component';
@@ -51,7 +52,7 @@ interface WorkerView extends WorkerSummary {
 
 @Component({
   selector: 'app-dashboard-page',
-  imports: [DatePipe, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
+  imports: [DatePipe, RouterLink, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent, SummaryCardComponent, SummaryGridComponent],
   templateUrl: './dashboard-page.html',
   styleUrl: './dashboard-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -15,13 +15,64 @@ export interface WorkerSummary { readonly [key: string]: unknown; }
 export interface Campaign { readonly [key: string]: unknown; }
 export interface ICP { readonly [key: string]: unknown; }
 export interface Account { readonly [key: string]: unknown; }
-export interface ResearchJob { readonly [key: string]: unknown; readonly job_id: string; }
-export interface Memory { readonly [key: string]: unknown; readonly id: string; }
-export interface MemoryPageResponse {
-  readonly items: readonly Memory[];
-  readonly total: number;
+export interface ResearchJob {
+  readonly job_id: string;
+  readonly kind: string;
+  readonly status: string;
+  readonly campaign_id: string | null;
+  readonly icp_id: string | null;
+  readonly account_match_id: string | null;
+  readonly started_at: string | null;
+  readonly finished_at: string | null;
+  readonly failure_detail: string | null;
+  readonly attempt_count: number;
+  readonly created_at: string;
+}
+export type JsonValue = null | boolean | number | string | JsonValue[] | {[key: string]: JsonValue};
+export interface AgentRun {
+  readonly run_id: string;
+  readonly job_id: string;
+  readonly scope: 'worker' | 'agent';
+  readonly worker_token: string | null;
+  readonly agent_name: string;
+  readonly method_name: string;
+  readonly status: 'running' | 'succeeded' | 'failed';
+  readonly started_at: string;
+  readonly finished_at: string | null;
+  readonly error_type: string | null;
+  readonly error_message: string | null;
+  readonly error_traceback: string | null;
+}
+export interface AgentTurn {
+  readonly turn_id: number;
+  readonly run_id: string;
+  readonly generation_id: string;
+  readonly turn_number: number;
+  readonly method_name: string;
+  readonly strategy: string;
+  readonly started_at: string;
+  readonly finished_at: string | null;
+  readonly success: boolean | null;
+  readonly error_type: string | null;
+  readonly error_message: string | null;
+  readonly error_traceback: string | null;
+  readonly request_messages: readonly {[key: string]: JsonValue}[];
+  readonly request_params: {[key: string]: JsonValue};
+  readonly response: {[key: string]: JsonValue} | null;
+}
+export interface AgentTraceEvent {
+  readonly event_id: number;
+  readonly run_id: string;
+  readonly turn_id: number | null;
+  readonly sequence: number;
+  readonly occurred_at: string;
+  readonly event_type: string;
+  readonly payload: {[key: string]: JsonValue};
+}
+export interface AgentTraceEventPage {
+  readonly items: readonly AgentTraceEvent[];
+  readonly next_after_event_id: number | null;
   readonly limit: number;
-  readonly offset: number;
 }
 
 @Injectable({providedIn: 'root'})
@@ -65,6 +116,20 @@ export class ApiService {
     });
   }
   listJobs(): Observable<any> { return this.authorized('GET', '/api/v1/jobs'); }
+  getJob(jobId: string): Observable<ResearchJob> {
+    return this.authorized('GET', `/api/v1/jobs/${jobId}`);
+  }
+  listJobRuns(jobId: string): Observable<readonly AgentRun[]> {
+    return this.authorized('GET', `/api/v1/jobs/${jobId}/agent-runs`);
+  }
+  listRunTurns(runId: string): Observable<readonly AgentTurn[]> {
+    return this.authorized('GET', `/api/v1/agent-runs/${runId}/turns`);
+  }
+  listRunEvents(runId: string, afterEventId?: number, limit = 100): Observable<AgentTraceEventPage> {
+    let params = new HttpParams().set('limit', limit);
+    if (afterEventId !== undefined) params = params.set('after_event_id', afterEventId);
+    return this.authorized('GET', `/api/v1/agent-runs/${runId}/events`, {params});
+  }
   enqueueCampaignJobs(amount: number): Observable<any> {
     return this.authorized('POST', '/api/v1/jobs/campaigns', {body: {amount}});
   }
