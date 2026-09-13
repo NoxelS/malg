@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -104,15 +105,17 @@ def finalize_turn(
 
 
 def normalize_json(value: Any) -> Any:
-    """Recursively preserve JSON values and repr unsupported objects."""
+    """Recursively retain JSON-compatible values and represent unknown objects."""
     if hasattr(value, "model_dump"):
         return normalize_json(value.model_dump(mode="json"))
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: normalize_json(getattr(value, field.name)) for field in fields(value)}
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, dict):
-        return {str(k): normalize_json(v) for k, v in value.items()}
+        return {str(key): normalize_json(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
-        return [normalize_json(v) for v in value]
+        return [normalize_json(item) for item in value]
     return repr(value)
 
 

@@ -69,10 +69,16 @@ class AgentTraceRecorder:
         return recorder
 
     def bind(self) -> Callable[[], None]:
-        """Bind this recorder to logging and return a reset callback."""
+        """Bind this recorder to logging and return an idempotent reset callback."""
         token = _active_recorder.set(self)
         self._token = token
-        return lambda: _active_recorder.reset(token)
+
+        def reset() -> None:
+            if self._token is token:
+                _active_recorder.reset(token)
+                self._token = None
+
+        return reset
 
     def event(self, event_type: str, payload: Any, turn_id: int | None = None) -> None:
         """Append an event, swallowing persistence failures."""
@@ -108,6 +114,7 @@ class AgentTraceRecorder:
                 else ("unknown", len(self._turn_ids) + 1, "unknown", "unknown")
             )
             generation_id, turn_number, method_name, strategy = identity
+            turn_id: int | None = None
             try:
                 with self.session_factory.begin() as session:
                     turn = traces.create_turn(
@@ -122,14 +129,29 @@ class AgentTraceRecorder:
                     )
                     turn_id = turn.turn_id
                 self._turn_ids[(generation_id, turn_number)] = turn_id
+            except Exception:
+                logging.getLogger(__name__).exception("agent turn trace persistence failed")
+
+            try:
                 result = await nxt(ctx)
-                with self.session_factory.begin() as session:
-                    traces.finalize_turn(session, turn_id, normalize(result.response), True)
-                return result
             except Exception as error:
-                with self.session_factory.begin() as session:
-                    traces.finalize_turn(session, turn_id, success=False, error=error)
+                if turn_id is not None:
+                    try:
+                        with self.session_factory.begin() as session:
+                            traces.finalize_turn(session, turn_id, success=False, error=error)
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "agent turn trace finalization failed"
+                        )
                 raise
+
+            if turn_id is not None:
+                try:
+                    with self.session_factory.begin() as session:
+                        traces.finalize_turn(session, turn_id, normalize(result.response), True)
+                except Exception:
+                    logging.getLogger(__name__).exception("agent turn trace finalization failed")
+            return result
 
         self._unsubscribe.append(agent.event_manager.intercept(MIDDLEWARE_LLM_CALL, middleware))
 

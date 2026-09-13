@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 
 class AgentTraceEventRecord(BaseModel):
@@ -37,7 +37,7 @@ class AgentTurnRecord(BaseModel):
     error_traceback: str | None
     request_messages: list[dict[str, Any]]
     request_params: dict[str, Any]
-    response: dict[str, Any] | None
+    response: JsonValue | None
 
 
 class AgentRunRecord(BaseModel):

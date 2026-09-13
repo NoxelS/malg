@@ -2,25 +2,45 @@ import {DatePipe, JsonPipe} from '@angular/common';
 import {HttpErrorResponse} from '@angular/common/http';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
 import {ActivatedRoute, RouterLink} from '@angular/router';
-import {catchError, forkJoin, of, throwError} from 'rxjs';
-import {ApiService, AgentRun, AgentTraceEvent, AgentTurn, ResearchJob} from './api-service';
+import {forkJoin, of, throwError} from 'rxjs';
+import {catchError} from 'rxjs/operators';
+import {ApiService, AgentRun, AgentTraceEvent, AgentTraceEventPage, AgentTurn, ResearchJob} from './api-service';
 import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge} from '@taiga-ui/kit';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
 import {StateMessageComponent} from './components/state-message.component';
 
-interface RunState {
+interface SectionFailure {
+  readonly endpoint: 'LLM turns' | 'Trace events';
+  readonly status: number;
+}
+
+interface TraceSection<T> {
   readonly loading: boolean;
-  readonly error: boolean;
-  readonly turns: readonly AgentTurn[];
-  readonly events: readonly AgentTraceEvent[];
+  readonly data: T | null;
+  readonly failure: SectionFailure | null;
+}
+
+interface RunState {
+  readonly turns: TraceSection<readonly AgentTurn[]>;
+  readonly events: TraceSection<readonly AgentTraceEvent[]>;
   readonly nextAfterEventId: number | null;
   readonly canLoadMore: boolean;
   readonly loadingMore: boolean;
+  readonly loadingMoreFailure: SectionFailure | null;
+  readonly failedEventCursor: number | null;
 }
 
-const emptyRunState = (): RunState => ({loading: false, error: false, turns: [], events: [], nextAfterEventId: null, canLoadMore: true, loadingMore: false});
+const emptyRunState = (): RunState => ({
+  turns: {loading: false, data: null, failure: null},
+  events: {loading: false, data: null, failure: null},
+  nextAfterEventId: null,
+  canLoadMore: false,
+  loadingMore: false,
+  loadingMoreFailure: null,
+  failedEventCursor: null,
+});
 
 @Component({
   selector: 'app-job-detail-page',
@@ -44,10 +64,12 @@ export class JobDetailPage implements OnInit {
   ngOnInit(): void {
     this.route.paramMap.subscribe((params) => {
       const jobId = params.get('jobId');
-      if (jobId) {
-        this.jobId = jobId;
-        this.loadJob(false);
-      }
+      if (!jobId) return;
+      this.jobId = jobId;
+      this.job.set(null);
+      this.runs.set([]);
+      this.runStates.set({});
+      this.loadJob(false);
     });
   }
 
@@ -55,38 +77,85 @@ export class JobDetailPage implements OnInit {
 
   protected loadRun(run: AgentRun, force = false): void {
     const current = this.runStates()[run.run_id];
-    if (!force && (current?.loading || (current && !current.error))) return;
-    this.runStates.update((states) => ({...states, [run.run_id]: {...(current ?? emptyRunState()), loading: true, error: false}}));
-    forkJoin({turns: this.api.listRunTurns(run.run_id), events: this.api.listRunEvents(run.run_id, undefined, 100)}).subscribe({
-      next: ({turns, events}) => this.runStates.update((states) => ({...states, [run.run_id]: {loading: false, error: false, turns, events: events.items, nextAfterEventId: events.next_after_event_id, canLoadMore: events.items.length > 0 && events.next_after_event_id !== null, loadingMore: false}})),
-      error: () => this.runStates.update((states) => ({...states, [run.run_id]: {...(states[run.run_id] ?? emptyRunState()), loading: false, error: true}})),
-    });
+    if (!force && current && !current.turns.loading && !current.events.loading && (current.turns.data !== null || current.turns.failure !== null) && (current.events.data !== null || current.events.failure !== null)) return;
+    const base = emptyRunState();
+    this.runStates.update((states) => ({...states, [run.run_id]: {
+      ...(current ?? base),
+      turns: {loading: true, data: force ? null : current?.turns.data ?? null, failure: null},
+      events: {loading: true, data: force ? null : current?.events.data ?? null, failure: null},
+      nextAfterEventId: null,
+      canLoadMore: false,
+      loadingMore: false,
+      loadingMoreFailure: null,
+      failedEventCursor: null,
+    }}));
+    this.loadTurns(run);
+    this.loadEvents(run);
   }
 
-  protected retryRun(run: AgentRun): void {
-    this.runStates.update((states) => ({...states, [run.run_id]: emptyRunState()}));
-    this.loadRun(run);
+  protected retryTurns(run: AgentRun): void {
+    this.runStates.update((states) => ({...states, [run.run_id]: {...(states[run.run_id] ?? emptyRunState()), turns: {loading: true, data: null, failure: null}}}));
+    this.loadTurns(run);
+  }
+
+  protected retryEvents(run: AgentRun): void {
+    this.runStates.update((states) => ({...states, [run.run_id]: {...(states[run.run_id] ?? emptyRunState()), events: {loading: true, data: null, failure: null}}}));
+    this.loadEvents(run);
   }
 
   protected loadMoreEvents(run: AgentRun): void {
-    const state = this.runStates()[run.run_id];
-    if (!state?.canLoadMore || state.loadingMore || state.nextAfterEventId === null) return;
+    const state = this.stateFor(run);
+    if (!state.canLoadMore || state.loadingMore || state.nextAfterEventId === null) return;
     const cursor = state.nextAfterEventId;
-    this.runStates.update((states) => ({...states, [run.run_id]: {...state, loadingMore: true, error: false}}));
+    this.setRunState(run.run_id, {...state, loadingMore: true, loadingMoreFailure: null, failedEventCursor: null});
     this.api.listRunEvents(run.run_id, cursor, 100).subscribe({
-      next: (page) => this.runStates.update((states) => {
-        const current = states[run.run_id] ?? state;
-        const known = new Set(current.events.map((event) => event.event_id));
-        const events = [...current.events, ...page.items.filter((event) => !known.has(event.event_id))];
-        return {...states, [run.run_id]: {...current, events, nextAfterEventId: page.next_after_event_id, canLoadMore: page.items.length > 0 && page.next_after_event_id !== null, loadingMore: false}};
-      }),
-      error: () => this.runStates.update((states) => ({...states, [run.run_id]: {...(states[run.run_id] ?? state), loadingMore: false, error: true}})),
+      next: (page) => this.appendEvents(run.run_id, page),
+      error: (failure) => this.setRunState(run.run_id, {...this.stateFor(run), loadingMore: false, loadingMoreFailure: this.failure('Trace events', failure), failedEventCursor: cursor}),
+    });
+  }
+
+  protected retryMoreEvents(run: AgentRun): void {
+    const cursor = this.stateFor(run).failedEventCursor;
+    if (cursor === null) return;
+    this.setRunState(run.run_id, {...this.stateFor(run), loadingMore: true, loadingMoreFailure: null});
+    this.api.listRunEvents(run.run_id, cursor, 100).subscribe({
+      next: (page) => this.appendEvents(run.run_id, page),
+      error: (failure) => this.setRunState(run.run_id, {...this.stateFor(run), loadingMore: false, loadingMoreFailure: this.failure('Trace events', failure)}),
     });
   }
 
   protected stateFor(run: AgentRun): RunState { return this.runStates()[run.run_id] ?? emptyRunState(); }
   protected display(value: string | number | null): string | number { return value ?? '—'; }
+  protected diagnostic(failure: SectionFailure): string { return `${failure.endpoint} request failed (HTTP ${failure.status}).`; }
   protected isNotFound(error: unknown): boolean { return error instanceof HttpErrorResponse && error.status === 404; }
+
+  private loadTurns(run: AgentRun): void {
+    this.api.listRunTurns(run.run_id).subscribe({
+      next: (turns) => this.setRunState(run.run_id, {...this.stateFor(run), turns: {loading: false, data: turns, failure: null}}),
+      error: (failure) => this.setRunState(run.run_id, {...this.stateFor(run), turns: {loading: false, data: null, failure: this.failure('LLM turns', failure)}}),
+    });
+  }
+
+  private loadEvents(run: AgentRun): void {
+    this.api.listRunEvents(run.run_id, undefined, 100).subscribe({
+      next: (page) => this.setRunState(run.run_id, {...this.stateFor(run), events: {loading: false, data: page.items, failure: null}, nextAfterEventId: page.next_after_event_id, canLoadMore: page.items.length > 0 && page.next_after_event_id !== null, loadingMoreFailure: null, failedEventCursor: null}),
+      error: (failure) => this.setRunState(run.run_id, {...this.stateFor(run), events: {loading: false, data: null, failure: this.failure('Trace events', failure)}, canLoadMore: false}),
+    });
+  }
+
+  private appendEvents(runId: string, page: AgentTraceEventPage): void {
+    const state = this.stateFor({run_id: runId} as AgentRun);
+    const existing = state.events.data ?? [];
+    const known = new Set(existing.map((event) => event.event_id));
+    const events = [...existing, ...page.items.filter((event) => !known.has(event.event_id))].sort((a, b) => a.event_id - b.event_id);
+    this.setRunState(runId, {...state, events: {loading: false, data: events, failure: null}, nextAfterEventId: page.next_after_event_id, canLoadMore: page.items.length > 0 && page.next_after_event_id !== null, loadingMore: false, loadingMoreFailure: null, failedEventCursor: null});
+  }
+
+  private setRunState(runId: string, state: RunState): void { this.runStates.update((states) => ({...states, [runId]: state})); }
+
+  private failure(endpoint: SectionFailure['endpoint'], error: unknown): SectionFailure {
+    return {endpoint, status: error instanceof HttpErrorResponse && error.status > 0 ? error.status : 0};
+  }
 
   private loadJob(isRefresh: boolean): void {
     if (isRefresh) this.refreshing.set(true); else this.loading.set(true);
@@ -101,13 +170,19 @@ export class JobDetailPage implements OnInit {
     }));
     forkJoin({job: this.api.getJob(this.jobId), runs}).subscribe({
       next: ({job, runs: traceRuns}) => {
-        this.job.set(job); this.runs.set(traceRuns); this.loading.set(false); this.refreshing.set(false);
+        this.job.set(job);
+        this.runs.set(traceRuns);
+        this.loading.set(false);
+        this.refreshing.set(false);
         if (isRefresh) {
-          const loaded = this.runStates();
-          for (const run of traceRuns) if (loaded[run.run_id]) this.loadRun(run, true);
+          for (const run of traceRuns) if (this.runStates()[run.run_id]) this.loadRun(run, true);
         }
       },
-      error: (failure) => { this.loading.set(false); this.refreshing.set(false); this.error.set(this.isNotFound(failure) ? 'not-found' : 'unavailable'); },
+      error: (failure) => {
+        this.loading.set(false);
+        this.refreshing.set(false);
+        this.error.set(this.isNotFound(failure) ? 'not-found' : 'unavailable');
+      },
     });
   }
 }

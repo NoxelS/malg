@@ -56,9 +56,9 @@ export interface AgentTurn {
   readonly error_type: string | null;
   readonly error_message: string | null;
   readonly error_traceback: string | null;
-  readonly request_messages: readonly {[key: string]: JsonValue}[];
-  readonly request_params: {[key: string]: JsonValue};
-  readonly response: {[key: string]: JsonValue} | null;
+  readonly request_messages: readonly JsonValue[];
+  readonly request_params: JsonValue;
+  readonly response: JsonValue;
 }
 export interface AgentTraceEvent {
   readonly event_id: number;
@@ -67,7 +67,7 @@ export interface AgentTraceEvent {
   readonly sequence: number;
   readonly occurred_at: string;
   readonly event_type: string;
-  readonly payload: {[key: string]: JsonValue};
+  readonly payload: JsonValue;
 }
 export interface AgentTraceEventPage {
   readonly items: readonly AgentTraceEvent[];

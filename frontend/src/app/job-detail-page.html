@@ -31,46 +31,60 @@
 
     <section class="detail-section" aria-labelledby="trace-heading">
       <h2 id="trace-heading">Trace runs</h2>
-      @if (!runs().length) { <app-state-message message="No trace runs are available for this job." /> }
-      @if (traceUnavailable()) { <p class="trace-unavailable" role="status">Trace history is unavailable for this job.</p> }
-      <div class="run-list">
-        @for (run of runs(); track run.run_id) {
-          <details class="run-card" (toggle)="$any($event.target).open && loadRun(run)">
-            <summary class="run-card__summary">
-              <div><strong>{{ run.scope }} · {{ run.agent_name }}</strong><span>{{ run.method_name }}</span></div>
-              <span tuiBadge appearance="secondary">{{ run.status }}</span>
-            </summary>
-            <div class="run-card__body">
-              <dl class="metadata-grid metadata-grid--run">
-                <div><dt>Scope</dt><dd>{{ run.scope }}</dd></div><div><dt>Agent</dt><dd>{{ run.agent_name }}</dd></div>
-                <div><dt>Method</dt><dd>{{ run.method_name }}</dd></div><div><dt>Worker token</dt><dd>{{ display(run.worker_token) }}</dd></div>
-                <div><dt>Started</dt><dd>{{ run.started_at | date:'medium' }}</dd></div><div><dt>Finished</dt><dd>{{ run.finished_at ? (run.finished_at | date:'medium') : '—' }}</dd></div>
-              </dl>
-              @if (run.status === 'failed') { <div class="failure-block"><strong>{{ display(run.error_type) }}</strong><p>{{ display(run.error_message) }}</p><pre><code>{{ display(run.error_traceback) }}</code></pre></div> }
-              @if (stateFor(run).loading) { <app-state-message message="Loading trace…" /> }
-              @else if (stateFor(run).error) { <div class="trace-error" role="alert">Trace data could not be loaded. <button tuiButton type="button" appearance="secondary" (click)="retryRun(run)">Retry</button></div> }
-              @else {
+      @if (traceUnavailable()) {
+        <p class="trace-unavailable" role="status">Trace history is unavailable for this job.</p>
+      } @else if (!runs().length) {
+        <app-state-message message="No trace runs were recorded for this job." />
+        <p class="empty">Worker and agent runs are created only after a worker claims the job.</p>
+      } @else {
+        <div class="run-list">
+          @for (run of runs(); track run.run_id) {
+            <details class="run-card" (toggle)="$any($event.target).open && loadRun(run)">
+              <summary class="run-card__summary">
+                <div><strong>{{ run.scope }} · {{ run.agent_name }}</strong><span>{{ run.method_name }}</span><span>{{ run.started_at | date:'medium' }} → {{ run.finished_at ? (run.finished_at | date:'medium') : '—' }}@if (run.worker_token) { · worker {{ run.worker_token }}}</span></div>
+                <span tuiBadge appearance="secondary">{{ run.status }}</span>
+              </summary>
+              <div class="run-card__body">
+                <dl class="metadata-grid metadata-grid--run">
+                  <div><dt>Scope</dt><dd>{{ run.scope }}</dd></div><div><dt>Agent</dt><dd>{{ run.agent_name }}</dd></div>
+                  <div><dt>Method</dt><dd>{{ run.method_name }}</dd></div><div><dt>Worker token</dt><dd>{{ display(run.worker_token) }}</dd></div>
+                  <div><dt>Started</dt><dd>{{ run.started_at | date:'medium' }}</dd></div><div><dt>Finished</dt><dd>{{ run.finished_at ? (run.finished_at | date:'medium') : '—' }}</dd></div>
+                </dl>
+                @if (run.status === 'failed') { <div class="failure-block"><strong>{{ display(run.error_type) }}</strong><p>{{ display(run.error_message) }}</p><pre><code>{{ display(run.error_traceback) }}</code></pre></div> }
+                @if (stateFor(run).turns.loading || stateFor(run).events.loading) { <app-state-message message="Loading trace…" /> }
+
                 <section class="trace-subsection"><h3>LLM turns</h3>
-                  @if (!stateFor(run).turns.length) { <p class="empty">No LLM turns recorded.</p> }
-                  @for (turn of stateFor(run).turns; track turn.turn_id) {
-                    <article class="turn-card"><header><strong>Turn {{ turn.turn_number }}</strong><span>{{ turn.success === false ? 'Failed' : 'Completed' }}</span></header>
-                      <dl class="turn-meta"><div><dt>Generation</dt><dd>{{ turn.generation_id }}</dd></div><div><dt>Method</dt><dd>{{ turn.method_name }}</dd></div><div><dt>Strategy</dt><dd>{{ turn.strategy }}</dd></div><div><dt>Started</dt><dd>{{ turn.started_at | date:'medium' }}</dd></div><div><dt>Finished</dt><dd>{{ turn.finished_at ? (turn.finished_at | date:'medium') : '—' }}</dd></div></dl>
-                      @if (turn.error_type || turn.error_message || turn.error_traceback) { <div class="failure-block"><strong>{{ display(turn.error_type) }}</strong><p>{{ display(turn.error_message) }}</p><pre><code>{{ display(turn.error_traceback) }}</code></pre></div> }
-                      <details class="payload-disclosure"><summary>Request messages</summary><pre><code>{{ turn.request_messages | json }}</code></pre></details>
-                      <details class="payload-disclosure"><summary>Request parameters</summary><pre><code>{{ turn.request_params | json }}</code></pre></details>
-                      <details class="payload-disclosure"><summary>Response</summary><pre><code>{{ turn.response | json }}</code></pre></details>
-                    </article>
+                  @if (stateFor(run).turns.failure; as failure) {
+                    <div class="trace-error" role="alert">{{ diagnostic(failure) }} <button tuiButton type="button" appearance="secondary" (click)="retryTurns(run)">Retry LLM turns</button></div>
+                  } @else if (stateFor(run).turns.data; as turns) {
+                    @if (!turns.length) { <p class="empty">No LLM turns recorded.</p> }
+                    @for (turn of turns; track turn.turn_id) {
+                      <article class="turn-card"><header><strong>Turn {{ turn.turn_number }}</strong><span>{{ turn.success === false ? 'Failed' : 'Completed' }}</span></header>
+                        <dl class="turn-meta"><div><dt>Generation</dt><dd>{{ turn.generation_id }}</dd></div><div><dt>Method</dt><dd>{{ turn.method_name }}</dd></div><div><dt>Strategy</dt><dd>{{ turn.strategy }}</dd></div><div><dt>Started</dt><dd>{{ turn.started_at | date:'medium' }}</dd></div><div><dt>Finished</dt><dd>{{ turn.finished_at ? (turn.finished_at | date:'medium') : '—' }}</dd></div></dl>
+                        @if (turn.error_type || turn.error_message || turn.error_traceback) { <div class="failure-block"><strong>{{ display(turn.error_type) }}</strong><p>{{ display(turn.error_message) }}</p><pre><code>{{ display(turn.error_traceback) }}</code></pre></div> }
+                        <details class="payload-disclosure"><summary>Request messages</summary><pre><code>{{ turn.request_messages | json }}</code></pre></details>
+                        <details class="payload-disclosure"><summary>Request parameters</summary><pre><code>{{ turn.request_params | json }}</code></pre></details>
+                        <details class="payload-disclosure"><summary>Response</summary><pre><code>{{ turn.response | json }}</code></pre></details>
+                      </article>
+                    }
                   }
                 </section>
+
                 <section class="trace-subsection"><h3>Events</h3>
-                  @for (event of stateFor(run).events; track event.event_id) { <article class="event-row"><header><strong>{{ event.event_type }}</strong><span>{{ event.occurred_at | date:'medium' }} · #{{ event.sequence }}@if (event.turn_id !== null) { · turn {{ event.turn_id }}}</span></header><pre><code>{{ event.payload | json }}</code></pre></article> }
-                  @if (stateFor(run).canLoadMore) { <button tuiButton type="button" appearance="secondary" [disabled]="stateFor(run).loadingMore" (click)="loadMoreEvents(run)">{{ stateFor(run).loadingMore ? 'Loading…' : 'Load more events' }}</button> }
+                  @if (stateFor(run).events.failure; as failure) {
+                    <div class="trace-error" role="alert">{{ diagnostic(failure) }} <button tuiButton type="button" appearance="secondary" (click)="retryEvents(run)">Retry trace events</button></div>
+                  } @else if (stateFor(run).events.data; as events) {
+                    @if (!events.length) { <p class="empty">No trace events recorded.</p> }
+                    @for (event of events; track event.event_id) { <article class="event-row"><header><strong>{{ event.event_type }}</strong><span>{{ event.occurred_at | date:'medium' }} · #{{ event.sequence }}@if (event.turn_id !== null) { · turn {{ event.turn_id }}}</span></header><pre><code>{{ event.payload | json }}</code></pre></article> }
+                    @if (stateFor(run).loadingMoreFailure; as failure) { <div class="trace-error" role="alert">{{ diagnostic(failure) }} <button tuiButton type="button" appearance="secondary" (click)="retryMoreEvents(run)">Retry load more</button></div> }
+                    @if (stateFor(run).canLoadMore) { <button tuiButton type="button" appearance="secondary" [disabled]="stateFor(run).loadingMore" (click)="loadMoreEvents(run)">{{ stateFor(run).loadingMore ? 'Loading…' : 'Load more events' }}</button> }
+                  }
                 </section>
-              }
-            </div>
-          </details>
-        }
-      </div>
+              </div>
+            </details>
+          }
+        </div>
+      }
     </section>
   }
 </app-page-layout>
