@@ -155,29 +155,22 @@ uv sync --group dev
 ```
 
 Set `MALG_LLM__API_KEY` and other settings in the local ignored `.env`, or export them in the
-shell. Container services receive configuration exclusively from environment variables; no user
-configuration file is copied into or mounted into an image. For an OpenAI-compatible endpoint:
+shell. Makefile Compose targets explicitly load `.env` for interpolation and inject it into the API
+and worker services; image builds receive neither local configuration nor secrets. For an
+OpenAI-compatible endpoint:
 
-```toml
-[default.llm]
-model = "your-model"
-api_base = "https://your-litellm-endpoint.example/v1"
-api_key = "your-litellm-virtual-key"
-request_timeout_seconds = 300
+```dotenv
+MALG_LLM__MODEL=your-model
+MALG_LLM__API_BASE=https://your-litellm-endpoint.example/v1
+MALG_LLM__API_KEY=your-litellm-virtual-key
+MALG_LLM__REQUEST_TIMEOUT_SECONDS=300
 # Additional retries for client timeouts and HTTP 408, 504, or 524 responses.
-# A gateway's retry_after response field is honored; otherwise MALG backs off.
-max_retries = 3
+MALG_LLM__MAX_RETRIES=3
 # Supply limits known for your gateway/model. They are not inferred.
-context_window = 131072
-max_tokens = 4096
+MALG_LLM__CONTEXT_WINDOW=131072
+MALG_LLM__MAX_TOKENS=4096
 # Optional for Qwen-compatible endpoints. Omit for providers that do not support it.
-enable_thinking = false
-# Sends ``guardrails: ["headroom-compression"]`` to a compatible gateway. The
-# LiteLLM gateway must register that pre-call guardrail and a Headroom sidecar.
-headroom_compression = true
-# Permit a model to return a batch of function calls. NOOA executes each call
-# sequentially, so this does not make browser or Python execution concurrent.
-parallel_tool_calls = false
+MALG_LLM__ENABLE_THINKING=false
 ```
 
 MALG uses the official OpenAI Python SDK directly. It sends configured model names unchanged, so a
@@ -215,8 +208,8 @@ validation-record reads under `/api/v1`. Every versioned endpoint requires an HT
 `/health` and `/ready` remain unauthenticated for liveness probes. Authentication is one
 configuration-backed account, defaulting to username `admin` with no password.
 
-Set the credentials through environment variables (container services receive configuration
-exclusively from environment variables):
+Set the credentials through environment variables or the local ignored `.env` (Makefile Compose
+targets inject it into the API and worker):
 
 ```bash
 export MALG_AUTH__USERNAME=admin
@@ -273,7 +266,7 @@ appropriately isolated environment.
 
 Backend, worker, and trace-viewer Compose services run as UID 65532 with read-only image
 filesystems, all Linux capabilities dropped, and bounded writable `tmpfs` mounts for `/tmp` and
-`/home/malg`. They do not mount repository memory, results, or user configuration paths. Docker's
+`/home/malg`. They do not mount repository memory, results, or local configuration paths. Docker's
 default seccomp and (on Linux hosts) AppArmor profiles remain in force.
 
 Configure secrets through environment variables or a local ignored `.env`, then start the detached

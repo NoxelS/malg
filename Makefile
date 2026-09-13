@@ -6,6 +6,7 @@
 # development environments.
 UV_CACHE_DIR ?= /tmp/malg-uv-cache
 export UV_CACHE_DIR
+COMPOSE := docker compose --env-file .env -f docker/compose.yaml
 
 help:
 	@printf '%s\n' 'Targets: format, format-check, lint, typecheck, test, test-cov, check, container-build, api-up, frontend-up, up, workers, restart-tools'
@@ -31,20 +32,20 @@ test-cov:
 check: format-check lint typecheck test-cov
 
 container-build:
-	docker compose -f docker/compose.yaml build api worker frontend
+	$(COMPOSE) build api worker frontend
 
 api-up:
-	docker compose -f docker/compose.yaml up --build -d postgres api
+	$(COMPOSE) up --build -d postgres api
 
 frontend-up:
-	docker compose -f docker/compose.yaml up --build -d frontend
+	$(COMPOSE) up --build -d frontend
 
 
 up:
-	docker compose -f docker/compose.yaml up --build -d --scale worker=3 postgres lightpanda searxng trace-viewer trace-proxy api frontend worker
+	$(COMPOSE) up --build -d --scale worker=3 postgres lightpanda searxng trace-viewer trace-proxy api frontend worker
 
 workers:
-	docker compose -f docker/compose.yaml up --build -d --force-recreate --no-deps --scale worker=3 worker
+	$(COMPOSE) up --build -d --force-recreate --no-deps --scale worker=3 worker
 
 restart-tools:
-	docker compose -f docker/compose.yaml up -d --build --force-recreate lightpanda searxng trace-viewer trace-proxy
+	$(COMPOSE) up -d --build --force-recreate lightpanda searxng trace-viewer trace-proxy
