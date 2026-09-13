@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 FROM node:22-alpine AS build
+ARG MALG_VERSION=v0.0.0
 
 WORKDIR /app
 
@@ -8,7 +9,9 @@ COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY . ./
-RUN npm run build
+RUN npm run build \
+    && sed -i "s/__MALG_VERSION__/${MALG_VERSION}/g" /app/dist/frontend/browser/index.html \
+    && test -z "$(sed -n '/__MALG_VERSION__/p' /app/dist/frontend/browser/index.html)"
 
 FROM nginx:1.27-alpine
 

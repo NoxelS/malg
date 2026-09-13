@@ -1,4 +1,5 @@
 import {ChangeDetectionStrategy, Component, inject} from '@angular/core';
+import {DOCUMENT} from '@angular/common';
 import {Router, RouterLink, RouterLinkActive} from '@angular/router';
 
 import {ApiService} from '../api-service';
@@ -235,7 +236,8 @@ type NavigationItem = {
 export class SidebarNavigationComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
-  readonly version = 'v0.4.0';
+  private readonly document = inject(DOCUMENT);
+  readonly version = this.document.querySelector<HTMLMetaElement>('meta[name="malg-version"]')?.content ?? 'v0.0.0';
   readonly navigation: readonly NavigationItem[] = [
     {path: '/dashboard', name: 'Dashboard', description: 'Live activity, jobs, and worker health.', icon: '◌'},
     {path: '/campaigns', name: 'Campaigns', description: 'Research boundaries and evidence.', icon: '◇'},

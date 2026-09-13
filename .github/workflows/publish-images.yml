@@ -74,6 +74,8 @@ jobs:
         with:
           context: frontend
           file: frontend/Dockerfile
+          build-args: |
+            MALG_VERSION=${{ github.ref_name }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
