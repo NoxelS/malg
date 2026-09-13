@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,14 @@ from malg.config import (
     get_search_config,
     load_settings,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_environment_dotenv_values() -> None:
+    """Keep repository-local dotenv values from leaking between config tests."""
+    for key in tuple(os.environ):
+        if key.startswith("MALG_"):
+            os.environ.pop(key)
 
 
 def test_auth_config_defaults_and_environment_overrides(tmp_path: Path, monkeypatch) -> None:
@@ -45,24 +54,41 @@ def test_auth_config_rejects_invalid_field_types(tmp_path: Path, field: str) -> 
         get_auth_config(load_settings(settings_files=(config_file,), load_dotenv=False))
 
 
-def test_user_config_overrides_default(tmp_path: Path) -> None:
+def test_dotenv_overrides_default(tmp_path: Path, monkeypatch) -> None:
     default_config = tmp_path / "default.config.toml"
     default_config.write_text(
         "[default.llm]\nmodel = 'default-model'\napi_base = 'https://default.example/v1'\n"
     )
-    user_config = tmp_path / "user.config.toml"
-    user_config.write_text(
-        "[default.llm]\nmodel = 'user-model'\napi_key = 'user-key'\ncontext_window = 32768\nmax_tokens = 2048\nheadroom_compression = true\nrequest_timeout_seconds = 300\n"
-        "enable_thinking = false\nparallel_tool_calls = true\n"
+    (tmp_path / ".env").write_text(
+        "MALG_LLM__MODEL=dotenv-model\n"
+        "MALG_LLM__API_KEY=dotenv-key\n"
+        "MALG_LLM__ENABLE_THINKING=false\n"
+        "MALG_LLM__CONTEXT_WINDOW=32768\n"
+        "MALG_LLM__MAX_TOKENS=2048\n"
+        "MALG_LLM__HEADROOM_COMPRESSION=true\n"
+        "MALG_LLM__REQUEST_TIMEOUT_SECONDS=300\n"
+        "MALG_LLM__PARALLEL_TOOL_CALLS=true\n"
     )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DOTENV_PATH_FOR_DYNACONF", str(tmp_path / ".env"))
+    monkeypatch.setenv("DOTENV_OVERRIDE_FOR_DYNACONF", "true")
+    config = get_llm_config(load_settings(settings_files=(default_config,), load_dotenv=True))
+    for key in (
+        "MALG_LLM__MODEL",
+        "MALG_LLM__API_KEY",
+        "MALG_LLM__ENABLE_THINKING",
+        "MALG_LLM__CONTEXT_WINDOW",
+        "MALG_LLM__MAX_TOKENS",
+        "MALG_LLM__HEADROOM_COMPRESSION",
+        "MALG_LLM__REQUEST_TIMEOUT_SECONDS",
+        "MALG_LLM__PARALLEL_TOOL_CALLS",
+    ):
+        os.environ.pop(key, None)
+    os.environ.pop("DOTENV_OVERRIDE_FOR_DYNACONF", None)
 
-    config = get_llm_config(
-        load_settings(settings_files=(default_config, user_config), load_dotenv=False)
-    )
-
-    assert config.model == "user-model"
+    assert config.model == "dotenv-model"
     assert config.api_base == "https://default.example/v1"
-    assert config.api_key == "user-key"
+    assert config.api_key == "dotenv-key"
     assert config.context_window == 32768
     assert config.max_tokens == 2048
     assert config.headroom_compression is True

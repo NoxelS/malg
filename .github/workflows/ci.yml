@@ -33,13 +33,12 @@ jobs:
         run: |
           set -euo pipefail
           test -f .dockerignore
-          for path in user.config.toml .env memory results; do
+          for path in .env memory results; do
             if git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
               echo "runtime data or user configuration is tracked: $path" >&2
               exit 1
             fi
           done
-          grep -Fxq 'user.config.toml' .dockerignore
           grep -Fxq 'memory' .dockerignore
           grep -Fxq 'results' .dockerignore
 

@@ -3,7 +3,6 @@
 .env.*
 !.env.example
 .envrc
-user.config.toml
 
 # Python bytecode and virtual environments
 __pycache__/

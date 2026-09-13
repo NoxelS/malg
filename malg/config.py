@@ -1,7 +1,5 @@
 """Application configuration loaded from files and environment variables."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,10 +8,7 @@ from urllib.parse import urlparse
 from dynaconf import Dynaconf
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONFIG_FILES = (
-    PROJECT_ROOT / "default.config.toml",
-    PROJECT_ROOT / "user.config.toml",
-)
+DEFAULT_CONFIG_FILES = (PROJECT_ROOT / "default.config.toml",)
 
 
 @dataclass(frozen=True)
@@ -145,7 +140,7 @@ def load_settings(
     settings_files: Sequence[str | Path] = DEFAULT_CONFIG_FILES,
     load_dotenv: bool = True,
 ) -> Dynaconf:
-    """Load defaults, optional user overrides, then .env and environment overrides."""
+    """Load default config, then .env, then exported environment variables."""
     return Dynaconf(
         settings_files=[str(path) for path in settings_files],
         environments=True,
