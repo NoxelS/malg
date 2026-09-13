@@ -14,6 +14,7 @@ from malg.api.auth import AuthService, TokenResponse, token_endpoint
 from malg.api.routers.artifacts import get_session, router
 from malg.api.routers.dashboard import dashboard_router
 from malg.api.routers.jobs import router as jobs_router
+from malg.api.routers.traces import router as traces_router
 from malg.config import AuthConfig, get_auth_config, get_worker_config, load_settings
 from malg.database.session import make_engine, make_session_factory, session_dependency
 
@@ -46,6 +47,7 @@ def create_app(
     auth_dependency = Depends(auth_service.require_authenticated)
     app.include_router(router, dependencies=[auth_dependency])
     app.include_router(jobs_router, dependencies=[auth_dependency])
+    app.include_router(traces_router, dependencies=[auth_dependency])
     worker_config = get_worker_config(settings)
     app.include_router(
         dashboard_router(worker_config.heartbeat_timeout_seconds),

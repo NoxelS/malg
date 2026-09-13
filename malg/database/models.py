@@ -314,6 +314,88 @@ class ResearchJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    agent_runs: Mapped[list[AgentRun]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+
+
+class AgentRun(Base):
+    """One authenticated worker or generated-agent execution scope."""
+
+    __tablename__ = "agent_runs"
+    __table_args__ = (Index("ix_agent_runs_job_started_at", "job_id", "started_at"),)
+    run_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("research_jobs.job_id", ondelete="CASCADE"), nullable=False
+    )
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    worker_token: Mapped[str | None] = mapped_column(String(36))
+    agent_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    method_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_type: Mapped[str | None] = mapped_column(String(255))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    error_traceback: Mapped[str | None] = mapped_column(Text)
+    job: Mapped[ResearchJob] = relationship(back_populates="agent_runs")
+    turns: Mapped[list[AgentTurn]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+    events: Mapped[list[AgentTraceEvent]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class AgentTurn(Base):
+    """One complete LLM request attempt within an agent run."""
+
+    __tablename__ = "agent_turns"
+    __table_args__ = (
+        UniqueConstraint("run_id", "generation_id", "turn_number"),
+        Index("ix_agent_turns_run_turn", "run_id", "turn_number"),
+    )
+    turn_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_runs.run_id", ondelete="CASCADE"), nullable=False
+    )
+    generation_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    turn_number: Mapped[int] = mapped_column(nullable=False)
+    method_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    strategy: Mapped[str] = mapped_column(String(255), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    success: Mapped[bool | None] = mapped_column()
+    error_type: Mapped[str | None] = mapped_column(String(255))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    error_traceback: Mapped[str | None] = mapped_column(Text)
+    request_messages: Mapped[list[dict[str, Any]]] = mapped_column(JSONPayload, nullable=False)
+    request_params: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False)
+    response: Mapped[dict[str, Any] | None] = mapped_column(JSONPayload)
+    run: Mapped[AgentRun] = relationship(back_populates="turns")
+
+
+class AgentTraceEvent(Base):
+    """One ordered, append-only journal entry for an agent run."""
+
+    __tablename__ = "agent_trace_events"
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence"),
+        Index("ix_agent_trace_events_run_sequence", "run_id", "sequence"),
+    )
+    event_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_runs.run_id", ondelete="CASCADE"), nullable=False
+    )
+    turn_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_turns.turn_id", ondelete="SET NULL")
+    )
+    sequence: Mapped[int] = mapped_column(nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False)
+    run: Mapped[AgentRun] = relationship(back_populates="events")
+    turn: Mapped[AgentTurn | None] = relationship()
 
 
 class WorkerHeartbeat(Base):
