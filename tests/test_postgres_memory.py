@@ -5,11 +5,10 @@ from __future__ import annotations
 import os
 
 import pytest
-from fastapi.testclient import TestClient
 from nooa_memory.schema import Edge, EdgeType, Memory
 from sqlalchemy import text
+from tests.fixtures import authenticated_client
 
-from malg.api.app import create_app
 from malg.database.memory import PostgresMemoryStore
 from malg.database.session import make_engine, make_session_factory
 
@@ -24,7 +23,7 @@ def test_postgres_memory_store_and_api_crud() -> None:
     store.delete("ci-memory")
     store.add_edge("ci-memory-source", "ci-memory")
 
-    client = TestClient(create_app(database_engine=engine))
+    client = authenticated_client(engine)
     memory = Memory(
         id="ci-memory",
         content="PostgreSQL keeps durable agent findings.",
