@@ -1,29 +1,17 @@
 import {DatePipe} from '@angular/common';
 import {ChangeDetectionStrategy, Component, OnInit, inject, signal} from '@angular/core';
-import {ApiService} from './api-service';
+import {RouterLink} from '@angular/router';
+import {ApiService, ResearchJob} from './api-service';
 import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge} from '@taiga-ui/kit';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
 import {StateMessageComponent} from './components/state-message.component';
 
-interface ResearchJob {
-  readonly job_id: string;
-  readonly kind: string;
-  readonly status: string;
-  readonly campaign_id: string | null;
-  readonly icp_id: string | null;
-  readonly account_match_id: string | null;
-  readonly attempt_count: number;
-  readonly created_at: string;
-  readonly started_at: string | null;
-  readonly finished_at: string | null;
-  readonly failure_detail: string | null;
-}
 
 @Component({
   selector: 'app-jobs-page',
-  imports: [DatePipe, TuiBadge, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent],
+  imports: [DatePipe, RouterLink, TuiBadge, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent],
   templateUrl: './jobs-page.html',
   styleUrl: './jobs-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

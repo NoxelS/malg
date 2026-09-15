@@ -30,20 +30,53 @@ class LoggedMCPTool(MCPTool):
         refresh_ctx: dict[str, Any] | None = None,
         *,
         progress: ConsoleProgress | None = None,
+        recorder: Any = None,
     ) -> None:
         super().__init__(client, server_name, refresh_ctx)
         self._progress = progress or ConsoleProgress()
+        self._recorder = recorder
 
     async def _call_tool(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Any:
-        """Call MCP while reporting only safe lifecycle metadata."""
+        """Call MCP while reporting safe progress and raw trace boundaries."""
         clean_arguments = arguments or {}
+        if self._recorder:
+            self._recorder(
+                "mcp_call_started",
+                {
+                    "server_name": self._server_name,
+                    "tool_name": tool_name,
+                    "arguments": clean_arguments,
+                },
+            )
         call_id = self._progress.mcp_started(self._server_name, tool_name, clean_arguments)
         try:
             result = await super()._call_tool(tool_name, clean_arguments)
         except Exception as exc:
             self._progress.mcp_failed(call_id, self._server_name, tool_name, exc)
+            if self._recorder:
+                self._recorder(
+                    "mcp_call_failed",
+                    {
+                        "server_name": self._server_name,
+                        "tool_name": tool_name,
+                        "arguments": clean_arguments,
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                        "traceback": __import__("traceback").format_exc(),
+                    },
+                )
             raise
         self._progress.mcp_finished(call_id, self._server_name, tool_name, result)
+        if self._recorder:
+            self._recorder(
+                "mcp_call_succeeded",
+                {
+                    "server_name": self._server_name,
+                    "tool_name": tool_name,
+                    "arguments": clean_arguments,
+                    "result": result,
+                },
+            )
         return result
 
 
@@ -106,7 +139,7 @@ def _run_sync(coro: Any) -> Any:
         return executor.submit(asyncio.run, coro).result()
 
 
-def create_browser_tool(config: BrowserConfig) -> MCPTool:
+def create_browser_tool(config: BrowserConfig, recorder: Any = None) -> MCPTool:
     """Discover Lightpanda tools and return a per-agent, stateful tool object."""
     client = PersistentMCPStreamableHTTPClient(config)
 
@@ -134,7 +167,7 @@ def create_browser_tool(config: BrowserConfig) -> MCPTool:
     ]
     tool_class = _make_dynamic_class("lightpanda", tool_specs, LoggedMCPTool)
     tool = object.__new__(tool_class)
-    tool.__init__(client, "lightpanda")
+    tool.__init__(client, "lightpanda", recorder=recorder)
     return tool
 
 
@@ -155,10 +188,13 @@ class BrowserSupport(Agent):
     browser: MCPTool
     web_search: SearxngSearchClient
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, recorder: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         config = get_browser_config(load_settings())
         if not config.enabled:
             raise RuntimeError("Browser support is disabled by configuration.")
-        self.browser = create_browser_tool(config)
+        if recorder is None:
+            self.browser = create_browser_tool(config)
+        else:
+            self.browser = create_browser_tool(config, recorder=recorder)
         self.web_search = SearxngSearchClient(get_search_config(load_settings()))

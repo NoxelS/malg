@@ -33,16 +33,19 @@
           @if (job.failure_detail) {
             <p class="job-failure"><strong>Failure detail</strong>{{ job.failure_detail }}</p>
           }
-          @if (job.status === 'queued') {
-            <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="cancelJob(job)">
-              {{ pendingJobId() === job.job_id ? 'Cancelling…' : 'Cancel job' }}
-            </button>
-          }
-          @if (isDeletable(job)) {
-            <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="deleteJob(job)">
-              {{ pendingJobId() === job.job_id ? 'Deleting…' : 'Delete job' }}
-            </button>
-          }
+          <div class="job-card__actions">
+            <a tuiButton appearance="secondary" [routerLink]="['/jobs', job.job_id]">View details</a>
+            @if (job.status === 'queued') {
+              <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="cancelJob(job)">
+                {{ pendingJobId() === job.job_id ? 'Cancelling…' : 'Cancel job' }}
+              </button>
+            }
+            @if (isDeletable(job)) {
+              <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="deleteJob(job)">
+                {{ pendingJobId() === job.job_id ? 'Deleting…' : 'Delete job' }}
+              </button>
+            }
+          </div>
         </article>
       }
     </section>

@@ -34,7 +34,7 @@
             <article class="worker-card" [class.worker-card--running]="worker.status === 'running'" [class.worker-card--idle]="worker.status === 'idle'">
               <header class="worker-card__header"><div><span class="worker-card__label">Worker</span><strong class="worker-card__id" [title]="worker.worker_id" [attr.aria-label]="'Worker ' + worker.worker_id">{{ worker.worker_id.slice(0, 8) }}</strong></div><span class="worker-status" [class.worker-status--running]="worker.status === 'running'">{{ worker.status === 'running' ? 'Running' : 'Idle' }}</span></header>
               <dl class="worker-meta"><div><dt>Online since</dt><dd>{{ worker.online_since | date:'medium' }}</dd></div><div><dt>Last check-in</dt><dd>{{ worker.last_seen_at | date:'medium' }}</dd></div></dl>
-              @if (worker.job; as job) { <div class="worker-job"><span class="worker-card__label">Current job</span><strong>{{ job.job_id }}</strong><dl class="worker-job__details"><div><dt>Kind</dt><dd>{{ job.kind }}</dd></div><div><dt>Attempt</dt><dd>{{ job.attempt_count }}</dd></div><div><dt>Running for</dt><dd>{{ worker.runningFor }}</dd></div></dl></div> } @else { <p class="worker-empty">No job claimed</p> }
+              @if (worker.job; as job) { <div class="worker-job"><span class="worker-card__label">Current job</span><strong>{{ job.job_id }}</strong><dl class="worker-job__details"><div><dt>Kind</dt><dd>{{ job.kind }}</dd></div><div><dt>Attempt</dt><dd>{{ job.attempt_count }}</dd></div><div><dt>Running for</dt><dd>{{ worker.runningFor }}</dd></div></dl><a class="card-action" [routerLink]="['/jobs', job.job_id]">View job</a></div> } @else { <p class="worker-empty">No job claimed</p> }
             </article>
           }
         </div>
