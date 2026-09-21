@@ -313,11 +313,14 @@ the digest recorded in that GitHub Release; the workflows also publish the exact
 There is intentionally no mutable `latest` tag. The backend image runs the API with
 `uvicorn malg.api.app:app --host 0.0.0.0 --port 8000` or the worker with `python -m malg.worker`.
 
-Before enabling releases, grant GitHub Actions repository contents write permission and configure
-the Actions release actor (`github-actions[bot]`, or the configured GitHub App/bot token) to bypass
-main branch protection for its generated version commit. The release workflow runs only for a
-merged pull request targeting `main`, increments `pyproject.toml` from `0.<minor>.0` to the next
-minor, then creates the matching annotated tag. It does not run for unmerged pull requests.
+Before enabling releases, grant GitHub Actions repository contents write and package write
+permissions, and configure the Actions release actor (`github-actions[bot]`, or the configured
+GitHub App/bot token) to bypass main branch protection for its generated version commit. Each
+commit pushed to `main` starts the single serialized release workflow, which increments
+`pyproject.toml` from `0.<minor>.0` to the next minor, commits and tags that version locally,
+pushes both immutable multi-platform images, then pushes the version commit and annotated tag
+and creates the GitHub Release with the image digests. The generated `chore(release): ...` commit
+is ignored as a trigger to prevent a release loop.
 
 Grant Flux pull access to both GHCR packages, or make the packages public. Cluster configuration
 owns image selection, digest pinning, and rollout; this repository does not apply Kubernetes
