@@ -37,19 +37,33 @@ def enqueue_job(request: ResearchJobRequest, session: Session) -> ResearchJob:
     return job
 
 
-def enqueue_campaign_jobs(amount: int, session: Session) -> list[ResearchJob]:
-    """Insert a bounded batch of independently queued campaign jobs."""
+def enqueue_scoped_jobs(
+    kind: ResearchJobKind,
+    amount: int,
+    session: Session,
+    *,
+    campaign_id: str | None = None,
+    icp_id: str | None = None,
+) -> list[ResearchJob]:
+    """Insert a bounded batch of queued jobs with the supplied scope."""
     jobs = [
         ResearchJob(
             job_id=str(uuid4()),
-            kind=ResearchJobKind.CAMPAIGN.value,
+            kind=kind.value,
             status=ResearchJobStatus.QUEUED.value,
+            campaign_id=campaign_id,
+            icp_id=icp_id,
         )
         for _ in range(amount)
     ]
     session.add_all(jobs)
     session.flush()
     return jobs
+
+
+def enqueue_campaign_jobs(amount: int, session: Session) -> list[ResearchJob]:
+    """Insert a bounded batch of independently queued campaign jobs."""
+    return enqueue_scoped_jobs(ResearchJobKind.CAMPAIGN, amount, session)
 
 
 def claim_next_job(

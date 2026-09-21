@@ -11,11 +11,16 @@ from sqlalchemy.orm import Session
 
 from malg.api.routers.artifacts import SessionDependency, _campaign_or_404, _icp_or_404
 from malg.core.models.jobs import (
-    AccountResearchJobRequest, CampaignResearchJobBatchRequest, DiscoveryResearchJobRequest,
-    ICPResearchJobRequest, QualificationResearchJobRequest, ResearchJobRecord,
+    AccountResearchJobBatchRequest, AccountResearchJobRequest,
+    CampaignResearchJobBatchRequest, DiscoveryResearchJobRequest,
+    ICPResearchJobBatchRequest, ICPResearchJobRequest,
+    QualificationResearchJobRequest, ResearchJobRecord,
     ResearchJobRequest, ResearchJobStatus,
+    ResearchJobKind,
 )
-from malg.database.jobs import cancel_job, delete_job, enqueue_campaign_jobs, enqueue_job
+from malg.database.jobs import (
+    cancel_job, delete_job, enqueue_campaign_jobs, enqueue_job, enqueue_scoped_jobs,
+)
 from malg.database.models import ResearchJob, ResearchStageResult, ResearchWorkflow
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -67,6 +72,45 @@ def create_campaign_jobs(
 ) -> list[ResearchJobRecord]:
     """Enqueue a bounded batch of independent campaign research jobs."""
     jobs = enqueue_campaign_jobs(payload.amount, session)
+    session.commit()
+    return [_record(job) for job in jobs]
+
+
+@router.post(
+    "/icps",
+    response_model=list[ResearchJobRecord],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_icp_jobs(
+    payload: ICPResearchJobBatchRequest, session: SessionDependency
+) -> list[ResearchJobRecord]:
+    """Enqueue a bounded batch of ICP research jobs beneath a campaign."""
+    _campaign_or_404(session, payload.campaign_id)
+    jobs = enqueue_scoped_jobs(
+        ResearchJobKind.ICP, payload.amount, session, campaign_id=payload.campaign_id
+    )
+    session.commit()
+    return [_record(job) for job in jobs]
+
+
+@router.post(
+    "/accounts",
+    response_model=list[ResearchJobRecord],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_account_jobs(
+    payload: AccountResearchJobBatchRequest, session: SessionDependency
+) -> list[ResearchJobRecord]:
+    """Enqueue a bounded batch of account research jobs beneath an ICP."""
+    _campaign_or_404(session, payload.campaign_id)
+    _icp_or_404(session, payload.campaign_id, payload.icp_id)
+    jobs = enqueue_scoped_jobs(
+        ResearchJobKind.ACCOUNT,
+        payload.amount,
+        session,
+        campaign_id=payload.campaign_id,
+        icp_id=payload.icp_id,
+    )
     session.commit()
     return [_record(job) for job in jobs]
 

@@ -87,8 +87,7 @@ export class AccountsPage implements OnInit {
   protected readonly researchSubmitting = signal(false);
   protected readonly researchError = signal('');
   protected readonly researchSuccess = signal('');
-  protected readonly candidateName = signal('');
-  protected readonly candidateDomain = signal('');
+  protected readonly researchAmount = signal('1');
 
   protected get industryCount(): number {
     return new Set(this.accounts().flatMap((account) => account.firmographics.industries)).size;
@@ -138,28 +137,43 @@ export class AccountsPage implements OnInit {
     this.researchError.set('');
   }
 
+  protected updateAmount(event: Event): void {
+    this.researchAmount.set((event.target as HTMLInputElement).value);
+    this.researchError.set('');
+  }
+
+  private parsedAmount(): number | null {
+    const amount = Number(this.researchAmount());
+    return Number.isInteger(amount) && amount >= 1 && amount <= 100 ? amount : null;
+  }
+
   protected queueResearchJob(): void {
     const campaignId = this.selectedCampaignId();
     const icpId = this.selectedIcpId();
-    const name = this.candidateName().trim();
-    if (!campaignId || !icpId || !name) {
-      this.researchError.set('Select a campaign, ICP, and account name.');
+    const amount = this.parsedAmount();
+    if (!campaignId || !icpId) {
+      this.researchError.set('Select a campaign and ICP before submitting.');
+      return;
+    }
+    if (amount === null) {
+      this.researchError.set('Enter a whole number from 1 to 100.');
       return;
     }
     this.researchSubmitting.set(true);
     this.researchError.set('');
-    this.api.enqueueQualificationJob(campaignId, icpId, {
-      name,
-      domain: this.candidateDomain().trim() || undefined,
-    }).subscribe({
+    this.api.enqueueAccountJobs(campaignId, icpId, amount).subscribe({
       next: () => {
         this.researchSubmitting.set(false);
         this.researchDialogOpen.set(false);
-        this.researchSuccess.set('1 qualification job queued.');
+        this.selectedCampaignId.set('');
+        this.selectedIcpId.set('');
+        this.icps.set([]);
+        this.researchAmount.set('1');
+        this.researchSuccess.set(`${amount} account research job${amount === 1 ? '' : 's'} queued.`);
       },
       error: () => {
         this.researchSubmitting.set(false);
-        this.researchError.set('Qualification job could not be queued.');
+        this.researchError.set('Account research jobs could not be queued.');
       },
     });
   }

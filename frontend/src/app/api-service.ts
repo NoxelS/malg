@@ -137,6 +137,12 @@ export class ApiService {
   enqueueCampaignJobs(amount: number): Observable<any> {
     return this.authorized('POST', '/api/v1/jobs/campaigns', {body: {amount}});
   }
+  enqueueIcpJobs(campaignId: string, amount: number): Observable<readonly ResearchJob[]> {
+    return this.authorized('POST', '/api/v1/jobs/icps', {body: {campaign_id: campaignId, amount}});
+  }
+  enqueueAccountJobs(campaignId: string, icpId: string, amount: number): Observable<readonly ResearchJob[]> {
+    return this.authorized('POST', '/api/v1/jobs/accounts', {body: {campaign_id: campaignId, icp_id: icpId, amount}});
+  }
   enqueueIcpJob(campaignId: string): Observable<any> {
     return this.authorized('POST', '/api/v1/jobs', {body: {kind: 'icp', campaign_id: campaignId}});
   }
