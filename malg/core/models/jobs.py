@@ -61,6 +61,22 @@ class AccountResearchJobRequest(BaseModel):
     icp_id: str = Field(min_length=1, max_length=80)
 
 
+class ICPResearchJobBatchRequest(BaseModel):
+    """Request a bounded batch of ICP research jobs beneath a campaign."""
+
+    model_config = ConfigDict(extra="forbid")
+    campaign_id: str = Field(min_length=1, max_length=80)
+    amount: int = Field(strict=True, ge=1, le=100)
+
+
+class AccountResearchJobBatchRequest(BaseModel):
+    """Request a bounded batch of account research jobs beneath an ICP."""
+
+    model_config = ConfigDict(extra="forbid")
+    campaign_id: str = Field(min_length=1, max_length=80)
+    icp_id: str = Field(min_length=1, max_length=80)
+    amount: int = Field(strict=True, ge=1, le=100)
+
 
 
 class QualificationResearchJobRequest(BaseModel):
