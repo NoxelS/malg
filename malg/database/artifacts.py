@@ -5,8 +5,8 @@ module only stores already-validated artifacts using the same canonical schema
 as the API.
 """
 
-from __future__ import annotations
-
+import hashlib
+import json
 from collections.abc import Iterable
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -28,6 +28,7 @@ from malg.database.models import (
     Account,
     AccountMatch,
     AccountValidationRun,
+    ArtifactVersion,
     Campaign,
     CommunicationEndpoint,
     Contact,
@@ -36,29 +37,40 @@ from malg.database.models import (
 
 
 def persist_campaign(candidate: CampaignCandidate, session: Session) -> Campaign:
-    """Persist one canonical campaign and reject duplicate identity."""
-    campaign = Campaign(
-        campaign_id=candidate.campaign_id,
-        title=candidate.title,
-        payload=candidate.model_dump(mode="json"),
-    )
+    """Persist one canonical campaign and its immutable initial payload version."""
+    payload = candidate.model_dump(mode="json")
+    campaign = Campaign(campaign_id=candidate.campaign_id, title=candidate.title, payload=payload)
     session.add(campaign)
+    session.flush()
+    input_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    session.add(ArtifactVersion(
+        version_id=str(uuid4()), artifact_type="campaign", artifact_id=candidate.campaign_id,
+        schema_version=1, payload=payload, input_hash=input_hash,
+    ))
     session.flush()
     return campaign
 
 
 def persist_icp(candidate: ICPResult, session: Session) -> ICP:
-    """Persist one ICP beneath its existing campaign."""
+    """Persist one ICP beneath its existing campaign and preserve its raw version."""
     if session.get(Campaign, candidate.campaign_id) is None:
         raise ValueError("ICP candidate campaign does not exist.")
+    payload = candidate.model_dump(mode="json")
     icp = ICP(
-        campaign_id=candidate.campaign_id,
-        icp_id=candidate.icp_id,
-        segment_key=candidate.identity.segment_key(),
-        title=candidate.title,
-        payload=candidate.model_dump(mode="json"),
+        campaign_id=candidate.campaign_id, icp_id=candidate.icp_id,
+        segment_key=candidate.identity.segment_key(), title=candidate.title, payload=payload,
     )
     session.add(icp)
+    session.flush()
+    input_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    session.add(ArtifactVersion(
+        version_id=str(uuid4()), artifact_type="icp", artifact_id=candidate.icp_id,
+        campaign_id=candidate.campaign_id, schema_version=1, payload=payload, input_hash=input_hash,
+    ))
     session.flush()
     return icp
 
@@ -245,19 +257,22 @@ def persist_account_candidate(
     }
     if account is None:
         account = Account(
-            account_id=str(uuid4()),
-            identity_key=identity_key,
+            account_id=str(uuid4()), identity_key=identity_key,
             display_name=candidate.identity.display_name,
-            primary_domain=_primary_domain(candidate),
-            payload=account_payload,
+            primary_domain=_primary_domain(candidate), payload=account_payload,
         )
         session.add(account)
         session.flush()
     else:
+        previous = account.payload
+        session.add(ArtifactVersion(
+            version_id=str(uuid4()), artifact_type="account", artifact_id=account.account_id,
+            schema_version=1, payload=previous,
+            input_hash=hashlib.sha256(json.dumps(previous, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        ))
         account.display_name = candidate.identity.display_name
         account.primary_domain = _primary_domain(candidate)
         account.payload = account_payload
-
     match = session.scalar(
         select(AccountMatch).where(
             AccountMatch.campaign_id == candidate.campaign_id,

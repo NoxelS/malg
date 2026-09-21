@@ -79,14 +79,16 @@ export class AccountsPage implements OnInit {
   protected readonly error = signal(false);
   protected readonly campaigns = signal<readonly CampaignReference[]>([]);
   protected readonly selectedCampaignId = signal('');
-  protected readonly icps = signal<readonly ICPReference[]>([]);
   protected readonly selectedIcpId = signal('');
+  protected readonly icps = signal<readonly ICPReference[]>([]);
   protected readonly icpsLoading = signal(false);
   protected readonly icpError = signal('');
   protected readonly researchDialogOpen = signal(false);
   protected readonly researchSubmitting = signal(false);
   protected readonly researchError = signal('');
   protected readonly researchSuccess = signal('');
+  protected readonly candidateName = signal('');
+  protected readonly candidateDomain = signal('');
 
   protected get industryCount(): number {
     return new Set(this.accounts().flatMap((account) => account.firmographics.industries)).size;
@@ -139,25 +141,25 @@ export class AccountsPage implements OnInit {
   protected queueResearchJob(): void {
     const campaignId = this.selectedCampaignId();
     const icpId = this.selectedIcpId();
-    if (!this.campaigns().some((campaign) => campaign.campaign_id === campaignId) ||
-      !this.icps().some((icp) => icp.icp_id === icpId)) {
-      this.researchError.set('Select a loaded campaign and ICP before submitting.');
+    const name = this.candidateName().trim();
+    if (!campaignId || !icpId || !name) {
+      this.researchError.set('Select a campaign, ICP, and account name.');
       return;
     }
     this.researchSubmitting.set(true);
     this.researchError.set('');
-    this.api.enqueueAccountJob(campaignId, icpId).subscribe({
+    this.api.enqueueQualificationJob(campaignId, icpId, {
+      name,
+      domain: this.candidateDomain().trim() || undefined,
+    }).subscribe({
       next: () => {
         this.researchSubmitting.set(false);
         this.researchDialogOpen.set(false);
-        this.selectedCampaignId.set('');
-        this.selectedIcpId.set('');
-        this.icps.set([]);
-        this.researchSuccess.set('1 account research job queued.');
+        this.researchSuccess.set('1 qualification job queued.');
       },
       error: () => {
         this.researchSubmitting.set(false);
-        this.researchError.set('Account research job could not be queued.');
+        this.researchError.set('Qualification job could not be queued.');
       },
     });
   }

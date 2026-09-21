@@ -1,11 +1,10 @@
 """Run the saved-campaign account research smoke entry point."""
 
-from __future__ import annotations
-
+import argparse
 import asyncio
 import json
+import sys
 from collections.abc import Callable
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -99,29 +98,22 @@ async def find_ten_icps(
 
 
 async def main() -> None:
-    """Research, validate, and persist one account for the first stored ICP."""
-    engine = make_engine()
-    sessions = make_session_factory(engine)
-    try:
-        with sessions() as session:
-            campaign, icp, excluded_accounts = load_first_persisted_icp(session)
-
-        candidate, probes, validation = await research_and_validate_one_account(
-            campaign, icp, excluded_accounts
-        )
-        with sessions.begin() as session:
-            persist_account_candidate(candidate, validation, session)
-    finally:
-        engine.dispose()
-
-    result = {
-        "campaign": campaign.model_dump(mode="json"),
-        "icp": icp.model_dump(mode="json"),
-        "candidate": candidate.model_dump(mode="json"),
-        "probes": probes.model_dump(mode="json"),
-        "validation": validation.model_dump(mode="json"),
-    }
-    print(json.dumps(result, indent=2))
+    """Parse explicit commands; never enqueue implicit research on bare invocation."""
+    parser = argparse.ArgumentParser(description="MALG bounded research commands")
+    subparsers = parser.add_subparsers(dest="command")
+    research = subparsers.add_parser("research-account", help="queue one explicit account candidate")
+    research.add_argument("--campaign-id", required=True)
+    research.add_argument("--icp-id", required=True)
+    research.add_argument("--name", required=True)
+    research.add_argument("--domain")
+    research.add_argument("--wait", action="store_true")
+    args = parser.parse_args()
+    if args.command != "research-account":
+        parser.print_help()
+        return
+    raise SystemExit(
+        "research-account submission requires the API supervisor; no unsupervised fallback is available"
+    )
 
 
 if __name__ == "__main__":

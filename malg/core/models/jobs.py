@@ -10,12 +10,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ResearchJobKind(StrEnum):
-    """Supported one-artifact research units."""
-
+    """Supported bounded research stages."""
     CAMPAIGN = "campaign"
     ICP = "icp"
+    DISCOVERY = "discovery"
+    QUALIFICATION = "qualification"
+    PROJECT = "project"
+    CONTACT = "contact"
+    REVIEW = "review"
+    FOLLOWUP = "followup"
     ACCOUNT = "account"
-
 
 class ResearchJobStatus(StrEnum):
     """Durable lifecycle states for one research job."""
@@ -57,8 +61,27 @@ class AccountResearchJobRequest(BaseModel):
     icp_id: str = Field(min_length=1, max_length=80)
 
 
+
+
+class QualificationResearchJobRequest(BaseModel):
+    """Request qualification for one explicit candidate supplied by the user."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal[ResearchJobKind.QUALIFICATION] = ResearchJobKind.QUALIFICATION
+    campaign_id: str = Field(min_length=1, max_length=80)
+    icp_id: str = Field(min_length=1, max_length=80)
+    candidate: dict[str, object]
+
+
+class DiscoveryResearchJobRequest(BaseModel):
+    """Request bounded candidate discovery from a persisted ICP."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal[ResearchJobKind.DISCOVERY] = ResearchJobKind.DISCOVERY
+    campaign_id: str = Field(min_length=1, max_length=80)
+    icp_id: str = Field(min_length=1, max_length=80)
+    limit: int = Field(default=10, strict=True, ge=1, le=20)
 ResearchJobRequest = Annotated[
-    CampaignResearchJobRequest | ICPResearchJobRequest | AccountResearchJobRequest,
+    CampaignResearchJobRequest | ICPResearchJobRequest | AccountResearchJobRequest |
+    QualificationResearchJobRequest | DiscoveryResearchJobRequest,
     Field(discriminator="kind"),
 ]
 
@@ -77,3 +100,8 @@ class ResearchJobRecord(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     failure_detail: str | None = None
+
+    workflow_id: str | None = None
+    stage_key: str | None = None
+    deadline_at: datetime | None = None
+    result_outcome: str | None = None

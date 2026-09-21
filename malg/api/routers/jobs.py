@@ -11,15 +11,12 @@ from sqlalchemy.orm import Session
 
 from malg.api.routers.artifacts import SessionDependency, _campaign_or_404, _icp_or_404
 from malg.core.models.jobs import (
-    AccountResearchJobRequest,
-    CampaignResearchJobBatchRequest,
-    ICPResearchJobRequest,
-    ResearchJobRecord,
-    ResearchJobRequest,
-    ResearchJobStatus,
+    AccountResearchJobRequest, CampaignResearchJobBatchRequest, DiscoveryResearchJobRequest,
+    ICPResearchJobRequest, QualificationResearchJobRequest, ResearchJobRecord,
+    ResearchJobRequest, ResearchJobStatus,
 )
 from malg.database.jobs import cancel_job, delete_job, enqueue_campaign_jobs, enqueue_job
-from malg.database.models import ResearchJob
+from malg.database.models import ResearchJob, ResearchStageResult, ResearchWorkflow
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
@@ -28,17 +25,13 @@ def _record(job: ResearchJob) -> ResearchJobRecord:
     """Convert one ORM row to the public job contract."""
     return ResearchJobRecord.model_validate(
         {
-            "job_id": job.job_id,
-            "kind": job.kind,
-            "status": job.status,
-            "campaign_id": job.campaign_id,
-            "icp_id": job.icp_id,
-            "account_match_id": job.account_match_id,
-            "attempt_count": job.attempt_count,
-            "created_at": job.created_at,
-            "started_at": job.started_at,
-            "finished_at": job.finished_at,
-            "failure_detail": job.failure_detail,
+            "job_id": job.job_id, "kind": job.kind, "status": job.status,
+            "campaign_id": job.campaign_id, "icp_id": job.icp_id,
+            "account_match_id": job.account_match_id, "attempt_count": job.attempt_count,
+            "created_at": job.created_at, "started_at": job.started_at,
+            "finished_at": job.finished_at, "failure_detail": job.failure_detail,
+            "workflow_id": job.workflow_id, "stage_key": job.stage_key,
+            "deadline_at": job.deadline_at,
         }
     )
 
@@ -56,7 +49,7 @@ def create_job(payload: ResearchJobRequest, session: SessionDependency) -> Resea
     """Validate parent scope and enqueue exactly one research unit."""
     if isinstance(payload, ICPResearchJobRequest):
         _campaign_or_404(session, payload.campaign_id)
-    elif isinstance(payload, AccountResearchJobRequest):
+    elif isinstance(payload, (AccountResearchJobRequest, QualificationResearchJobRequest, DiscoveryResearchJobRequest)):
         _campaign_or_404(session, payload.campaign_id)
         _icp_or_404(session, payload.campaign_id, payload.icp_id)
     job = enqueue_job(payload, session)
@@ -90,6 +83,20 @@ def list_jobs(
     return [_record(job) for job in session.scalars(query)]
 
 
+@router.get("/workflows/{workflow_id}")
+def get_workflow(workflow_id: str, session: SessionDependency) -> dict[str, object]:
+    """Return workflow deadline, counters, and ordered stage outputs."""
+    workflow = session.get(ResearchWorkflow, workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="workflow not found")
+    first_job = session.scalar(select(ResearchJob).where(ResearchJob.workflow_id == workflow_id))
+    stages = list_job_stages(first_job.job_id, session)["items"] if first_job else []
+    return {
+        "workflow_id": workflow.workflow_id, "kind": workflow.kind,
+        "status": workflow.status, "deadline_at": workflow.deadline_at,
+        "llm_attempts": workflow.llm_attempts, "search_attempts": workflow.search_attempts,
+        "fetch_attempts": workflow.fetch_attempts, "stages": stages,
+    }
 @router.get("/{job_id}", response_model=ResearchJobRecord)
 def get_job(job_id: str, session: SessionDependency) -> ResearchJobRecord:
     """Return one durable job record."""
@@ -105,6 +112,36 @@ def cancel_research_job(job_id: str, session: SessionDependency) -> ResearchJobR
         raise HTTPException(status_code=409, detail="job cannot be cancelled")
     session.commit()
     return _record(job)
+
+@router.get("/{job_id}/stages")
+def list_job_stages(job_id: str, session: SessionDependency) -> dict[str, object]:
+    """Return ordered immutable stage checkpoints for a job workflow."""
+    job = _job_or_404(session, job_id)
+    if not job.workflow_id:
+        return {"workflow_id": None, "items": []}
+    rows = session.scalars(
+        select(ResearchStageResult)
+        .where(ResearchStageResult.workflow_id == job.workflow_id)
+        .order_by(ResearchStageResult.created_at, ResearchStageResult.stage_result_id)
+    )
+    return {
+        "workflow_id": job.workflow_id,
+        "items": [
+            {
+                "stage_result_id": row.stage_result_id,
+                "stage_key": row.stage_key,
+                "revision": row.revision,
+                "outcome": row.outcome,
+                "payload": row.payload,
+                "unknowns": row.unknowns,
+                "source_refs": row.source_refs,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ],
+    }
+
+
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)

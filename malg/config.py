@@ -78,6 +78,68 @@ class WorkerConfig:
     lease_seconds: int = 7200
     max_attempts: int = 3
     heartbeat_timeout_seconds: int = 15
+@dataclass(frozen=True)
+class ResearchConfig:
+    """Finite host-owned limits shared by every research workflow stage."""
+
+    workflow_timeout_seconds: int = 600
+    stage_timeout_seconds: int = 180
+    qualification_timeout_seconds: int = 180
+    project_timeout_seconds: int = 120
+    contact_timeout_seconds: int = 180
+    review_timeout_seconds: int = 90
+    llm_attempt_timeout_seconds: int = 90
+    initialization_timeout_seconds: int = 20
+    cleanup_reserve_seconds: int = 5
+    max_iterations: int = 6
+    max_llm_attempts_per_stage: int = 12
+    max_llm_attempts_per_workflow: int = 24
+    max_search_requests: int = 12
+    max_fetch_requests: int = 20
+    discovery_batch_size: int = 10
+    max_discovery_candidates: int = 20
+    extraction_enable_thinking: bool = False
+    synthesis_enable_thinking: bool = False
+    thinking_supported: bool = False
+
+
+def get_research_config(settings: Dynaconf) -> ResearchConfig:
+    """Read and validate finite research limits from ``[default.research]``."""
+    research = settings.get("research")
+    if not isinstance(research, Mapping):
+        raise ValueError("Missing [default.research] configuration.")
+    defaults = ResearchConfig()
+    values: dict[str, object] = {}
+    integer_fields = (
+        "workflow_timeout_seconds", "stage_timeout_seconds",
+        "qualification_timeout_seconds", "project_timeout_seconds",
+        "contact_timeout_seconds", "review_timeout_seconds",
+        "llm_attempt_timeout_seconds", "initialization_timeout_seconds",
+        "cleanup_reserve_seconds", "max_iterations",
+        "max_llm_attempts_per_stage", "max_llm_attempts_per_workflow",
+        "max_search_requests", "max_fetch_requests", "discovery_batch_size",
+        "max_discovery_candidates",
+    )
+    for field in integer_fields:
+        value = research.get(field, getattr(defaults, field))
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"Research configuration field {field} must be positive.")
+        values[field] = value
+    for field in ("extraction_enable_thinking", "synthesis_enable_thinking", "thinking_supported"):
+        value = research.get(field, getattr(defaults, field))
+        if not isinstance(value, bool):
+            raise ValueError(f"Research configuration field {field} must be boolean.")
+        values[field] = value
+    reserve = values["cleanup_reserve_seconds"]
+    for field in (
+        "workflow_timeout_seconds", "stage_timeout_seconds",
+        "qualification_timeout_seconds", "project_timeout_seconds",
+        "contact_timeout_seconds", "review_timeout_seconds",
+        "llm_attempt_timeout_seconds", "initialization_timeout_seconds",
+    ):
+        if reserve >= values[field]:
+            raise ValueError(f"cleanup_reserve_seconds must be less than {field}.")
+    return ResearchConfig(**values)
 
 
 @dataclass(frozen=True)

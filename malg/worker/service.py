@@ -12,7 +12,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from malg.config import ICPConfig, WorkerConfig, get_icp_config, load_settings
+from malg.config import ICPConfig, WorkerConfig, get_icp_config, get_search_config, load_settings
 from malg.core.account_probes import AccountProbeService
 from malg.core.agent_tracing import (
     AgentTraceRecorder,
@@ -28,15 +28,12 @@ from malg.core.models.account import AccountIdentity
 from malg.core.models.campaign import CampaignCandidate
 from malg.core.models.icp import ICPIdentity, ICPResult
 from malg.core.persistent_memory_support import close_persistent_memory
+from malg.core.retrieval import RetrievalService
+from malg.core.web_search import SearxngSearchClient
 from malg.database.artifacts import persist_account_candidate, persist_campaign, persist_icp
-from malg.database.jobs import (
-    cancel_running_jobs,
-    claim_next_job,
-    complete_job,
-    fail_job,
-    renew_claim,
-)
+from malg.database.jobs import claim_next_job, complete_job, fail_job, renew_claim
 from malg.database.models import ICP, Account, Campaign, ResearchJob
+from malg.database.research import create_workflow_for_job, persist_stage_result
 from malg.database.workers import record_worker_heartbeat
 
 
@@ -60,10 +57,17 @@ class ResearchWorker:
         with self.session_factory.begin() as session:
             record_worker_heartbeat(session, self.worker_token, datetime.now(UTC))
 
-    def reset_interrupted_jobs(self) -> int:
-        """Cancel claims left running when this worker process was replaced."""
+    async def _claim_is_live(self, job_id: str, claim_token: str) -> bool:
+        """Check ownership without allowing stale local work to continue."""
         with self.session_factory.begin() as session:
-            return cancel_running_jobs(session, datetime.now(UTC))
+            job = session.get(ResearchJob, job_id)
+            return bool(
+                job
+                and job.status == "running"
+                and job.claim_token == claim_token
+                and job.claim_expires_at is not None
+                and job.claim_expires_at > datetime.now(UTC)
+            )
 
     async def run_once(self) -> bool:
         """Claim and execute one job, returning whether work was claimed."""
@@ -93,7 +97,7 @@ class ResearchWorker:
             )
             trace.finish_failure(error)
             with self.session_factory.begin() as session, suppress(ValueError):
-                fail_job(session, job.job_id, self.worker_token, str(error), datetime.now(UTC))
+                fail_job(session, job.job_id, job.claim_token or "", str(error), datetime.now(UTC))
         else:
             trace.event("job_completed", {"job_id": job.job_id})
             trace.finish_success()
@@ -106,15 +110,15 @@ class ResearchWorker:
         return True
 
     async def _renew_loop(self, job: ResearchJob) -> None:
-        """Renew a live claim periodically."""
-        interval = max(1, self.config.lease_seconds // 3)
+        """Renew a claim every ten seconds while it remains live."""
         while True:
-            await asyncio.sleep(interval)
+            await asyncio.sleep(10)
             with self.session_factory.begin() as session:
                 if not renew_claim(
                     session,
                     job.job_id,
-                    self.worker_token,
+                    job.claim_token or "",
+                    datetime.now(UTC),
                     datetime.now(UTC) + timedelta(seconds=self.config.lease_seconds),
                 ):
                     return
@@ -126,24 +130,59 @@ class ResearchWorker:
             candidate = await self._campaign(trace)
             with self.session_factory.begin() as session:
                 persist_campaign(candidate, session)
-                trace.event(
-                    "artifact_persisted", {"artifact": "campaign", "id": candidate.campaign_id}
+                workflow = create_workflow_for_job(
+                    session, job, candidate.model_dump(mode="json"),
+                    datetime.now(UTC) + timedelta(seconds=180),
                 )
-                complete_job(
-                    session,
-                    job.job_id,
-                    self.worker_token,
-                    campaign_id=candidate.campaign_id,
-                    now=datetime.now(UTC),
+                persist_stage_result(
+                    session, job_id=job.job_id, claim_token=job.claim_token or "",
+                    workflow_id=workflow.workflow_id, stage_key=job.stage_key or "campaign.brief",
+                    input_hash=workflow.input_hash, outcome="complete",
+                    payload=candidate.model_dump(mode="json"), now=datetime.now(UTC),
                 )
+                trace.event("artifact_persisted", {"artifact": "campaign", "id": candidate.campaign_id})
+                complete_job(session, job.job_id, job.claim_token or "",
+                             campaign_id=candidate.campaign_id, now=datetime.now(UTC))
             return
         if job.kind == "icp":
             await self._icp(job, trace)
+            return
+        if job.kind == "discovery":
+            await self._discovery(job, trace)
             return
         if job.kind == "account":
             await self._account(job, trace)
             return
         raise ValueError(f"unsupported research job kind: {job.kind}")
+    async def _discovery(self, job: ResearchJob, parent: AgentTraceRecorder) -> None:
+        """Search saved ICP queries and persist bounded candidate observations."""
+        with self.session_factory() as session:
+            icp_row = session.scalar(select(ICP).where(ICP.campaign_id == job.campaign_id, ICP.icp_id == job.icp_id))
+            if icp_row is None:
+                raise ValueError("Discovery job ICP does not exist.")
+            payload = icp_row.payload
+        queries = payload.get("search_queries", [])
+        if not isinstance(queries, list):
+            queries = []
+        config = get_search_config(load_settings())
+        service = RetrievalService(SearxngSearchClient(config))
+        candidates: list[dict[str, str]] = []
+        for query in queries[:12]:
+            if not isinstance(query, str):
+                continue
+            response = await service.search(query)
+            for result in response.results:
+                candidates.append({"name": result.title[:500], "domain": result.url, "discovery_url": result.url, "reason": result.snippet[:500]})
+                if len(candidates) >= 20:
+                    break
+            if len(candidates) >= 20:
+                break
+        with self.session_factory.begin() as session:
+            workflow = create_workflow_for_job(session, job, {"queries": queries}, datetime.now(UTC) + timedelta(seconds=180))
+            outcome = "complete" if candidates else "insufficient_evidence"
+            persist_stage_result(session, job_id=job.job_id, claim_token=job.claim_token or "", workflow_id=workflow.workflow_id, stage_key="discovery.candidates", input_hash=workflow.input_hash, outcome=outcome, payload={"candidates": candidates}, now=datetime.now(UTC), unknowns=[] if candidates else ["search returned no candidates"])
+            complete_job(session, job.job_id, job.claim_token or "", now=datetime.now(UTC))
+
 
     async def _run_agent(
         self,
@@ -215,15 +254,20 @@ class ResearchWorker:
         if result.campaign_id != job.campaign_id:
             raise ValueError("ICP result campaign scope does not match job.")
         with self.session_factory.begin() as session:
+            payload = result.model_dump(mode="json")
             persist_icp(result, session)
-            complete_job(
-                session,
-                job.job_id,
-                self.worker_token,
-                campaign_id=campaign.campaign_id,
-                icp_id=result.icp_id,
-                now=datetime.now(UTC),
+            workflow = create_workflow_for_job(
+                session, job, payload, datetime.now(UTC) + timedelta(seconds=180)
             )
+            persist_stage_result(
+                session, job_id=job.job_id, claim_token=job.claim_token or "",
+                workflow_id=workflow.workflow_id, stage_key=job.stage_key or "icp.criteria",
+                input_hash=workflow.input_hash, outcome="complete",
+                payload=payload, now=datetime.now(UTC),
+            )
+            complete_job(session, job.job_id, job.claim_token or "",
+                         campaign_id=campaign.campaign_id, icp_id=result.icp_id,
+                         now=datetime.now(UTC))
 
     async def _account(self, job: ResearchJob, parent: AgentTraceRecorder) -> None:
         """Research, probe, validate, and persist one scoped account."""
@@ -285,18 +329,15 @@ class ResearchWorker:
             complete_job(
                 session,
                 job.job_id,
-                self.worker_token,
+                job.claim_token or "",
                 campaign_id=campaign.campaign_id,
                 icp_id=icp.icp_id,
                 account_match_id=match.account_match_id,
                 now=datetime.now(UTC),
             )
 
-
 async def worker_loop(worker: ResearchWorker) -> None:
     """Run the worker and independent liveness heartbeat until cancelled."""
-    worker.reset_interrupted_jobs()
-
     async def heartbeat_loop() -> None:
         while True:
             await worker.heartbeat()

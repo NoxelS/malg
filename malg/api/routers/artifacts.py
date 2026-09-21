@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from typing import Annotated, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from nooa_memory.embeddings import HashingEmbedder  # type: ignore[import-untyped]
@@ -30,9 +31,12 @@ from malg.database.models import (
     Account,
     AccountMatch,
     AccountValidationRun,
+    ArtifactVersion,
     Campaign,
     CommunicationEndpoint,
     Employment,
+    Lead,
+    LeadReview,
 )
 from malg.database.session import make_session_factory
 
@@ -439,3 +443,81 @@ def append_account_validation(
     persist_account_candidate(candidate, validation=payload, session=session)
     _commit(session, conflict_detail="account validation conflicts with existing data")
     return _account_match_response(session, match)
+
+
+@router.get("/accounts/{account_id}/research")
+def get_account_research(account_id: str, session: SessionDependency) -> dict[str, object]:
+    """Return account matches plus persisted stage outputs without inference."""
+    _account_or_404(session, account_id)
+    matches = session.scalars(
+        select(AccountMatch).where(AccountMatch.account_id == account_id).order_by(AccountMatch.created_at)
+    )
+    return {
+        "account_id": account_id,
+        "qualifications": [
+            {"account_match_id": row.account_match_id, "campaign_id": row.campaign_id,
+             "icp_id": row.icp_id, "status": row.status, "payload": row.payload}
+            for row in matches
+        ],
+        "projects": [], "contacts": [], "leads": [],
+    }
+
+
+@router.get("/leads")
+def list_leads(session: SessionDependency, limit: int = 50, offset: int = 0) -> dict[str, object]:
+    """List host-assembled leads with stable pagination."""
+    if limit < 1 or limit > 100 or offset < 0:
+        raise HTTPException(status_code=422, detail="invalid pagination")
+    total = session.query(Lead).count()
+    rows = session.scalars(select(Lead).order_by(Lead.updated_at.desc()).offset(offset).limit(limit))
+    return {
+        "items": [
+            {"lead_id": row.lead_id, "workflow_id": row.workflow_id,
+             "completeness": row.completeness, "review_status": row.review_status,
+             "limitations": row.limitations, "payload": row.payload}
+            for row in rows
+        ],
+        "total": total, "limit": limit, "offset": offset,
+    }
+
+
+@router.get("/leads/{lead_id}")
+def get_lead(lead_id: str, session: SessionDependency) -> dict[str, object]:
+    """Return one current lead projection."""
+    lead = session.get(Lead, lead_id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="lead not found")
+    return {"lead_id": lead.lead_id, "workflow_id": lead.workflow_id,
+            "completeness": lead.completeness, "review_status": lead.review_status,
+            "limitations": lead.limitations, "payload": lead.payload}
+
+
+@router.post("/leads/{lead_id}/review")
+def review_lead(lead_id: str, payload: dict[str, str], session: SessionDependency) -> dict[str, object]:
+    """Record an append-only human review, rejecting incomplete acceptance."""
+    lead = session.get(Lead, lead_id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="lead not found")
+    decision, reason = payload.get("decision"), payload.get("reason", "")
+    if decision not in {"accepted", "rejected"} or not reason:
+        raise HTTPException(status_code=422, detail="decision and reason are required")
+    if decision == "accepted" and lead.completeness != "complete":
+        raise HTTPException(status_code=409, detail="incomplete lead cannot be accepted")
+    lead.review_status = decision
+    session.add(LeadReview(review_id=str(uuid4()), lead_id=lead_id, decision=decision, reason=reason, actor="api"))
+    session.commit()
+    return get_lead(lead_id, session)
+
+
+@router.get("/artifacts/{artifact_type}/{artifact_id}/versions")
+def list_artifact_versions(artifact_type: str, artifact_id: str, session: SessionDependency) -> dict[str, object]:
+    """List immutable raw payload versions for one artifact."""
+    rows = session.scalars(
+        select(ArtifactVersion)
+        .where(ArtifactVersion.artifact_type == artifact_type, ArtifactVersion.artifact_id == artifact_id)
+        .order_by(ArtifactVersion.created_at, ArtifactVersion.version_id)
+    )
+    items = [{"version_id": row.version_id, "schema_version": row.schema_version,
+              "payload": row.payload, "input_hash": row.input_hash, "created_at": row.created_at}
+             for row in rows]
+    return {"items": items, "total": len(items), "limit": len(items), "offset": 0}

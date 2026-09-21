@@ -1,0 +1,12 @@
+{
+  "cases": [
+    {"id": "clear-fit-current-contact", "expected_fit": "qualified", "expected_completeness": "complete"},
+    {"id": "required-mismatch", "expected_fit": "mismatch", "expected_completeness": "unqualified"},
+    {"id": "thin-website", "expected_fit": "insufficient_evidence", "expected_completeness": "unqualified"},
+    {"id": "organization-channel-only", "expected_fit": "qualified", "expected_completeness": "missing_named_contact"},
+    {"id": "industry-only-project", "expected_fit": "qualified", "expected_completeness": "missing_project_and_contact"},
+    {"id": "conflicting-employment", "expected_fit": "qualified", "expected_completeness": "missing_named_contact"},
+    {"id": "http-999-degraded-search", "expected_fit": "insufficient_evidence", "expected_completeness": "unqualified"},
+    {"id": "timeout-after-qualification", "expected_fit": "qualified", "expected_completeness": "missing_project_and_contact"}
+  ]
+}

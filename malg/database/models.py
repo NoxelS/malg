@@ -285,29 +285,138 @@ class AccountValidationRun(Base):
 
     account_match: Mapped[AccountMatch] = relationship(back_populates="validation_runs")
 
+class ResearchWorkflow(Base):
+    """Persisted workflow input, shared deadline, counters, and lifecycle."""
+
+    __tablename__ = "research_workflows"
+    workflow_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    parent_workflow_id: Mapped[str | None] = mapped_column(String(36))
+    campaign_id: Mapped[str | None] = mapped_column(String(80))
+    icp_id: Mapped[str | None] = mapped_column(String(80))
+    candidate_id: Mapped[str | None] = mapped_column(String(36))
+    input_payload: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[int] = mapped_column(nullable=False, default=2, server_default="2")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    llm_attempts: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    search_attempts: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    fetch_attempts: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    followup_used: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    resumed_from_workflow_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ResearchStageResult(Base):
+    """Immutable result of one independently persisted workflow stage."""
+
+    __tablename__ = "research_stage_results"
+    __table_args__ = (UniqueConstraint("workflow_id", "stage_key", "revision"),)
+    stage_result_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    job_id: Mapped[str | None] = mapped_column(String(36))
+    stage_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    schema_version: Mapped[int] = mapped_column(nullable=False)
+    revision: Mapped[int] = mapped_column(nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String(64))
+    unknowns: Mapped[list[Any]] = mapped_column(JSONPayload, nullable=False, default=list)
+    source_refs: Mapped[list[Any]] = mapped_column(JSONPayload, nullable=False, default=list)
+    trace_run_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ArtifactVersion(Base):
+    """Immutable historical payload snapshot for an artifact projection."""
+
+    __tablename__ = "artifact_versions"
+    __table_args__ = (UniqueConstraint("artifact_type", "artifact_id", "version_id"),)
+    version_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    artifact_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    artifact_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    campaign_id: Mapped[str | None] = mapped_column(String(80))
+    schema_version: Mapped[int] = mapped_column(nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ResearchSource(Base):
+    """Canonical source identity shared by immutable fetch observations."""
+    __tablename__ = "research_sources"
+    source_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    canonical_url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    original_url: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SourceFetch(Base):
+    """Append-only outcome of one bounded source retrieval."""
+    __tablename__ = "source_fetches"
+    fetch_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workflow_id: Mapped[str | None] = mapped_column(String(36))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    final_url: Mapped[str | None] = mapped_column(Text)
+    status_code: Mapped[int | None] = mapped_column()
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    content_type: Mapped[str | None] = mapped_column(String(128))
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    extractor_version: Mapped[str | None] = mapped_column(String(32))
+    title: Mapped[str | None] = mapped_column(Text)
+    excerpts: Mapped[list[Any]] = mapped_column(JSONPayload, nullable=False, default=list)
+    failure_detail: Mapped[str | None] = mapped_column(Text)
+
+
+class ResearchClaim(Base):
+    """Host-validated observation or inference linked to source excerpts."""
+    __tablename__ = "research_claims"
+    claim_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    excerpt_refs: Mapped[list[Any]] = mapped_column(JSONPayload, nullable=False, default=list)
+    supporting_claim_refs: Mapped[list[Any]] = mapped_column(JSONPayload, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
 
 class ResearchJob(Base):
-    """A durable claimable unit of campaign, ICP, or account research."""
+    """A durable claimable unit of one bounded research stage."""
 
     __tablename__ = "research_jobs"
     __table_args__ = (
         Index("ix_research_jobs_status_created_at", "status", "created_at"),
         Index("ix_research_jobs_claim_expires_at", "claim_expires_at"),
+        UniqueConstraint("workflow_id", "stage_key", "input_hash"),
     )
 
     job_id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     campaign_id: Mapped[str | None] = mapped_column(String(80))
     icp_id: Mapped[str | None] = mapped_column(String(80))
     account_match_id: Mapped[str | None] = mapped_column(String(36))
+    workflow_id: Mapped[str | None] = mapped_column(String(36))
+    stage_key: Mapped[str | None] = mapped_column(String(100))
+    input_hash: Mapped[str | None] = mapped_column(String(64))
+    owner_worker_token: Mapped[str | None] = mapped_column(String(36))
     attempt_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     claim_token: Mapped[str | None] = mapped_column(String(128))
     claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stage_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_code: Mapped[str | None] = mapped_column(String(64))
     failure_detail: Mapped[str | None] = mapped_column(Text)
+    result_id: Mapped[str | None] = mapped_column(String(36))
+    resumed_from_job_id: Mapped[str | None] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -317,6 +426,34 @@ class ResearchJob(Base):
     agent_runs: Mapped[list[AgentRun]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
+
+class Lead(Base):
+    """Current host-assembled lead projection for one account workflow."""
+    __tablename__ = "leads"
+    lead_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    campaign_id: Mapped[str | None] = mapped_column(String(80))
+    icp_id: Mapped[str | None] = mapped_column(String(80))
+    account_match_id: Mapped[str | None] = mapped_column(String(36))
+    project_id: Mapped[str | None] = mapped_column(String(36))
+    contact_id: Mapped[str | None] = mapped_column(String(36))
+    completeness: Mapped[str] = mapped_column(String(40), nullable=False)
+    review_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    limitations: Mapped[list[Any]] = mapped_column(JSONPayload, nullable=False, default=list)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class LeadReview(Base):
+    """Append-only human decision attached to a lead."""
+    __tablename__ = "lead_reviews"
+    review_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    lead_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class AgentRun(Base):

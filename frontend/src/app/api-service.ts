@@ -28,6 +28,10 @@ export interface ResearchJob {
   readonly attempt_count: number;
   readonly created_at: string;
 }
+
+export interface StageRecord { readonly stage_result_id: string; readonly stage_key: string; readonly outcome: string; readonly payload: JsonValue; }
+export interface LeadRecord { readonly lead_id: string; readonly workflow_id: string; readonly completeness: string; readonly review_status: string; }
+export interface Paginated<T> { readonly items: readonly T[]; readonly total: number; readonly limit: number; readonly offset: number; }
 export type JsonValue = null | boolean | number | string | JsonValue[] | {[key: string]: JsonValue};
 export interface AgentRun {
   readonly run_id: string;
@@ -136,13 +140,34 @@ export class ApiService {
   enqueueIcpJob(campaignId: string): Observable<any> {
     return this.authorized('POST', '/api/v1/jobs', {body: {kind: 'icp', campaign_id: campaignId}});
   }
-  enqueueAccountJob(campaignId: string, icpId: string): Observable<any> {
-    return this.authorized('POST', '/api/v1/jobs', {body: {kind: 'account', campaign_id: campaignId, icp_id: icpId}});
-  }
   cancelJob(jobId: string): Observable<any> {
     return this.authorized('POST', `/api/v1/jobs/${jobId}/cancel`, {body: {}});
   }
   deleteJob(jobId: string): Observable<any> { return this.authorized('DELETE', `/api/v1/jobs/${jobId}`); }
+  enqueueDiscoveryJob(campaignId: string, icpId: string, limit = 10): Observable<ResearchJob> {
+    return this.authorized('POST', '/api/v1/jobs', {body: {kind: 'discovery', campaign_id: campaignId, icp_id: icpId, limit}});
+  }
+  enqueueQualificationJob(campaignId: string, icpId: string, candidate: {name: string; domain?: string}): Observable<ResearchJob> {
+    return this.authorized('POST', '/api/v1/jobs', {body: {kind: 'qualification', campaign_id: campaignId, icp_id: icpId, candidate}});
+  }
+  resumeJob(jobId: string): Observable<ResearchJob> {
+    return this.authorized('POST', `/api/v1/jobs/${jobId}/resume`, {body: {}});
+  }
+  listJobStages(jobId: string): Observable<{workflow_id: string | null; items: readonly StageRecord[]}> {
+    return this.authorized('GET', `/api/v1/jobs/${jobId}/stages`);
+  }
+  getAccountResearch(accountId: string): Observable<unknown> {
+    return this.authorized('GET', `/api/v1/accounts/${accountId}/research`);
+  }
+  listLeads(): Observable<Paginated<LeadRecord>> {
+    return this.authorized('GET', '/api/v1/leads');
+  }
+  reviewLead(leadId: string, decision: 'accepted' | 'rejected', reason: string): Observable<LeadRecord> {
+    return this.authorized('POST', `/api/v1/leads/${leadId}/review`, {body: {decision, reason}});
+  }
+  getSource(sourceId: string): Observable<unknown> {
+    return this.authorized('GET', `/api/v1/sources/${sourceId}`);
+  }
 
   private authorized<T>(method: string, url: string, options: Record<string, unknown> = {}): Observable<T> {
     const token = this.validToken();
