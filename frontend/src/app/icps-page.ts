@@ -67,6 +67,7 @@ export class IcpsPage implements OnInit {
   protected readonly error = signal(false);
   protected readonly researchDialogOpen = signal(false);
   protected readonly selectedCampaignId = signal('');
+  protected readonly researchAmount = signal('1');
   protected readonly researchSubmitting = signal(false);
   protected readonly researchError = signal('');
   protected readonly researchSuccess = signal('');
@@ -102,24 +103,40 @@ export class IcpsPage implements OnInit {
     this.researchError.set('');
   }
 
+  protected updateAmount(event: Event): void {
+    this.researchAmount.set((event.target as HTMLInputElement).value);
+    this.researchError.set('');
+  }
+
+  private parsedAmount(): number | null {
+    const amount = Number(this.researchAmount());
+    return Number.isInteger(amount) && amount >= 1 && amount <= 100 ? amount : null;
+  }
+
   protected queueResearchJob(): void {
     const campaignId = this.selectedCampaignId();
+    const amount = this.parsedAmount();
     if (!this.campaignMap().has(campaignId)) {
       this.researchError.set('Select a loaded campaign before submitting.');
       return;
     }
+    if (amount === null) {
+      this.researchError.set('Enter a whole number from 1 to 100.');
+      return;
+    }
     this.researchSubmitting.set(true);
     this.researchError.set('');
-    this.api.enqueueIcpJob(campaignId).subscribe({
+    this.api.enqueueIcpJobs(campaignId, amount).subscribe({
       next: () => {
         this.researchSubmitting.set(false);
         this.researchDialogOpen.set(false);
         this.selectedCampaignId.set('');
-        this.researchSuccess.set('1 ICP research job queued.');
+        this.researchAmount.set('1');
+        this.researchSuccess.set(`${amount} ICP research job${amount === 1 ? '' : 's'} queued.`);
       },
       error: () => {
         this.researchSubmitting.set(false);
-        this.researchError.set('ICP research job could not be queued.');
+        this.researchError.set('ICP research jobs could not be queued.');
       },
     });
   }
