@@ -24,9 +24,6 @@ interface DashboardJobDuration {
 
 interface DashboardSummary {
   readonly active_workers: number;
-  readonly campaigns: number;
-  readonly icps: number;
-  readonly accounts: number;
   readonly jobs: DashboardJobCounts;
   readonly job_durations: readonly DashboardJobDuration[];
 }

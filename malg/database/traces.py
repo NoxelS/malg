@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -106,12 +107,16 @@ def finalize_turn(
 
 def normalize_json(value: Any) -> Any:
     """Recursively retain JSON-compatible values and represent unknown objects."""
-    if hasattr(value, "model_dump"):
-        return normalize_json(value.model_dump(mode="json"))
+    if hasattr(value, "model_dump") and not isinstance(value, type):
+        return normalize_json(value.model_dump(mode="python"))
     if is_dataclass(value) and not isinstance(value, type):
         return {field.name: normalize_json(getattr(value, field.name)) for field in fields(value)}
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, (Decimal, UUID)):
+        return str(value)
     if isinstance(value, dict):
         return {str(key): normalize_json(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):

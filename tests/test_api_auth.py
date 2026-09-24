@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from tests.test_api_artifacts import _engine
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 
 from malg.api.app import create_app
 from malg.config import AuthConfig
+from malg.database.models import Base
+
+
+def _engine():
+    """Create the operational tables required by the authenticated API test."""
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    return engine
 
 
 def test_login_and_bearer_protection() -> None:

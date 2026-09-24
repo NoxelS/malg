@@ -2,10 +2,7 @@ import {inject} from '@angular/core';
 import {CanActivateFn, Router, Routes} from '@angular/router';
 
 import {ApiService} from './api-service';
-import {AccountsPage} from './accounts-page';
-import {CampaignsPage} from './campaigns-page';
 import {DashboardPage} from './dashboard-page';
-import {IcpsPage} from './icps-page';
 import {JobDetailPage} from './job-detail-page';
 import {MemoryPage} from './memory-page';
 import {JobsPage} from './jobs-page';
@@ -21,8 +18,5 @@ export const routes: Routes = [
   {path: 'dashboard', component: DashboardPage, canActivate: [requireAuth]},
   {path: 'jobs', component: JobsPage, canActivate: [requireAuth]},
   {path: 'jobs/:jobId', component: JobDetailPage, canActivate: [requireAuth]},
-  {path: 'campaigns', component: CampaignsPage, canActivate: [requireAuth]},
-  {path: 'accounts', component: AccountsPage, canActivate: [requireAuth]},
   {path: 'memory', component: MemoryPage, canActivate: [requireAuth]},
-  {path: 'icps', component: IcpsPage, canActivate: [requireAuth]},
 ];

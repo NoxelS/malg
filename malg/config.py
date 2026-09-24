@@ -51,6 +51,81 @@ class SearchConfig:
 
 
 @dataclass(frozen=True)
+class TwentyConfig:
+    """Runtime connection settings for the Twenty record API."""
+
+    base_url: str
+    public_url: str
+    api_key: str
+    workspace_id: str
+    timeout_seconds: int = 15
+    max_retries: int = 2
+
+
+def get_twenty_config(settings: Dynaconf) -> TwentyConfig:
+    """Read explicit Twenty runtime settings; no tenant fallback is allowed."""
+    twenty = settings.get("twenty")
+    if not isinstance(twenty, Mapping):
+        raise ValueError("Missing [default.twenty] configuration.")
+    api_key = twenty.get("api_key")
+    if not isinstance(api_key, str) or not api_key:
+        raise ValueError("Twenty configuration requires a non-empty api_key.")
+    return _twenty_config(twenty, api_key)
+
+
+def _twenty_config(twenty: Mapping[str, object], api_key: str) -> TwentyConfig:
+    """Validate shared connection fields for the runtime and metadata clients."""
+    required = ("base_url", "public_url", "workspace_id")
+    invalid = [
+        field for field in required if not isinstance(twenty.get(field), str) or not twenty[field]
+    ]
+    if invalid:
+        raise ValueError(f"Twenty configuration requires non-empty field(s): {', '.join(invalid)}.")
+    timeout = twenty.get("timeout_seconds", 15)
+    retries = twenty.get("max_retries", 2)
+    base_url = twenty.get("base_url")
+    public_url = twenty.get("public_url")
+    workspace_id = twenty.get("workspace_id")
+    if (
+        not isinstance(timeout, int)
+        or isinstance(timeout, bool)
+        or timeout <= 0
+        or not isinstance(retries, int)
+        or isinstance(retries, bool)
+        or retries < 0
+        or not isinstance(base_url, str)
+        or not isinstance(public_url, str)
+        or not isinstance(workspace_id, str)
+    ):
+        raise ValueError("Invalid Twenty connection settings.")
+    return TwentyConfig(
+        base_url=base_url.rstrip("/"),
+        public_url=public_url.rstrip("/"),
+        api_key=api_key,
+        workspace_id=workspace_id,
+        timeout_seconds=timeout,
+        max_retries=retries,
+    )
+
+
+def get_twenty_schema_api_key(settings: Dynaconf) -> str:
+    """Read the separately provisioned metadata key without runtime fallback."""
+    schema = settings.get("twenty_schema")
+    api_key = schema.get("api_key") if isinstance(schema, Mapping) else None
+    if not isinstance(api_key, str) or not api_key:
+        raise ValueError("Missing [default.twenty_schema].api_key configuration.")
+    return api_key
+
+
+def get_twenty_schema_config(settings: Dynaconf) -> TwentyConfig:
+    """Read metadata connection settings without requiring the runtime API key."""
+    twenty = settings.get("twenty")
+    if not isinstance(twenty, Mapping):
+        raise ValueError("Missing [default.twenty] configuration.")
+    return _twenty_config(twenty, get_twenty_schema_api_key(settings))
+
+
+@dataclass(frozen=True)
 class EurostatConfig:
     """HTTP request settings for the Eurostat client."""
 
@@ -61,16 +136,6 @@ class EurostatConfig:
 
 
 @dataclass(frozen=True)
-class ICPConfig:
-    """Host-owned limits for ICP batch research."""
-
-    batch_size: int
-    concurrency: int
-    max_attempts_per_slot: int
-    max_exclusion_cards: int
-
-
-@dataclass(frozen=True)
 class WorkerConfig:
     """Lease and polling settings for one durable worker process."""
 
@@ -78,16 +143,14 @@ class WorkerConfig:
     lease_seconds: int = 7200
     max_attempts: int = 3
     heartbeat_timeout_seconds: int = 15
+
+
 @dataclass(frozen=True)
 class ResearchConfig:
     """Finite host-owned limits shared by every research workflow stage."""
 
     workflow_timeout_seconds: int = 600
     stage_timeout_seconds: int = 180
-    qualification_timeout_seconds: int = 180
-    project_timeout_seconds: int = 120
-    contact_timeout_seconds: int = 180
-    review_timeout_seconds: int = 90
     llm_attempt_timeout_seconds: int = 90
     initialization_timeout_seconds: int = 20
     cleanup_reserve_seconds: int = 5
@@ -96,11 +159,6 @@ class ResearchConfig:
     max_llm_attempts_per_workflow: int = 24
     max_search_requests: int = 12
     max_fetch_requests: int = 20
-    discovery_batch_size: int = 10
-    max_discovery_candidates: int = 20
-    extraction_enable_thinking: bool = False
-    synthesis_enable_thinking: bool = False
-    thinking_supported: bool = False
 
 
 def get_research_config(settings: Dynaconf) -> ResearchConfig:
@@ -109,33 +167,30 @@ def get_research_config(settings: Dynaconf) -> ResearchConfig:
     if not isinstance(research, Mapping):
         raise ValueError("Missing [default.research] configuration.")
     defaults = ResearchConfig()
-    values: dict[str, object] = {}
+    values: dict[str, int] = {}
     integer_fields = (
-        "workflow_timeout_seconds", "stage_timeout_seconds",
-        "qualification_timeout_seconds", "project_timeout_seconds",
-        "contact_timeout_seconds", "review_timeout_seconds",
-        "llm_attempt_timeout_seconds", "initialization_timeout_seconds",
-        "cleanup_reserve_seconds", "max_iterations",
-        "max_llm_attempts_per_stage", "max_llm_attempts_per_workflow",
-        "max_search_requests", "max_fetch_requests", "discovery_batch_size",
-        "max_discovery_candidates",
+        "workflow_timeout_seconds",
+        "stage_timeout_seconds",
+        "llm_attempt_timeout_seconds",
+        "initialization_timeout_seconds",
+        "cleanup_reserve_seconds",
+        "max_iterations",
+        "max_llm_attempts_per_stage",
+        "max_llm_attempts_per_workflow",
+        "max_search_requests",
+        "max_fetch_requests",
     )
     for field in integer_fields:
         value = research.get(field, getattr(defaults, field))
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise ValueError(f"Research configuration field {field} must be positive.")
         values[field] = value
-    for field in ("extraction_enable_thinking", "synthesis_enable_thinking", "thinking_supported"):
-        value = research.get(field, getattr(defaults, field))
-        if not isinstance(value, bool):
-            raise ValueError(f"Research configuration field {field} must be boolean.")
-        values[field] = value
     reserve = values["cleanup_reserve_seconds"]
     for field in (
-        "workflow_timeout_seconds", "stage_timeout_seconds",
-        "qualification_timeout_seconds", "project_timeout_seconds",
-        "contact_timeout_seconds", "review_timeout_seconds",
-        "llm_attempt_timeout_seconds", "initialization_timeout_seconds",
+        "workflow_timeout_seconds",
+        "stage_timeout_seconds",
+        "llm_attempt_timeout_seconds",
+        "initialization_timeout_seconds",
     ):
         if reserve >= values[field]:
             raise ValueError(f"cleanup_reserve_seconds must be less than {field}.")
@@ -399,27 +454,3 @@ def get_eurostat_config(settings: Dynaconf) -> EurostatConfig:
         raise ValueError("Eurostat configuration field cert must be a string when set.")
 
     return EurostatConfig(timeout_seconds=timeout_seconds, proxy=proxy, verify=verify, cert=cert)
-
-
-def get_icp_config(settings: Dynaconf) -> ICPConfig:
-    """Read bounded ICP batch settings without accepting agent-provided limits."""
-    icp = settings.get("icp")
-    if not isinstance(icp, Mapping):
-        raise ValueError("Missing [default.icp] configuration.")
-
-    integer_fields = ("batch_size", "concurrency", "max_attempts_per_slot", "max_exclusion_cards")
-    invalid_fields = [
-        field
-        for field in integer_fields
-        if not isinstance(icp.get(field), int) or isinstance(icp[field], bool) or icp[field] <= 0
-    ]
-    if invalid_fields:
-        names = ", ".join(invalid_fields)
-        raise ValueError(f"ICP configuration field(s) must be positive integers: {names}.")
-
-    return ICPConfig(
-        batch_size=icp["batch_size"],
-        concurrency=icp["concurrency"],
-        max_attempts_per_slot=icp["max_attempts_per_slot"],
-        max_exclusion_cards=icp["max_exclusion_cards"],
-    )

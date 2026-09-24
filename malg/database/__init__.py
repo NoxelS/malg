@@ -1,15 +1,5 @@
-"""PostgreSQL persistence schema for campaign and ICP artifacts.
+"""Operational persistence for jobs, evidence, traces, memory, and write intents."""
 
-The database package defines storage only. Callers own engine construction,
-schema creation, and all reads and writes; agents do not access this package.
-"""
-
-from malg.database.artifacts import (
-    persist_account_candidate,
-    persist_campaign,
-    persist_icp,
-    persist_icps,
-)
 from malg.database.dashboard import get_dashboard_summary, list_active_workers
 from malg.database.jobs import (
     cancel_job,
@@ -23,21 +13,10 @@ from malg.database.jobs import (
 )
 from malg.database.memory import PostgresMemoryStore
 from malg.database.models import (
-    ICP,
-    Account,
-    AccountMatch,
-    AccountValidationRun,
     AgentMemory,
     AgentMemoryEdge,
     AgentMemoryMaintenance,
-    ArtifactVersion,
     Base,
-    Campaign,
-    CommunicationEndpoint,
-    Contact,
-    Employment,
-    Lead,
-    LeadReview,
     ResearchClaim,
     ResearchJob,
     ResearchSource,
@@ -49,13 +28,27 @@ from malg.database.models import (
 from malg.database.workers import record_worker_heartbeat
 
 __all__ = [
-    "ICP", "Account", "AccountMatch", "AccountValidationRun", "AgentMemory",
-    "AgentMemoryEdge", "AgentMemoryMaintenance", "ArtifactVersion", "Base", "Campaign",
-    "CommunicationEndpoint", "Contact", "Employment", "Lead", "LeadReview",
-    "PostgresMemoryStore", "ResearchClaim", "ResearchJob", "ResearchSource",
-    "ResearchStageResult", "ResearchWorkflow", "SourceFetch", "WorkerHeartbeat",
-    "cancel_job", "claim_next_job", "complete_job", "enqueue_campaign_jobs",
-    "enqueue_job", "fail_job", "get_dashboard_summary", "list_active_workers",
-    "persist_account_candidate", "persist_campaign", "persist_icp", "persist_icps",
-    "record_worker_heartbeat", "renew_claim", "require_claim",
+    "AgentMemory",
+    "AgentMemoryEdge",
+    "AgentMemoryMaintenance",
+    "Base",
+    "PostgresMemoryStore",
+    "ResearchClaim",
+    "ResearchJob",
+    "ResearchSource",
+    "ResearchStageResult",
+    "ResearchWorkflow",
+    "SourceFetch",
+    "WorkerHeartbeat",
+    "cancel_job",
+    "claim_next_job",
+    "complete_job",
+    "enqueue_campaign_jobs",
+    "enqueue_job",
+    "fail_job",
+    "get_dashboard_summary",
+    "list_active_workers",
+    "record_worker_heartbeat",
+    "renew_claim",
+    "require_claim",
 ]

@@ -1,0 +1,23 @@
+{
+  "contract_version": 1,
+  "managed_description": "Managed by MALG contract",
+  "standard_objects": {
+    "company": {
+      "api_name": "company",
+      "required_fields": {"name": "TEXT", "domainName": "LINKS", "annualRevenue": "CURRENCY", "linkedinLink": "LINKS"},
+      "owned_fields": {"malgSector": {"type": "TEXT", "nullable": true}, "malgEmployees": {"type": "NUMBER", "nullable": true}}
+    },
+    "person": {"api_name": "person", "required_fields": {"name": "FULL_NAME", "jobTitle": "TEXT", "emails": "EMAILS", "linkedinLink": "LINKS"}}
+  },
+  "custom_objects": {
+    "campaign": {"name_singular": "malgCampaign", "name_plural": "malgCampaigns", "fields": {"name": {"type": "TEXT", "nullable": false}, "objective": {"type": "TEXT", "nullable": false}}},
+    "icp": {"name_singular": "malgIcp", "name_plural": "malgIcps", "fields": {"name": {"type": "TEXT", "nullable": false}, "sector": {"type": "TEXT", "nullable": false}, "geography": {"type": "TEXT", "nullable": false}, "employeesMin": {"type": "NUMBER", "nullable": true}, "employeesMax": {"type": "NUMBER", "nullable": true}, "buyerRole": {"type": "TEXT", "nullable": false}, "workflow": {"type": "TEXT", "nullable": false}}},
+    "membership": {"name_singular": "malgMembership", "name_plural": "malgMemberships", "fields": {"name": {"type": "TEXT", "nullable": false}}}
+  },
+  "relations": [
+    {"from": "campaign", "field": "icps", "to": "icp", "inverse": "campaign"},
+    {"from": "icp", "field": "memberships", "to": "membership", "inverse": "icp"},
+    {"from": "company", "field": "malgMemberships", "to": "membership", "inverse": "company"}
+  ],
+  "migration_operations": []
+}

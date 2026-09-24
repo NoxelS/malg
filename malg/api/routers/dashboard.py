@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter
 
-from malg.api.routers.artifacts import SessionDependency
+from malg.api.dependencies import SessionDependency
 from malg.core.models.dashboard import DashboardSummary, WorkerSummary
 from malg.database.dashboard import get_dashboard_summary, list_active_workers
 

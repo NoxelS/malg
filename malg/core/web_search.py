@@ -110,6 +110,9 @@ class SearxngSearchClient:
                 delay = self._config.min_interval_seconds - (now - self._last_request_at)
                 if delay > 0:
                     await asyncio.sleep(delay)
+            from malg.core.budget import reserve_external_attempt
+
+            reserve_external_attempt("search")
             self._request_count += 1
             self._last_request_at = time.monotonic()
 

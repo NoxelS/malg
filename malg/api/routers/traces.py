@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from malg.api.routers.artifacts import SessionDependency
+from malg.api.dependencies import SessionDependency
 from malg.core.models.traces import (
     AgentRunRecord,
     AgentTraceEventPage,

@@ -11,7 +11,8 @@ from typing import Any
 def run_offline(manifest: Path, max_cases: int | None = None) -> dict[str, Any]:
     """Load labeled cases and return a transparent, non-inferred report."""
     data = json.loads(manifest.read_text(encoding="utf-8"))
-    cases = data.get("cases", data) if isinstance(data, (dict, list)) else []
+    cases_value = data.get("cases", data) if isinstance(data, dict) else data
+    cases = cases_value
     if not isinstance(cases, list):
         raise ValueError("evaluation manifest must contain a cases list")
     selected = cases[:max_cases] if max_cases is not None else cases

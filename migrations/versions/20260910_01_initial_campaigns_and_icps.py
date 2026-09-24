@@ -6,7 +6,7 @@ Create Date: 2026-09-10
 """
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 from sqlalchemy.dialects import postgresql
 
 revision = "20260910_01"
@@ -23,6 +23,9 @@ def upgrade() -> None:
     this no-op lets Alembic write its version marker without destroying data.
     A partially present schema remains an error rather than being guessed at.
     """
+    if context.is_offline_mode():
+        _create_tables()
+        return
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     has_campaigns = inspector.has_table("campaigns")
@@ -33,6 +36,11 @@ def upgrade() -> None:
         raise RuntimeError(
             "Cannot adopt a partial MALG persistence schema; expected both campaigns and icps."
         )
+    _create_tables()
+
+
+def _create_tables() -> None:
+    """Emit the canonical table DDL when no compatible baseline is present."""
     op.create_table(
         "campaigns",
         sa.Column("campaign_id", sa.String(length=80), nullable=False),

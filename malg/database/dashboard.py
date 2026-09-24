@@ -15,11 +15,11 @@ from malg.core.models.dashboard import (
     WorkerSummary,
 )
 from malg.core.models.jobs import ResearchJobKind, ResearchJobStatus
-from malg.database.models import ICP, Account, Campaign, ResearchJob, WorkerHeartbeat
+from malg.database.models import ResearchJob, WorkerHeartbeat
 
 
 def get_dashboard_summary(session: Session, active_since: datetime) -> DashboardSummary:
-    """Return canonical artifact, worker, job, and duration totals."""
+    """Return local worker and job aggregates without a CRM data mirror."""
     counts = {status: 0 for status in ("queued", "running", "succeeded", "failed", "cancelled")}
     for status, count in session.execute(
         select(ResearchJob.status, func.count()).group_by(ResearchJob.status)
@@ -56,9 +56,6 @@ def get_dashboard_summary(session: Session, active_since: datetime) -> Dashboard
             .where(WorkerHeartbeat.last_seen_at >= active_since)
         )
         or 0,
-        campaigns=session.scalar(select(func.count()).select_from(Campaign)) or 0,
-        icps=session.scalar(select(func.count()).select_from(ICP)) or 0,
-        accounts=session.scalar(select(func.count()).select_from(Account)) or 0,
         jobs=DashboardJobCounts(**counts),
         job_durations=job_durations,
     )

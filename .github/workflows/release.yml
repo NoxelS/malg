@@ -143,6 +143,44 @@ jobs:
           git push origin HEAD:main
           git push origin "v$VERSION"
 
+          CONTRACT_HASH=$(uv run python -c 'from malg.crm.schema import contract_hash; print(contract_hash())')
+          {
+            echo "Contract version/hash:"
+            echo "- contract_version: $(uv run python -c 'from malg.crm.schema import load_manifest; print(load_manifest()[\"contract_version\"])')"
+            echo "- contract_hash: $CONTRACT_HASH"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Generate immutable release metadata
+        id: release_metadata
+        env:
+          VERSION: ${{ steps.release_ref.outputs.tag }}
+          SOURCE_SHA: ${{ steps.release_ref.outputs.sha }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+        run: |
+          set -euo pipefail
+          test -n "$BACKEND_DIGEST" && test -n "$FRONTEND_DIGEST"
+          [[ "$BACKEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]] || { echo "backend digest is not immutable" >&2; exit 1; }
+          [[ "$FRONTEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]] || { echo "frontend digest is not immutable" >&2; exit 1; }
+          contract_version=$(uv run python -c 'from malg.crm.schema import load_manifest; print(load_manifest()["contract_version"])')
+          contract_hash=$(uv run python -c 'from malg.crm.schema import contract_hash; print(contract_hash())')
+          required_database_revision=$(uv run python -c 'from malg.database.wait_for_schema import REQUIRED_DATABASE_REVISION; print(REQUIRED_DATABASE_REVISION)')
+          test "$required_database_revision" = "20260924_01"
+          export VERSION SOURCE_SHA BACKEND_DIGEST FRONTEND_DIGEST contract_version contract_hash required_database_revision
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          output = {
+              "release_tag": os.environ["VERSION"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "backend_image": f"ghcr.io/noxels/malg:{os.environ['VERSION']}@{os.environ['BACKEND_DIGEST']}",
+              "frontend_image": f"ghcr.io/noxels/malg-frontend:{os.environ['VERSION']}@{os.environ['FRONTEND_DIGEST']}",
+              "contract_version": int(os.environ["contract_version"]),
+              "contract_hash": os.environ["contract_hash"],
+              "required_database_revision": os.environ["required_database_revision"],
+          }
+          Path("malg-release.json").write_text(json.dumps(output, indent=2, sort_keys=True) + "\n")
+          PY
+          test "$(python -c 'import json; print(len(json.load(open(\"malg-release.json\"))))')" -eq 7
       - name: Create GitHub release with immutable digests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -151,6 +189,6 @@ jobs:
           FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
         run: |
           set -euo pipefail
-          gh release create "$VERSION" --generate-notes --title "$VERSION" --notes "Published image digests:
+          gh release create "$VERSION" malg-release.json --generate-notes --title "$VERSION" --notes "Published image digests:
           - ghcr.io/noxels/malg@$BACKEND_DIGEST
           - ghcr.io/noxels/malg-frontend@$FRONTEND_DIGEST"

@@ -6,12 +6,14 @@
 
   @if (loading()) {
     <app-state-message message="Loading job details…" />
-  } @else if (error() === 'not-found') {
+  } @else if (error() === 'not-found' && !job()) {
     <app-state-message message="This research job could not be found." tone="error" />
-  } @else if (error()) {
+  } @else if (error() && !job()) {
     <app-state-message message="Job details could not be loaded right now. Try again." tone="error" />
     <button tuiButton type="button" appearance="secondary" (click)="refresh()">Retry</button>
   } @else if (job(); as currentJob) {
+    @if (error()) { <p role="alert">Refresh failed; showing the previously loaded execution history.</p> }
+    @if (jobActionError()) { <p role="alert">The requested action was rejected or unavailable. Existing results have been preserved.</p> }
     <section class="detail-section" aria-labelledby="job-metadata-heading">
       <h2 id="job-metadata-heading">Job metadata</h2>
       <dl class="metadata-grid">
@@ -21,19 +23,87 @@
         <div><dt>Attempt count</dt><dd>{{ currentJob.attempt_count }}</dd></div>
         <div><dt>Campaign ID</dt><dd>{{ display(currentJob.campaign_id) }}</dd></div>
         <div><dt>ICP ID</dt><dd>{{ display(currentJob.icp_id) }}</dd></div>
-        <div><dt>Account-match ID</dt><dd>{{ display(currentJob.account_match_id) }}</dd></div>
+        <div><dt>Account ID</dt><dd>{{ display(currentJob.account_id) }}</dd></div>
+        <div><dt>Person ID</dt><dd>{{ display(currentJob.person_id) }}</dd></div>
         <div><dt>Created</dt><dd>{{ currentJob.created_at | date:'medium' }}</dd></div>
         <div><dt>Started</dt><dd>{{ currentJob.started_at ? (currentJob.started_at | date:'medium') : '—' }}</dd></div>
         <div><dt>Finished</dt><dd>{{ currentJob.finished_at ? (currentJob.finished_at | date:'medium') : '—' }}</dd></div>
         <div class="metadata-grid__wide"><dt>Failure detail</dt><dd>{{ display(currentJob.failure_detail) }}</dd></div>
+        <div class="metadata-grid__wide"><dt>Request</dt><dd><pre>{{ currentJob.request_payload | json }}</pre></dd></div>
+        <div><dt>Outcome</dt><dd>{{ display(currentJob.result_outcome ?? null) }}</dd></div>
+        <div><dt>Origin</dt><dd>{{ display(currentJob.data_origin ?? null) }}</dd></div>
       </dl>
+      @if (currentJob.status === 'failed' && currentJob.data_origin === 'twenty') {
+        <button tuiButton type="button" appearance="primary" [disabled]="retryingJob() || !canPublish()" (click)="retryJob()">{{ retryingJob() ? 'Retrying…' : 'Retry job' }}</button>
+        @if (!canPublish()) { <p>Retry requires current compatible CRM. Refresh to check again.</p> }
+      }
+      @if (currentJob.status === 'queued' || currentJob.status === 'running') {
+        <button tuiButton type="button" appearance="secondary" [disabled]="cancellingJob()" (click)="cancelJob()">{{ cancellingJob() ? 'Cancelling…' : 'Cancel job' }}</button>
+      }
+      @if (currentJob.status === 'cancelled') { <p>Cancellation stops new work, not already-issued remote effects. Confirmed and pending writes remain visible below.</p> }
+    </section>
+    <section class="detail-section">
+      <h2>Immutable research input</h2>
+      @if (inputPayload() !== null) { <app-trace-property-list [value]="inputPayload()" /> }
+      @else { <p>No workflow input has been captured yet.</p> }
+    </section>
+    <section class="detail-section">
+      <h2>Stages</h2>
+      @if (stagesUnavailable()) { <p role="alert">Stages could not be refreshed; previously loaded results are retained.</p> }
+      @if (!stages().length) { <app-state-message message="No stage results recorded." /> }
+      @for (stage of stages(); track stage.stage_result_id) {
+        <article class="stage-row">
+          <strong>{{ stage.stage_key }}</strong> · revision {{ stage.revision }} · {{ stage.outcome }} · {{ stage.created_at | date:'medium' }}
+          @if (stage.unknowns.length) { <p>Unknown or conflicting fields: {{ stage.unknowns.join(', ') }}</p> }
+          <app-trace-property-list [value]="stage.payload" />
+        </article>
+      }
+    </section>
+    @if (currentJob.kind === 'discovery' && candidates().length) {
+      <section class="detail-section">
+        <h2>Discovery candidates</h2>
+        <p>Discovery creates no CRM record. Each account research action requires your explicit selection.</p>
+        @for (candidate of candidates(); track candidate.website) {
+          <article class="stage-row">
+            <strong>{{ candidate.name }}</strong><p>{{ candidate.website }}</p><p>{{ candidate.reason }}</p>
+            @if (candidateJobs()[candidate.website]; as createdId) {
+              <a tuiButton appearance="secondary" [routerLink]="['/jobs', createdId]">Open account research job</a>
+            } @else {
+              <button tuiButton type="button" [disabled]="!canPublish() || candidatePending() !== null || currentJob.data_origin !== 'twenty'" (click)="enqueueCandidate(candidate)">Research this account</button>
+            }
+          </article>
+        }
+      </section>
+    }
+    <section class="detail-section">
+      <h2>CRM writes</h2>
+      @if (writesUnavailable()) { <p role="alert">Write status could not be refreshed; do not assume pending effects are absent.</p> }
+      @if (writes(); as journal) {
+        @if (journal.side_effects_pending) { <p role="status">Remote side effects pending reconciliation. Cancellation is not rollback.</p> }
+        @if (!journal.items.length) { <app-state-message message="No CRM writes recorded." /> }
+        @for (write of journal.items; track write.operation_id) {
+          <article class="stage-row">
+            <strong>{{ write.object_name }} · {{ write.field_key }} · {{ write.status }}</strong>
+            <p>Record {{ write.record_id }} · operation {{ write.operation_id }}</p>
+            <p>{{ write.stage_key }} · mutation attempts {{ write.attempt_count }} · observed version {{ write.observed_record_version || 'create-only' }}</p>
+            @if (write.sanitized_error) { <p role="status">{{ write.sanitized_error }}</p> }
+            <app-trace-property-list [value]="write.intended_fields" />
+          </article>
+        }
+      }
+    </section>
+    <section class="detail-section">
+      <h2>Remote references</h2>
+      @if (currentJob.data_origin === 'legacy_local') { <p>Legacy IDs are historical only, not Twenty references.</p> }
+      @else { @for (reference of currentJob.result_refs; track reference.object_name + reference.record_id) { <p>{{ reference.object_name }} · {{ reference.record_id }} @if (reference.url) { <a [href]="reference.url" target="_blank" rel="noreferrer">Open Twenty</a> }</p> } }
     </section>
 
     <section class="detail-section" aria-labelledby="trace-heading">
       <h2 id="trace-heading">Trace runs</h2>
       @if (traceUnavailable()) {
         <p class="trace-unavailable" role="status">Trace history is unavailable for this job.</p>
-      } @else if (!runs().length) {
+      }
+      @if (!runs().length) {
         <app-state-message message="No trace runs were recorded for this job." />
         <p class="empty">Worker and agent runs are created only after a worker claims the job.</p>
       } @else {

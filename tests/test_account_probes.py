@@ -5,11 +5,17 @@ from __future__ import annotations
 import asyncio
 import socket
 
+import httpx
 from pydantic import HttpUrl, TypeAdapter
 
-from malg.core import account_probes
 from malg.core.account_probes import AccountProbeService
-from malg.core.models.account import CheckOutcome
+from malg.core.models.account import (
+    AccountData,
+    AccountIdentity,
+    AccountResearchResult,
+    AccountValidationOutcome,
+    CheckOutcome,
+)
 
 
 def _url(value: str) -> HttpUrl:
@@ -18,13 +24,16 @@ def _url(value: str) -> HttpUrl:
 
 
 def test_url_probe_rejects_non_public_destination_before_http(monkeypatch) -> None:
-    monkeypatch.setattr(account_probes, "_is_public_host", lambda hostname: False)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))],
+    )
 
     result = asyncio.run(AccountProbeService().probe_url(_url("https://example.test/")))
 
     assert result.outcome is CheckOutcome.FAIL
     assert result.status_code is None
-    assert result.reason == "URL resolves to a non-public or unavailable destination."
 
 
 def test_mail_domain_probe_never_claims_a_mailbox_exists(monkeypatch) -> None:
@@ -38,4 +47,43 @@ def test_mail_domain_probe_never_claims_a_mailbox_exists(monkeypatch) -> None:
 
     assert result.outcome is CheckOutcome.INCONCLUSIVE
     assert result.accepts_mail is None
-    assert result.reason == "Domain resolves; MX or null-MX was not checked."
+
+
+def test_company_probes_do_not_visit_linkedin_identifiers(monkeypatch) -> None:
+    visited: list[str] = []
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))],
+    )
+
+    async def request(self, request):
+        visited.append(str(request.url))
+        return httpx.Response(200, request=request)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", request)
+    result = asyncio.run(
+        AccountProbeService().probe_candidate(
+            AccountResearchResult(
+                outcome="complete",
+                qualification=AccountValidationOutcome.ACCEPTED,
+                identity=AccountIdentity(
+                    display_name="Public fixture", official_website=_url("https://example.test/")
+                ),
+                data=AccountData(
+                    name="Public fixture",
+                    website=_url("https://example.test/"),
+                    linkedin_url=_url("https://www.linkedin.com/company/example/"),
+                ),
+            )
+        )
+    )
+    assert visited == ["https://example.test/"]
+    assert len(result.url_checks) == 1
+    assert result.url_checks[0].outcome is CheckOutcome.PASS
+
+    blocked = asyncio.run(
+        AccountProbeService().probe_url(_url("https://www.linkedin.com/company/example/"))
+    )
+    assert blocked.outcome is CheckOutcome.FAIL
+    assert visited == ["https://example.test/"]

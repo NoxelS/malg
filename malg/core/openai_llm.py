@@ -18,6 +18,8 @@ from nooa.unifiedllm import LLMResponse, Tool, ToolCall, UnifiedLLM
 from openai import APIStatusError, APITimeoutError, AsyncOpenAI, OpenAI
 from pydantic import BaseModel
 
+from malg.core.budget import reserve_external_attempt
+
 logger = logging.getLogger(__name__)
 
 
@@ -301,6 +303,7 @@ class OpenAIChatClient(UnifiedLLM):
         params = self._request_params(messages, tools, kwargs)
         completions = self._sync().chat.completions
         for retry_number in range(self.max_retries + 1):
+            reserve_external_attempt("llm")
             try:
                 raw_response = (
                     completions.parse(**params, response_format=output_model)
@@ -328,6 +331,7 @@ class OpenAIChatClient(UnifiedLLM):
         params = self._request_params(messages, tools, kwargs)
         completions = self._async().chat.completions
         for retry_number in range(self.max_retries + 1):
+            reserve_external_attempt("llm")
             try:
                 raw_response = (
                     await completions.parse(**params, response_format=output_model)

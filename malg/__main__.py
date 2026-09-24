@@ -1,120 +1,88 @@
-"""Run the saved-campaign account research smoke entry point."""
+"""Authenticated command-line client for the MALG jobs API."""
+
+from __future__ import annotations
 
 import argparse
-import asyncio
 import json
+import os
 import sys
-from collections.abc import Callable
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from pathlib import Path
+from typing import Any
+from uuid import UUID
 
-from malg.core.account_probes import AccountProbeService
-from malg.core.agents.account_research import AccountResearchAgent
-from malg.core.agents.account_validation import AccountValidationAgent
-from malg.core.agents.campaign_research import CampaignResearchAgent
-from malg.core.browser_support import aclose_browser
-from malg.core.icp_runner import research_icps
-from malg.core.models.account import (
-    AccountCandidate,
-    AccountIdentity,
-    AccountProbeReport,
-    AccountValidationAssessment,
-)
-from malg.core.models.campaign import CampaignCandidate
-from malg.core.models.icp import ICPBatchResult, ICPResult
-from malg.core.persistent_memory_support import close_persistent_memory
-from malg.database.artifacts import persist_account_candidate
-from malg.database.models import ICP, Account, Campaign
-from malg.database.session import make_engine, make_session_factory
-from malg.utils.console_progress import ConsoleProgress
+import httpx
+from pydantic import TypeAdapter
+
+from malg.core.models.jobs import ResearchJobRequest
 
 
-def load_first_persisted_icp(
-    session: Session,
-) -> tuple[CampaignCandidate, ICPResult, list[AccountIdentity]]:
-    """Load the first persisted ICP, its campaign, and known account identities."""
-    icp_row = session.scalar(select(ICP).order_by(ICP.campaign_id, ICP.icp_id, ICP.id).limit(1))
-    if icp_row is None:
-        raise RuntimeError("No persisted ICPs are available for the account smoke run.")
-
-    campaign_row = session.get(Campaign, icp_row.campaign_id)
-    if campaign_row is None:
-        raise RuntimeError("The persisted ICP has no campaign parent.")
-
-    campaign = CampaignCandidate.model_validate(campaign_row.payload)
-    icp = ICPResult.model_validate(icp_row.payload)
-    accounts = session.scalars(select(Account).order_by(Account.identity_key))
-    excluded_accounts = [
-        AccountIdentity.model_validate(account.payload["identity"]) for account in accounts
-    ]
-    return campaign, icp, excluded_accounts
-
-
-async def research_and_validate_one_account(
-    campaign: CampaignCandidate,
-    icp: ICPResult,
-    excluded_accounts: list[AccountIdentity],
-) -> tuple[AccountCandidate, AccountProbeReport, AccountValidationAssessment]:
-    """Research, probe, and independently validate one account candidate."""
-    researcher = AccountResearchAgent()
-    try:
-        candidate = await researcher.research_one(campaign, icp, excluded_accounts)
-    finally:
-        if hasattr(researcher, "browser"):
-            await aclose_browser(researcher.browser)
-
-    probes = await AccountProbeService().probe_candidate(candidate)
-
-    validator = AccountValidationAgent()
-    try:
-        validation = await validator.validate_account(campaign, icp, candidate, probes)
-    finally:
-        if hasattr(validator, "browser"):
-            await aclose_browser(validator.browser)
-    return candidate, probes, validation
-
-
-async def find_one_campaign() -> CampaignCandidate:
-    """Research one Eurostat-backed campaign with scoped persistent memory."""
-    agent = CampaignResearchAgent()
-    try:
-        if hasattr(agent, "event_manager"):
-            ConsoleProgress().attach(agent)
-        return await agent.find_campaign()
-    finally:
-        if hasattr(agent, "browser"):
-            await aclose_browser(agent.browser)
-        close_persistent_memory(agent)
-
-
-async def find_ten_icps(
-    campaign: CampaignCandidate,
-    *,
-    session: Session | None = None,
-    on_accepted: Callable[[ICPResult], None] | None = None,
-) -> ICPBatchResult:
-    """Research the next configured ICP batch for a supplied durable campaign."""
-    return await research_icps(campaign, session=session, on_accepted=on_accepted)
-
-
-async def main() -> None:
-    """Parse explicit commands; never enqueue implicit research on bare invocation."""
-    parser = argparse.ArgumentParser(description="MALG bounded research commands")
-    subparsers = parser.add_subparsers(dest="command")
-    research = subparsers.add_parser("research-account", help="queue one explicit account candidate")
-    research.add_argument("--campaign-id", required=True)
-    research.add_argument("--icp-id", required=True)
-    research.add_argument("--name", required=True)
-    research.add_argument("--domain")
-    research.add_argument("--wait", action="store_true")
+def main() -> int:
+    """Submit and inspect jobs without direct database or agent access."""
+    parser = argparse.ArgumentParser(prog="malg")
+    jobs = parser.add_subparsers(dest="group", required=True).add_parser("jobs")
+    actions = jobs.add_subparsers(dest="action", required=True)
+    actions.add_parser("list")
+    get = actions.add_parser("get")
+    get.add_argument("job_id", type=UUID)
+    submit = actions.add_parser("submit")
+    submit.add_argument("--request-file", required=True, type=Path)
+    retry = actions.add_parser("retry")
+    retry.add_argument("job_id", type=UUID)
     args = parser.parse_args()
-    if args.command != "research-account":
-        parser.print_help()
-        return
-    raise SystemExit(
-        "research-account submission requires the API supervisor; no unsupervised fallback is available"
-    )
+    try:
+        settings = _api_settings()
+        if args.action == "list":
+            method, path, payload = "GET", "/api/v1/jobs", None
+        elif args.action == "get":
+            method, path, payload = "GET", f"/api/v1/jobs/{args.job_id}", None
+        elif args.action == "retry":
+            method, path, payload = "POST", f"/api/v1/jobs/{args.job_id}/retry", None
+        else:
+            request: ResearchJobRequest = TypeAdapter(ResearchJobRequest).validate_json(
+                args.request_file.read_text(encoding="utf-8")
+            )
+            payload = request.model_dump(mode="json")
+            method, path = "POST", "/api/v1/jobs"
+        response = httpx.request(
+            method,
+            f"{settings['url']}{path}",
+            headers={"Authorization": f"Bearer {settings['token']}"},
+            json=payload,
+            timeout=30,
+        )
+    except (OSError, ValueError, httpx.HTTPError) as error:
+        print(
+            json.dumps(
+                {
+                    "error": "api_transport"
+                    if isinstance(error, httpx.HTTPError)
+                    else "invalid_input"
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 1 if isinstance(error, httpx.HTTPError) else 2
+    try:
+        output: Any = response.json()
+    except ValueError:
+        print(json.dumps({"error": "invalid_api_response"}))
+        return 1
+    print(json.dumps(output, sort_keys=True))
+    if 200 <= response.status_code < 300:
+        return 0
+    if response.status_code in {401, 403} or response.status_code >= 500:
+        return 1
+    return 2
+
+
+def _api_settings() -> dict[str, str]:
+    """Read API endpoint and token only from environment variables."""
+    url = os.environ.get("MALG_API_URL", "").rstrip("/")
+    token = os.environ.get("MALG_API_TOKEN", "")
+    if not url or not token:
+        raise ValueError("MALG_API_URL and MALG_API_TOKEN are required")
+    return {"url": url, "token": token}
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(main())
