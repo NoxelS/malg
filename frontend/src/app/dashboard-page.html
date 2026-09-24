@@ -8,9 +8,6 @@
   } @else if (summary(); as data) {
     <app-summary-grid aria-label="Dashboard summary">
       <app-summary-card label="Active workers" [value]="data.active_workers" hint="Checked in recently" />
-      <app-summary-card label="Campaigns" [value]="data.campaigns" hint="Total campaigns" />
-      <app-summary-card label="ICP profiles" [value]="data.icps" hint="Total profiles" />
-      <app-summary-card label="Accounts" [value]="data.accounts" hint="Total accounts" />
     </app-summary-grid>
 
     <section class="dashboard-section" aria-labelledby="jobs-heading">

@@ -26,10 +26,9 @@ class DashboardJobDuration(BaseModel):
 
 
 class DashboardSummary(BaseModel):
+    """Local execution and worker state, excluding external CRM record counts."""
+
     active_workers: int
-    campaigns: int
-    icps: int
-    accounts: int
     jobs: DashboardJobCounts
     job_durations: list[DashboardJobDuration]
 

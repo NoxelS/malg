@@ -1,53 +1,77 @@
 <app-page-layout>
   <app-page-header eyebrow="Operations" title="Jobs" description="Queued research work and completed outcomes." />
-
-  @if (loading()) {
-    <app-state-message message="Loading jobs…" />
-  } @else if (error()) {
-    <app-state-message message="Jobs could not be loaded right now." tone="error" />
-  } @else if (!jobs().length) {
-    <app-state-message message="No research jobs yet." />
-  } @else {
-    @if (actionError() === 'cancel') {
-      <p class="action-error" role="alert">This job could not be cancelled. Refresh the page to see its current state.</p>
-    }
-    @if (actionError() === 'delete') {
-      <p class="action-error" role="alert">This job could not be deleted. Refresh the page to see its current state.</p>
-    }
-    <section class="job-list" aria-label="Research jobs">
-      @for (job of jobs(); track job.job_id) {
-        <article class="job-card" [class]="job.status">
-          <header class="job-card__header">
-            <div class="job-card__identity">
-              <span class="job-card__eyebrow">{{ job.kind }} research</span>
-              <h2 [title]="job.job_id">{{ job.job_id }}</h2>
-            </div>
-            <span tuiBadge appearance="secondary" class="job-status">{{ job.status }}</span>
-          </header>
-          <dl class="job-meta">
-            <div><dt>Attempts</dt><dd>{{ job.attempt_count }}</dd></div>
-            <div><dt>Created</dt><dd>{{ job.created_at | date:'medium' }}</dd></div>
-            @if (job.started_at) { <div><dt>Started</dt><dd>{{ job.started_at | date:'medium' }}</dd></div> }
-            @if (job.finished_at) { <div><dt>Finished</dt><dd>{{ job.finished_at | date:'medium' }}</dd></div> }
-          </dl>
-          @if (job.failure_detail) {
-            <p class="job-failure"><strong>Failure detail</strong>{{ job.failure_detail }}</p>
-          }
-          <div class="job-card__actions">
-            <a tuiButton appearance="secondary" [routerLink]="['/jobs', job.job_id]">View details</a>
-            @if (job.status === 'queued') {
-              <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="cancelJob(job)">
-                {{ pendingJobId() === job.job_id ? 'Cancelling…' : 'Cancel job' }}
-              </button>
-            }
-            @if (isDeletable(job)) {
-              <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="deleteJob(job)">
-                {{ pendingJobId() === job.job_id ? 'Deleting…' : 'Delete job' }}
-              </button>
-            }
-          </div>
-        </article>
+  <section class="job-launcher" aria-label="Start research">
+    <h2>Start research</h2>
+    <button tuiButton type="button" appearance="secondary" [disabled]="crmLoading()" (click)="refreshCrm()">Refresh CRM compatibility</button>
+    @if (crmError()) {
+      <app-state-message message="CRM status could not be loaded. Job history remains available." tone="error" />
+    } @else if (!crm()) {
+      <app-state-message message="Checking CRM compatibility…" />
+    } @else if (!crm()!.available || !crm()!.schema_compatible) {
+      <app-state-message message="Twenty CRM is unavailable or incompatible. New research is disabled." tone="error" />
+    } @else {
+      <label>Job kind
+        <select [ngModel]="selectedKind()" (ngModelChange)="selectedKind.set($event); kindChanged()">
+          <option value="campaign">Campaign</option><option value="icp">ICP</option><option value="discovery">Discovery</option><option value="account">Account</option><option value="account_hydration">Account hydration</option><option value="person">Person</option><option value="person_hydration">Person hydration</option>
+        </select>
+      </label>
+      @if (selectedKind() === 'campaign' || selectedKind() === 'icp' || selectedKind() === 'account') {
+        <label>Amount <input type="number" min="1" max="100" step="1" [(ngModel)]="amount" /></label>
       }
-    </section>
+      @if (selectedKind() === 'icp' || selectedKind() === 'discovery' || selectedKind() === 'account' || selectedKind() === 'person') {
+        <label>Campaign
+          <select [(ngModel)]="selectedCampaign" (ngModelChange)="campaignChanged()">
+            <option value="">{{ selectedKind() === 'icp' ? 'Select a campaign' : 'All campaigns' }}</option>
+            @for (campaign of campaigns(); track campaign.id) { <option [value]="campaign.id">{{ campaign.display_name }}</option> }
+          </select>
+        </label>
+        @if (selectorState().campaigns === 'loading') { <p role="status">Loading campaigns…</p> }
+        @else if (selectorState().campaigns === 'error') { <p role="alert">Campaigns could not be loaded.</p><button tuiButton type="button" (click)="loadCampaigns()">Retry campaigns</button> }
+        @else if (!campaigns().length) { <p>No campaigns found.</p> }
+        @if (campaignCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().campaigns === 'loading'" (click)="loadCampaigns()">Load more campaigns</button> }
+      }
+      @if (selectedKind() === 'discovery' || selectedKind() === 'account' || selectedKind() === 'person') {
+        <label>ICP <select [(ngModel)]="selectedIcp"><option value="">Select an ICP</option>@for (icp of icps(); track icp.id) { <option [value]="icp.id">{{ icp.display_name }}</option> }</select></label>
+        @if (selectorState().icps === 'loading') { <p role="status">Loading ICPs…</p> }
+        @else if (selectorState().icps === 'error') { <p role="alert">ICPs could not be loaded.</p><button tuiButton type="button" (click)="loadIcps()">Retry ICPs</button> }
+        @else if (!icps().length) { <p>No ICPs found in this scope.</p> }
+        @if (icpCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().icps === 'loading'" (click)="loadIcps()">Load more ICPs</button> }
+      }
+      @if (selectedKind() === 'discovery') { <label>Limit <input type="number" min="1" max="20" step="1" [(ngModel)]="discoveryLimit" /></label> }
+      @if (selectedKind() === 'account') {
+        <label>Candidate name <input maxlength="200" [(ngModel)]="candidateName" placeholder="Optional" /></label>
+        <label>Candidate website <input maxlength="2048" [(ngModel)]="candidateWebsite" placeholder="Optional" /></label>
+        @if (candidateName || candidateWebsite) { <p>Candidate hints apply to one job; set amount to 1.</p> }
+      }
+      @if (selectedKind() === 'account_hydration' || selectedKind() === 'person' || selectedKind() === 'person_hydration') {
+        <label>Account name filter <input maxlength="200" [ngModel]="accountQuery" (ngModelChange)="accountQueryChanged($event)" placeholder="Search Twenty companies" /></label>
+        <label>Account <select [(ngModel)]="selectedAccount" (ngModelChange)="accountChanged()"><option value="">Select an account</option>@for (account of accounts(); track account.id) { <option [value]="account.id">{{ account.display_name }}</option> }</select></label>
+        @if (selectorState().accounts === 'loading') { <p role="status">Loading accounts…</p> }
+        @else if (selectorState().accounts === 'error') { <p role="alert">Accounts could not be loaded.</p><button tuiButton type="button" (click)="loadAccounts()">Retry accounts</button> }
+        @else if (!accounts().length) { <p>No accounts found.</p> }
+        @if (accountCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().accounts === 'loading'" (click)="loadAccounts()">Load more accounts</button> }
+      }
+      @if (selectedKind() === 'person_hydration') {
+        <label>Person <select [(ngModel)]="selectedPerson"><option value="">Select a person</option>@for (person of people(); track person.id) { <option [value]="person.id">{{ person.display_name }}</option> }</select></label>
+        @if (selectorState().people === 'loading') { <p role="status">Loading people…</p> }
+        @else if (selectorState().people === 'error') { <p role="alert">People could not be loaded.</p><button tuiButton type="button" (click)="loadPeople()">Retry people</button> }
+        @else if (selectedAccount && !people().length) { <p>No people found for this account.</p> }
+        @if (personCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().people === 'loading'" (click)="loadPeople()">Load more people</button> }
+      }
+      <button tuiButton type="button" [disabled]="!canEnqueue() || enqueuePending()" (click)="enqueue()">{{ enqueuePending() ? 'Starting…' : 'Start job' }}</button>
+      @if (enqueueError()) { <p class="action-error" role="alert">{{ enqueueError() }}</p> }
+    }
+  </section>
+  @if (loading()) { <app-state-message message="Loading jobs…" /> }
+  @else if (error()) { <app-state-message message="Jobs could not be loaded right now." tone="error" /> }
+  @else if (!jobs().length) { <app-state-message message="No research jobs yet." /> }
+  @else {
+    @if (actionError()) { <p class="action-error" role="alert">The requested job action could not be completed.</p> }
+    <section class="job-list" aria-label="Research jobs">@for (job of jobs(); track job.job_id) {
+      <article class="job-card" [class]="job.status"><header class="job-card__header"><div class="job-card__identity"><span class="job-card__eyebrow">{{ job.kind }} research</span><h2 [title]="job.job_id">{{ job.job_id }}</h2></div><span tuiBadge appearance="secondary" class="job-status">{{ job.status }}</span></header>
+      <dl class="job-meta"><div><dt>Attempts</dt><dd>{{ job.attempt_count }}</dd></div><div><dt>Created</dt><dd>{{ job.created_at | date:'medium' }}</dd></div>@if (job.result_outcome) { <div><dt>Outcome</dt><dd>{{ job.result_outcome }}</dd></div> }</dl>
+      @if (job.failure_detail) { <p class="job-failure"><strong>Failure detail</strong>{{ job.failure_detail }}</p> }
+      <div class="job-card__actions"><a tuiButton appearance="secondary" [routerLink]="['/jobs', job.job_id]">View details</a>@if (job.status === 'queued' || job.status === 'running') { <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="cancelJob(job)">{{ pendingJobId() === job.job_id ? 'Cancelling…' : 'Cancel job' }}</button> }@if (isDeletable(job)) { <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="deleteJob(job)">Delete job</button> }</div></article>
+    }</section>
   }
 </app-page-layout>

@@ -15,6 +15,7 @@ import pandas as pd
 from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dynamically.
 
 from malg.config import get_eurostat_config, load_settings
+from malg.core.budget import reserve_external_attempt
 
 
 class EurostatSupport(Agent):
@@ -127,6 +128,7 @@ class EurostatSupport(Agent):
                 verify=config.verify,
                 cert=config.cert,
             )
+            reserve_external_attempt("fetch")
             return function(*args, **kwargs)
 
 

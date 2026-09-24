@@ -43,8 +43,15 @@ type NavigationItem = {
             <span class="nav__arrow" aria-hidden="true">→</span>
           </a>
         }
-      <button class="logout" type="button" (click)="logout()">Log out</button>
+        <a class="nav__link" href="https://twenty.noel.fyi" target="_blank" rel="noreferrer">
+          <span class="nav__icon" aria-hidden="true">↗</span>
+          <span class="nav__copy">
+            <span class="nav__title">Twenty CRM</span>
+            <span class="nav__description">Human business-data editing.</span>
+          </span>
+        </a>
       </nav>
+      <button class="logout" type="button" (click)="logout()">Log out</button>
     </aside>
   `,
   styles: [`
@@ -240,9 +247,6 @@ export class SidebarNavigationComponent {
   readonly version = this.document.querySelector<HTMLMetaElement>('meta[name="malg-version"]')?.content ?? 'v0.0.0';
   readonly navigation: readonly NavigationItem[] = [
     {path: '/dashboard', name: 'Dashboard', description: 'Live activity, jobs, and worker health.', icon: '◌'},
-    {path: '/campaigns', name: 'Campaigns', description: 'Research boundaries and evidence.', icon: '◇'},
-    {path: '/accounts', name: 'Accounts', description: 'Organization profiles and firmographics.', icon: '□'},
-    {path: '/icps', name: 'ICP Overview', description: 'Ideal customer segments and buying context.', icon: '△'},
     {path: '/jobs', name: 'Jobs', description: 'Queued work and recent outcomes.', icon: '◍'},
     {path: '/memory', name: 'Memory', description: 'Durable agent findings and recall history.', icon: '◆'},
   ];

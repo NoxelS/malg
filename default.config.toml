@@ -16,6 +16,17 @@ parallel_tool_calls = false
 enable_thinking = false
  
 
+[default.twenty]
+base_url = "http://twenty.twenty.svc.cluster.local:3000"
+public_url = "https://twenty.noel.fyi"
+api_key = ""
+workspace_id = ""
+timeout_seconds = 15
+max_retries = 2
+
+[default.twenty_schema]
+api_key = ""
+
 [default.browser]
 enabled = true
 url = "http://lightpanda:9223/mcp"
@@ -37,12 +48,6 @@ proxy = ""
 verify = true
 cert = ""
 
-[default.icp]
-batch_size = 250 
-concurrency = 3
-max_attempts_per_slot = 3
-max_exclusion_cards = 100
-
 [default.worker]
 poll_interval_seconds = 1
 lease_seconds = 30
@@ -52,10 +57,6 @@ heartbeat_timeout_seconds = 15
 [default.research]
 workflow_timeout_seconds = 600
 stage_timeout_seconds = 180
-qualification_timeout_seconds = 180
-project_timeout_seconds = 120
-contact_timeout_seconds = 180
-review_timeout_seconds = 90
 llm_attempt_timeout_seconds = 90
 initialization_timeout_seconds = 20
 cleanup_reserve_seconds = 5
@@ -64,8 +65,3 @@ max_llm_attempts_per_stage = 12
 max_llm_attempts_per_workflow = 24
 max_search_requests = 12
 max_fetch_requests = 20
-discovery_batch_size = 10
-max_discovery_candidates = 20
-extraction_enable_thinking = false
-synthesis_enable_thinking = false
-thinking_supported = false

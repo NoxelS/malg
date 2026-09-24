@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.fixtures import authenticated_client
 
-from malg.database.models import ICP, Account, Base, Campaign, ResearchJob, WorkerHeartbeat
+from malg.database.models import Base, ResearchJob, WorkerHeartbeat
 
 
 def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
@@ -21,24 +21,6 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
     sessions = sessionmaker(engine)
     now = datetime.now(UTC)
     with sessions.begin() as session:
-        session.add(Campaign(campaign_id="campaign", title="Campaign", payload={}))
-        session.add(
-            ICP(
-                campaign_id="campaign",
-                icp_id="icp",
-                segment_key="segment",
-                title="ICP",
-                payload={},
-            )
-        )
-        session.add(
-            Account(
-                account_id="account",
-                identity_key="account-key",
-                display_name="Account",
-                payload={},
-            )
-        )
         for status in ("queued", "running", "succeeded", "failed", "cancelled"):
             session.add(
                 ResearchJob(
@@ -86,14 +68,15 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
     client = authenticated_client(engine)
     assert client.get("/api/v1/dashboard").json() == {
         "active_workers": 2,
-        "campaigns": 1,
-        "icps": 1,
-        "accounts": 1,
         "jobs": {"queued": 1, "running": 1, "succeeded": 4, "failed": 1, "cancelled": 1},
         "job_durations": [
             {"kind": "campaign", "average_duration_seconds": 60.0},
             {"kind": "icp", "average_duration_seconds": 120.0},
+            {"kind": "discovery", "average_duration_seconds": None},
             {"kind": "account", "average_duration_seconds": None},
+            {"kind": "account_hydration", "average_duration_seconds": None},
+            {"kind": "person", "average_duration_seconds": None},
+            {"kind": "person_hydration", "average_duration_seconds": None},
         ],
     }
     workers = client.get("/api/v1/workers").json()

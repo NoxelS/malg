@@ -16,6 +16,8 @@ from nooa import Agent  # type: ignore[attr-defined]  # NOOA re-exports Agent dy
 from nooa.mcp.tool import MCPTool, MCPToolSpec, _make_dynamic_class
 
 from malg.config import BrowserConfig, get_browser_config, get_search_config, load_settings
+from malg.core.budget import reserve_external_attempt
+from malg.core.retrieval import RetrievalService
 from malg.core.web_search import SearxngSearchClient
 from malg.utils.console_progress import ConsoleProgress
 
@@ -38,6 +40,7 @@ class LoggedMCPTool(MCPTool):
 
     async def _call_tool(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Any:
         """Call MCP while reporting safe progress and raw trace boundaries."""
+        reserve_external_attempt("fetch")
         clean_arguments = arguments or {}
         if self._recorder:
             self._recorder(
@@ -187,6 +190,7 @@ class BrowserSupport(Agent):
 
     browser: MCPTool
     web_search: SearxngSearchClient
+    retrieval: RetrievalService
 
     def __init__(self, *args: Any, recorder: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -198,3 +202,4 @@ class BrowserSupport(Agent):
         else:
             self.browser = create_browser_tool(config, recorder=recorder)
         self.web_search = SearxngSearchClient(get_search_config(load_settings()))
+        self.retrieval = RetrievalService(self.web_search)

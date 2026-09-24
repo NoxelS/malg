@@ -39,6 +39,22 @@ services:
       retries: 10
     restart: unless-stopped
 
+  migration:
+    profiles: ["migration"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/noxels/malg:local
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "20260924_01"]
   api:
     env_file:
       - ../.env
@@ -60,11 +76,12 @@ services:
       DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
       MALG_AUTH__USERNAME: ${MALG_AUTH__USERNAME:-admin}
       MALG_AUTH__PASSWORD: ${MALG_AUTH__PASSWORD:-}
+      MALG_TWENTY_SCHEMA__API_KEY: ""
       PYTHONDONTWRITEBYTECODE: "1"
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["/bin/sh", "-c", "alembic upgrade head && exec uvicorn malg.api.app:app --host 0.0.0.0 --port 8000"]
+    command: ["/bin/sh", "-c", "python -m malg.database.wait_for_schema --timeout-seconds 300 && exec uvicorn malg.api.app:app --host 0.0.0.0 --port 8000"]
     ports:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
@@ -89,6 +106,7 @@ services:
       - /home/malg:rw,noexec,nosuid,size=16m,mode=0700,uid=65532,gid=65532
     environment:
       DATABASE_URL: postgresql+psycopg://${MALG_POSTGRES_USER:-malg}:${MALG_POSTGRES_PASSWORD:-malg-local-password}@postgres:5432/${MALG_POSTGRES_DB:-malg}
+      MALG_TWENTY_SCHEMA__API_KEY: ""
       HOME: /home/malg
       OTLP_ENDPOINT: http://trace-proxy:5001/v1/traces
       TRACE_EXPERIMENT: malg-browser
@@ -103,7 +121,7 @@ services:
         condition: service_started
       trace-viewer:
         condition: service_started
-    command: ["python", "-m", "malg.worker"]
+    command: ["/bin/sh", "-c", "python -m malg.database.wait_for_schema --timeout-seconds 300 && exec python -m malg.worker"]
     restart: unless-stopped
 
   lightpanda:
@@ -123,7 +141,16 @@ services:
       LIGHTPANDA_DISABLE_TELEMETRY: "true"
       LIGHTPANDA_DISABLE_CORE_DUMP: "true"
       TMPDIR: /tmp
-    command: ["/bin/lightpanda", "mcp", "--host", "0.0.0.0", "--port", "9223"]
+    command:
+      - /bin/lightpanda
+      - mcp
+      - --host
+      - 0.0.0.0
+      - --port
+      - "9223"
+      - --block-private-networks
+      - --block-urls
+      - "*linkedin.com*,*lnkd.in*"
     # The MCP endpoint is reachable only by services on this Compose network.
     # Do not publish it to the host: it has no authentication layer.
     restart: unless-stopped

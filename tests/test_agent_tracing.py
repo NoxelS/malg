@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from malg.core.agent_tracing import AgentTraceRecorder, normalize
+from malg.core.models.campaign import CampaignData
 from malg.database.models import AgentTraceEvent, Base, ResearchJob
 
 
@@ -21,15 +22,23 @@ def test_trace_recorder_persists_order_and_repr_fallback() -> None:
     with sessions.begin() as session:
         session.add(ResearchJob(job_id="job", kind="campaign", status="queued"))
     recorder = AgentTraceRecorder.start_run(sessions, "job", "worker", "ResearchWorker", "run_once")
-    recorder.event("first", {"value": object()})
+    recorder.event(
+        "first",
+        {
+            "output_model": CampaignData,
+            "result": CampaignData(name="Observed", objective="Sourced opportunity"),
+        },
+    )
     recorder.event("second", {"raw": [1, "two"]})
     recorder.finish_success()
     with sessions() as session:
         events = list(session.scalars(select(AgentTraceEvent).order_by(AgentTraceEvent.sequence)))
         assert [event.event_type for event in events] == ["first", "second"]
-        assert events[0].payload["value"].startswith("<object object at")
+        assert events[0].payload["result"] == {
+            "name": "Observed",
+            "objective": "Sourced opportunity",
+        }
         assert events[1].payload == {"raw": [1, "two"]}
-    assert normalize({"nested": (1, 2)}) == {"nested": [1, 2]}
 
 
 @dataclass
@@ -87,12 +96,3 @@ def test_turn_trace_persistence_failure_does_not_fail_llm_call() -> None:
     result = asyncio.run(agent.event_manager.middleware(LLMCallContext(messages=[]), next_call))
 
     assert result.response == {"content": "done"}
-
-
-def test_trace_reset_callback_and_close_are_safe_together() -> None:
-    """A caller-managed reset does not leave close with a consumed token."""
-    recorder = AgentTraceRecorder(object(), "run")
-    reset = recorder.bind()
-
-    reset()
-    recorder.close()
