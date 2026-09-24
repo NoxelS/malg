@@ -136,19 +136,6 @@ jobs:
           sbom: true
           provenance: mode=max
 
-      - name: Push release commit and tag
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git push origin HEAD:main
-          git push origin "v$VERSION"
-
-          CONTRACT_HASH=$(uv run python -c 'from malg.crm.schema import contract_hash; print(contract_hash())')
-          {
-            echo "Contract version/hash:"
-            echo "- contract_version: $(uv run python -c 'from malg.crm.schema import load_manifest; print(load_manifest()[\"contract_version\"])')"
-            echo "- contract_hash: $CONTRACT_HASH"
-          } >> "$GITHUB_STEP_SUMMARY"
       - name: Generate immutable release metadata
         id: release_metadata
         env:
@@ -180,7 +167,22 @@ jobs:
           }
           Path("malg-release.json").write_text(json.dumps(output, indent=2, sort_keys=True) + "\n")
           PY
-          test "$(python -c 'import json; print(len(json.load(open(\"malg-release.json\"))))')" -eq 7
+          test "$(python -c 'import json; print(len(json.load(open("malg-release.json"))))')" -eq 7
+
+      - name: Push release commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git push origin HEAD:main
+          git push origin "v$VERSION"
+
+          CONTRACT_HASH=$(uv run python -c 'from malg.crm.schema import contract_hash; print(contract_hash())')
+          {
+            echo "Contract version/hash:"
+            echo "- contract_version: $(uv run python -c 'from malg.crm.schema import load_manifest; print(load_manifest()[\"contract_version\"])')"
+            echo "- contract_hash: $CONTRACT_HASH"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Create GitHub release with immutable digests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
