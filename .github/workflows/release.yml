@@ -148,9 +148,9 @@ jobs:
           test -n "$BACKEND_DIGEST" && test -n "$FRONTEND_DIGEST"
           [[ "$BACKEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]] || { echo "backend digest is not immutable" >&2; exit 1; }
           [[ "$FRONTEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]] || { echo "frontend digest is not immutable" >&2; exit 1; }
-          contract_version=$(uv run python -c 'from malg.crm.schema import load_manifest; print(load_manifest()["contract_version"])')
-          contract_hash=$(uv run python -c 'from malg.crm.schema import contract_hash; print(contract_hash())')
-          required_database_revision=$(uv run python -c 'from malg.database.wait_for_schema import REQUIRED_DATABASE_REVISION; print(REQUIRED_DATABASE_REVISION)')
+          contract_version=$(uv run python -c "from malg.crm.schema import load_manifest; print(load_manifest()['contract_version'])")
+          contract_hash=$(uv run python -c "from malg.crm.schema import contract_hash; print(contract_hash())")
+          required_database_revision=$(uv run python -c "from malg.database.wait_for_schema import REQUIRED_DATABASE_REVISION; print(REQUIRED_DATABASE_REVISION)")
           test "$required_database_revision" = "20260924_01"
           export VERSION SOURCE_SHA BACKEND_DIGEST FRONTEND_DIGEST contract_version contract_hash required_database_revision
           python - <<'PY'
@@ -179,7 +179,7 @@ jobs:
           CONTRACT_HASH=$(uv run python -c 'from malg.crm.schema import contract_hash; print(contract_hash())')
           {
             echo "Contract version/hash:"
-            echo "- contract_version: $(uv run python -c 'from malg.crm.schema import load_manifest; print(load_manifest()[\"contract_version\"])')"
+            echo "- contract_version: $(uv run python -c "from malg.crm.schema import load_manifest; print(load_manifest()['contract_version'])")"
             echo "- contract_hash: $CONTRACT_HASH"
           } >> "$GITHUB_STEP_SUMMARY"
 

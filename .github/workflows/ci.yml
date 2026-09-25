@@ -91,6 +91,7 @@ jobs:
       - name: Apply PostgreSQL migrations
         env:
           DATABASE_URL: postgresql+psycopg://malg:malg@127.0.0.1:5432/malg
+          MALG_CRM_CUTOVER_APPROVED: "1"
         run: uv run alembic upgrade head
 
       - name: Run PostgreSQL memory and API integration tests
