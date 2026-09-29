@@ -385,13 +385,16 @@ wait for the exact bundled database revision; only the explicitly invoked migrat
 may mutate the database. The first destructive cutover approval is an external, reviewed gate
 and is never injected by the release workflow.
 
-Before enabling releases, grant GitHub Actions repository contents write and package write
-permissions, and configure the Actions release actor (`github-actions[bot]`, or the configured
-GitHub App/bot token) to bypass main branch protection for its generated version commit. Each
-commit pushed to `main` starts the single serialized release workflow, which increments
-`pyproject.toml`, commits and tags that version locally, pushes both immutable multi-platform
-images, then creates the GitHub Release with the generated asset. The generated
-`chore(release): ...` commit is ignored as a trigger to prevent a release loop.
+The controlled release sequence is:
+
+1. Merge a PR that changes `pyproject.toml` and `uv.lock` to the selected `0.<minor>.0`.
+2. Wait for both MALG PR checks to pass.
+3. Annotate the resulting `main` commit as `v0.<minor>.0`.
+4. Push that tag.
+
+The tag workflow verifies that the source version matches the tag and that the tag's commit is
+contained in `main`. It publishes the immutable multi-platform images and seven-key release asset;
+it does not alter source files or push branches or tags.
 
 The Sisyphus repository must receive the unchanged release asset in a separately reviewed image
 pull request. Its release checker fails closed when the asset, immutable images, exact revision,
