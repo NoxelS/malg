@@ -17,6 +17,7 @@ from malg.config import TwentyConfig
 from malg.core.models.account import AccountResearchResult, AccountValidationAssessment
 from malg.core.models.campaign import CampaignData
 from malg.core.models.icp import ICPData
+from malg.core.models.opportunity import OpportunityData
 from malg.crm.client import (
     TwentyClient,
     TwentyConflict,
@@ -223,6 +224,62 @@ class CrmPublisher:
             data.model_dump(),
             claim_token=claim_token,
         )
+
+    async def publish_opportunity(
+        self,
+        job_id: str,
+        data: OpportunityData,
+        *,
+        campaign_id: str,
+        icp_id: str,
+        company_id: str,
+        person_id: str,
+        unknowns: list[str],
+        claim_token: str,
+    ) -> tuple[str, str, str]:
+        """Publish one deterministic Opportunity, Note, and native NoteTarget."""
+        job_uuid = str(UUID(job_id))
+        campaign_uuid, icp_uuid = str(UUID(campaign_id)), str(UUID(icp_id))
+        company_uuid, person_uuid = str(UUID(company_id)), str(UUID(person_id))
+        opportunity_id = str(deterministic_id(self.workspace_id, "opportunity", job_uuid))
+        note_id = str(deterministic_id(self.workspace_id, "note", job_uuid))
+        target_id = str(deterministic_id(self.workspace_id, "noteTarget", job_uuid))
+        micros = str(int(data.estimated_price.amount * Decimal(1_000_000)))
+
+        opportunity_fields = {
+            "name": f"Hypothesis: {data.name}",
+            "companyId": company_uuid,
+            "pointOfContactId": person_uuid,
+            "amount": {"amountMicros": micros, "currencyCode": "EUR"},
+        }
+        opportunity_id = await self._publish(
+            job_id,
+            "opportunity.publication",
+            "opportunity",
+            opportunity_id,
+            opportunity_fields,
+            claim_token=claim_token,
+        )
+        note_text = _render_opportunity_note(
+            job_uuid, campaign_uuid, icp_uuid, company_uuid, person_uuid, data, unknowns
+        )
+        note_id = await self._publish(
+            job_id,
+            "opportunity.publication",
+            "note",
+            note_id,
+            {"title": "Project pitch — rough estimate", "bodyV2": {"markdown": note_text}},
+            claim_token=claim_token,
+        )
+        target_id = await self._publish(
+            job_id,
+            "opportunity.publication",
+            "noteTarget",
+            target_id,
+            {"noteId": note_id, "targetOpportunityId": opportunity_id},
+            claim_token=claim_token,
+        )
+        return opportunity_id, note_id, target_id
 
     async def publish_icp(
         self, job_id: str, data: ICPData, *, campaign_id: str, claim_token: str
@@ -569,7 +626,14 @@ def _identity_match(
     object_name: str, remote: Mapping[str, Any], intended: Mapping[str, object]
 ) -> bool:
     """Compare observed identity/parents, never mutable names or firmographics on replay."""
-    for key in ("campaignId", "companyId", "icpId"):
+    for key in (
+        "campaignId",
+        "companyId",
+        "icpId",
+        "pointOfContactId",
+        "noteId",
+        "targetOpportunityId",
+    ):
         if key in intended and remote.get(key) != intended[key]:
             return False
     anchored = False
@@ -631,3 +695,58 @@ def _company_domain(result: AccountResearchResult) -> str | None:
         values.append(str(result.data.website))
     domains = {normalize_domain(value) for value in values}
     return next(iter(domains)) if len(domains) == 1 else None
+
+
+def _render_opportunity_note(
+    job_id: str,
+    campaign_id: str,
+    icp_id: str,
+    company_id: str,
+    person_id: str,
+    data: OpportunityData,
+    unknowns: list[str],
+) -> str:
+    """Render proposal text deterministically, escaping generated text as plain text."""
+    from html import escape
+
+    def text(value: object) -> str:
+        return escape(str(value), quote=False)
+
+    def bullets(values: list[str]) -> str:
+        return "\n".join(f"- {text(value)}" for value in values) or "None stated."
+
+    fee = data.estimated_price.amount
+    return "\n".join(
+        [
+            "Hypothetical project pitch — rough internal estimate, not a binding quote or confirmed customer budget.",
+            f"Campaign UUID: {campaign_id}",
+            f"ICP UUID: {icp_id}",
+            f"Company UUID: {company_id}",
+            f"Person UUID: {person_id}",
+            f"Job UUID: {job_id}",
+            "",
+            "Pitch",
+            text(data.pitch),
+            "",
+            "Scope",
+            text(data.scope),
+            "",
+            "Deliverables",
+            bullets(data.deliverables),
+            "",
+            "Rationale",
+            text(data.rationale),
+            "",
+            "Estimated project fee",
+            f"EUR {fee:.2f} — one-off project fee, excluding tax",
+            "",
+            "Pricing rationale",
+            text(data.pricing_rationale),
+            "",
+            "Assumptions",
+            bullets(data.assumptions),
+            "",
+            "Unknowns",
+            bullets(unknowns),
+        ]
+    )

@@ -12,13 +12,13 @@
     } @else {
       <label>Job kind
         <select [ngModel]="selectedKind()" (ngModelChange)="selectedKind.set($event); kindChanged()">
-          <option value="campaign">Campaign</option><option value="icp">ICP</option><option value="discovery">Discovery</option><option value="account">Account</option><option value="account_hydration">Account hydration</option><option value="person">Person</option><option value="person_hydration">Person hydration</option>
+          <option value="campaign">Campaign</option><option value="icp">ICP</option><option value="discovery">Discovery</option><option value="account">Account</option><option value="account_hydration">Account hydration</option><option value="person">Person</option><option value="person_hydration">Person hydration</option><option value="opportunity">Opportunity</option>
         </select>
       </label>
       @if (selectedKind() === 'campaign' || selectedKind() === 'icp' || selectedKind() === 'account') {
         <label>Amount <input type="number" min="1" max="100" step="1" [(ngModel)]="amount" /></label>
       }
-      @if (selectedKind() === 'icp' || selectedKind() === 'discovery' || selectedKind() === 'account' || selectedKind() === 'person') {
+      @if (selectedKind() === 'icp' || selectedKind() === 'discovery' || selectedKind() === 'account' || selectedKind() === 'person' || selectedKind() === 'opportunity') {
         <label>Campaign
           <select [(ngModel)]="selectedCampaign" (ngModelChange)="campaignChanged()">
             <option value="">{{ selectedKind() === 'icp' ? 'Select a campaign' : 'All campaigns' }}</option>
@@ -30,7 +30,7 @@
         @else if (!campaigns().length) { <p>No campaigns found.</p> }
         @if (campaignCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().campaigns === 'loading'" (click)="loadCampaigns()">Load more campaigns</button> }
       }
-      @if (selectedKind() === 'discovery' || selectedKind() === 'account' || selectedKind() === 'person') {
+      @if (selectedKind() === 'discovery' || selectedKind() === 'account' || selectedKind() === 'person' || selectedKind() === 'opportunity') {
         <label>ICP <select [(ngModel)]="selectedIcp"><option value="">Select an ICP</option>@for (icp of icps(); track icp.id) { <option [value]="icp.id">{{ icp.display_name }}</option> }</select></label>
         @if (selectorState().icps === 'loading') { <p role="status">Loading ICPs…</p> }
         @else if (selectorState().icps === 'error') { <p role="alert">ICPs could not be loaded.</p><button tuiButton type="button" (click)="loadIcps()">Retry ICPs</button> }
@@ -43,7 +43,7 @@
         <label>Candidate website <input maxlength="2048" [(ngModel)]="candidateWebsite" placeholder="Optional" /></label>
         @if (candidateName || candidateWebsite) { <p>Candidate hints apply to one job; set amount to 1.</p> }
       }
-      @if (selectedKind() === 'account_hydration' || selectedKind() === 'person' || selectedKind() === 'person_hydration') {
+      @if (selectedKind() === 'account_hydration' || selectedKind() === 'person' || selectedKind() === 'person_hydration' || selectedKind() === 'opportunity') {
         <label>Account name filter <input maxlength="200" [ngModel]="accountQuery" (ngModelChange)="accountQueryChanged($event)" placeholder="Search Twenty companies" /></label>
         <label>Account <select [(ngModel)]="selectedAccount" (ngModelChange)="accountChanged()"><option value="">Select an account</option>@for (account of accounts(); track account.id) { <option [value]="account.id">{{ account.display_name }}</option> }</select></label>
         @if (selectorState().accounts === 'loading') { <p role="status">Loading accounts…</p> }
@@ -51,7 +51,7 @@
         @else if (!accounts().length) { <p>No accounts found.</p> }
         @if (accountCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().accounts === 'loading'" (click)="loadAccounts()">Load more accounts</button> }
       }
-      @if (selectedKind() === 'person_hydration') {
+      @if (selectedKind() === 'person_hydration' || selectedKind() === 'opportunity') {
         <label>Person <select [(ngModel)]="selectedPerson"><option value="">Select a person</option>@for (person of people(); track person.id) { <option [value]="person.id">{{ person.display_name }}</option> }</select></label>
         @if (selectorState().people === 'loading') { <p role="status">Loading people…</p> }
         @else if (selectorState().people === 'error') { <p role="alert">People could not be loaded.</p><button tuiButton type="button" (click)="loadPeople()">Retry people</button> }
@@ -59,7 +59,7 @@
         @if (personCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().people === 'loading'" (click)="loadPeople()">Load more people</button> }
       }
       <button tuiButton type="button" [disabled]="!canEnqueue() || enqueuePending()" (click)="enqueue()">{{ enqueuePending() ? 'Starting…' : 'Start job' }}</button>
-      @if (enqueueError()) { <p class="action-error" role="alert">{{ enqueueError() }}</p> }
+      @if (selectedKind() === 'opportunity') { <p>Creates a project pitch with a rough EUR project fee in Twenty; no outreach is sent.</p> }
     }
   </section>
   @if (loading()) { <app-state-message message="Loading jobs…" /> }

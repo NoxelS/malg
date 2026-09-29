@@ -33,6 +33,7 @@ from malg.core.claims import validate_claim_proposal
 from malg.core.models.account import AccountData, AccountResearchResult, AccountValidationAssessment
 from malg.core.models.campaign import CampaignData
 from malg.core.models.icp import ICPData
+from malg.core.models.opportunity import OpportunityResearchResult
 from malg.core.models.person import PersonData
 from malg.core.models.research import ResearchOutcome, ResearchResult
 from malg.core.retrieval import RetrievalService
@@ -72,6 +73,8 @@ def _stage_model(
     """Select the host-owned checkpoint model for the requested bounded stage."""
     if stage.endswith(".validation"):
         return AccountValidationAssessment
+    if kind == "opportunity":
+        return OpportunityResearchResult
     if kind in {"account", "account_hydration"}:
         return AccountResearchResult
     if kind in {"person", "person_hydration"}:
@@ -150,6 +153,7 @@ async def _child_stage_async(
     from malg.core.agents.account_validation import AccountValidationAgent
     from malg.core.agents.campaign_research import CampaignResearchAgent
     from malg.core.agents.icp_research import ICPResearchAgent
+    from malg.core.agents.opportunity import OpportunityAgent
     from malg.core.agents.person_research import PersonResearchAgent
     from malg.core.browser_support import aclose_browser
     from malg.core.persistent_memory_support import close_persistent_memory
@@ -190,6 +194,8 @@ async def _child_stage_async(
         if stage_key.endswith(".validation"):
             agent = AccountValidationAgent(recorder=record_active_event)
             method = "validate_account"
+        elif kind == "opportunity":
+            agent, method = OpportunityAgent(), "pitch_one"
         elif kind == "campaign":
             agent, method = CampaignResearchAgent(recorder=record_active_event), "find_campaign"
         elif kind == "icp":
@@ -210,6 +216,13 @@ async def _child_stage_async(
             with sessions.begin() as session:
                 require_claim(session, job_id, claim_token, datetime.now(UTC))
             result = await agent.validate_account(campaign, icp, candidate, probes)
+        elif kind == "opportunity":
+            result = await agent.pitch_one(
+                campaign,
+                icp,
+                AccountData.model_validate(scopes["account"]["data"]),
+                PersonData.model_validate(scopes["person"]["data"]),
+            )
         elif kind == "campaign":
             result = await agent.find_campaign()
         elif kind == "icp":
@@ -243,7 +256,7 @@ async def _child_stage_async(
                 saved_person=saved_person,
             )
         result = _stage_model(kind, stage_key).model_validate(result)
-        fetches = agent.retrieval.observations
+        fetches = [] if kind == "opportunity" else agent.retrieval.observations
         excerpts = {
             str(excerpt["id"]): str(excerpt["text"])
             for fetch in fetches
@@ -569,7 +582,26 @@ class ResearchWorker:
         refs = []
         token = job.claim_token or ""
         outcome = result.outcome
-        if job.kind == "campaign":
+        if job.kind == "opportunity":
+            opportunity_id, note_id, target_id = await self.crm_publisher.publish_opportunity(
+                job.job_id,
+                result.data,
+                campaign_id=str(records["campaign"].id),
+                icp_id=str(records["icp"].id),
+                company_id=str(records["account"].id),
+                person_id=str(records["person"].id),
+                unknowns=result.unknowns,
+                claim_token=token,
+            )
+            refs = [
+                self._ref(name, identifier)
+                for name, identifier in (
+                    ("opportunity", opportunity_id),
+                    ("note", note_id),
+                    ("noteTarget", target_id),
+                )
+            ]
+        elif job.kind == "campaign":
             record_id = await self.crm_publisher.publish_campaign(
                 job.job_id, result.data, claim_token=token
             )

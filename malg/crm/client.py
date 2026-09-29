@@ -47,6 +47,9 @@ _RECORD_OPERATIONS = {
     "malgCampaign": ("MalgCampaign", "MalgCampaignCreateInput"),
     "malgIcp": ("MalgIcp", "MalgIcpCreateInput"),
     "malgMembership": ("MalgMembership", "MalgMembershipCreateInput"),
+    "opportunity": ("Opportunity", "OpportunityCreateInput"),
+    "note": ("Note", "NoteCreateInput"),
+    "noteTarget": ("NoteTarget", "NoteTargetCreateInput"),
 }
 
 _MISSING_FIELD_OPERATIONS = {
@@ -166,7 +169,11 @@ class TwentyClient:
                 raise TwentyConflict("crm_scope_conflict")
             if "campaign" not in records:
                 records["campaign"] = await self.get_campaign(campaign_id)
-        if "person" in records and records["person"].company_id is not None:
+        if request.get("kind") == "opportunity":
+            person_company = records["person"].company_id
+            if person_company is None or person_company != records["account"].id:
+                raise TwentyConflict("crm_scope_conflict")
+        elif "person" in records and records["person"].company_id is not None:
             records["account"] = await self.get_account(records["person"].company_id)
         if request.get("kind") == "person" and not await self.has_membership(
             records["account"].id, records["icp"].id
@@ -255,6 +262,17 @@ class TwentyClient:
                 "malgMemberships",
                 "MalgMembershipFilterInput",
                 "name companyId icpId",
+            ),
+            "opportunity": (
+                "opportunities",
+                "OpportunityFilterInput",
+                "name amount { amountMicros currencyCode } companyId pointOfContactId",
+            ),
+            "note": ("notes", "NoteFilterInput", "title bodyV2 { markdown blocknote }"),
+            "noteTarget": (
+                "noteTargets",
+                "NoteTargetFilterInput",
+                "noteId targetOpportunityId",
             ),
         }
         if object_name not in specs:

@@ -14,6 +14,7 @@ from malg.core.models.jobs import (
     AccountResearchJobRequest,
     DiscoveryResearchJobRequest,
     ICPResearchJobRequest,
+    OpportunityResearchJobRequest,
     PersonHydrationJobRequest,
     PersonResearchJobRequest,
     ResearchJobKind,
@@ -43,6 +44,11 @@ def enqueue_job(request: ResearchJobRequest, session: Session) -> ResearchJob:
     if isinstance(request, (PersonResearchJobRequest,)):
         job.account_id = str(request.account_id)
         job.icp_id = str(request.icp_id)
+    if isinstance(request, OpportunityResearchJobRequest):
+        job.campaign_id = str(request.campaign_id)
+        job.icp_id = str(request.icp_id)
+        job.account_id = str(request.account_id)
+        job.person_id = str(request.person_id)
     if isinstance(request, PersonHydrationJobRequest):
         job.person_id = str(request.person_id)
     session.add(job)

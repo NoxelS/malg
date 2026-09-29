@@ -118,7 +118,7 @@ export class JobsPage implements OnInit {
     const kind = this.selectedKind();
     if (['campaign', 'icp', 'account'].includes(kind) && (!Number.isInteger(this.amount) || this.amount < 1 || this.amount > 100)) return false;
     if (kind === 'campaign') return true;
-    if (kind === 'icp') return Boolean(this.selectedCampaign);
+    if (kind === 'opportunity') return Boolean(this.selectedCampaign && this.selectedIcp && this.selectedAccount && this.selectedPerson);
     if (kind === 'discovery') return Boolean(this.selectedIcp) && Number.isInteger(this.discoveryLimit) && this.discoveryLimit >= 1 && this.discoveryLimit <= 20;
     if (kind === 'account') return Boolean(this.selectedIcp) && (!(this.candidateName || this.candidateWebsite) || this.amount === 1);
     if (kind === 'account_hydration') return Boolean(this.selectedAccount);
@@ -133,6 +133,13 @@ export class JobsPage implements OnInit {
     if (kind === 'campaign') request = this.api.enqueueCampaignJobs(this.amount);
     else if (kind === 'icp') request = this.api.enqueueIcpJobs(this.selectedCampaign, this.amount);
     else if (kind === 'account' && !(this.candidateName || this.candidateWebsite)) request = this.api.enqueueAccountJobs(this.selectedIcp, this.amount, this.selectedCampaign || undefined);
+    else if (kind === 'opportunity') request = this.api.submitJob({
+      kind: 'opportunity',
+      campaign_id: this.selectedCampaign,
+      icp_id: this.selectedIcp,
+      account_id: this.selectedAccount,
+      person_id: this.selectedPerson,
+    }).pipe(map((job) => [job]));
     else {
       const single = kind === 'discovery' ? this.api.submitJob({kind, icp_id: this.selectedIcp, limit: this.discoveryLimit, ...(this.selectedCampaign ? {campaign_id: this.selectedCampaign} : {})})
         : kind === 'account' ? this.api.submitJob({kind, icp_id: this.selectedIcp, ...(this.selectedCampaign ? {campaign_id: this.selectedCampaign} : {}), ...(this.candidateName ? {name: this.candidateName} : {}), ...(this.candidateWebsite ? {website: this.candidateWebsite} : {})})

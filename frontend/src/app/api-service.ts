@@ -35,7 +35,7 @@ export interface CrmStatus {
   readonly reason?: string | null;
   readonly public_url?: string;
 }
-export type JobKind = 'campaign' | 'icp' | 'discovery' | 'account' | 'account_hydration' | 'person' | 'person_hydration';
+export type JobKind = 'campaign' | 'icp' | 'discovery' | 'account' | 'account_hydration' | 'person' | 'person_hydration' | 'opportunity';
 export type ResearchOutcome = 'complete' | 'partial' | 'needs_review' | 'insufficient_evidence' | 'budget_exhausted';
 export type ResearchJobRequest =
   | {kind: 'campaign'}
@@ -44,7 +44,8 @@ export type ResearchJobRequest =
   | {kind: 'account'; icp_id: string; campaign_id?: string; name?: string; website?: string}
   | {kind: 'account_hydration'; account_id: string}
   | {kind: 'person'; account_id: string; icp_id: string}
-  | {kind: 'person_hydration'; person_id: string};
+  | {kind: 'person_hydration'; person_id: string}
+  | {kind: 'opportunity'; campaign_id: string; icp_id: string; account_id: string; person_id: string};
 export interface ResultReference { readonly object_name: string; readonly record_id: string; readonly url: string | null; }
 export interface ResearchJob {
   readonly job_id: string;
