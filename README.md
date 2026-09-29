@@ -119,18 +119,18 @@ agent type and persists across API and worker restarts; no repository memory dir
 memory files are used.
 
 The local Compose stack stores PostgreSQL state in its named `postgres-data` volume. Ordinary
-API/worker startup only waits for the exact bundled revision; it never applies migrations.
-For a **disposable local database only**, first verify the target and preserve any required data:
+API/worker startup waits read-only for the exact migration head bundled in the image; it never
+applies migrations. The migration profile runs the same bundled Alembic configuration explicitly:
 
 ```bash
 docker compose --env-file .env -f docker/compose.yaml up -d postgres
-docker compose --env-file .env -f docker/compose.yaml --profile migration run --rm \
-  -e MALG_CRM_CUTOVER_APPROVED=1 migration
+docker compose --env-file .env -f docker/compose.yaml --profile migration run --rm migration
 docker compose --env-file .env -f docker/compose.yaml up -d api worker
 ```
 
-The approval flag is one-shot authorization, not backup evidence. Production requires the reviewed
-maintenance, encrypted off-node backup and isolated restore gates below before destruction.
+Use the migration command only for a reviewed maintenance operation after backup and restore
+evidence. Migration heads must remain backward-compatible with rolling application pods; destructive
+changes require a separately reviewed expand/contract or maintenance sequence.
 Retired business tables are not imported into Twenty. Historical workflow/stage JSON remains local;
 legacy jobs are display-only and nonretryable. Existing `campaign-research` memory and descendant
 namespaces are archived out of active recall at cutover; operational memory and archived inspection
@@ -263,10 +263,9 @@ TOKEN=$(curl -s http://127.0.0.1:8000/api/v1/auth/token \
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/api/v1/dashboard
 ```
 
-With a blank configured password, token acquisition returns `503` and protected routes remain
-inaccessible. Changing the password invalidates existing tokens. The API owns no schema creation
-at runtime; it waits read-only until bundled revision `20260924_01` is the sole Alembic version row.
-Start ordinary services only after the separately authorized migration has established that revision:
+at runtime; it waits read-only until the sole Alembic version row equals the migration head bundled
+in that image. Start ordinary services only after the separately reviewed migration has established
+that head:
 
 ```bash
 make api-up
@@ -373,45 +372,48 @@ a desired hash or an older successful schema Job is not sufficient.
 
 ## Production images and GitHub configuration
 
-The release workflow is prepared to publish the immutable backend image
-`ghcr.io/noxels/malg` and standalone frontend image `ghcr.io/noxels/malg-frontend`, plus a
-seven-key `malg-release.json` asset containing the actual multi-platform digests, bundled
-contract metadata, and required database revision. No release asset or reviewed image tuple is
-currently present in this checkout; do not copy the old `v0.12.0` pins into a cutover.
+The release workflow publishes immutable multi-platform backend and frontend images:
+`ghcr.io/noxels/malg` and `ghcr.io/noxels/malg-frontend`. It records their digests in the GitHub
+Release notes but does not create a deployment metadata asset. There is intentionally no mutable
+`latest` tag.
 
-Flux must consume a release tag together with the digest recorded in that GitHub Release.
-There is intentionally no mutable `latest` tag. Runtime API and worker pods perform a read-only
-wait for the exact bundled database revision; only the explicitly invoked migration Job/profile
-may mutate the database. The first destructive cutover approval is an external, reviewed gate
-and is never injected by the release workflow.
+Flux consumes both images through digest-pinned, semantic-version policies and opens a MALG-only
+pull request from its generated `flux/malg-image` branch. Required checks and branch protection
+must pass before automatic squash merge. Backend and frontend tags must match; a partially
+published or mixed-version update fails closed. The next image update, not the release workflow,
+changes deployment manifests.
+
+Runtime API and worker pods wait read-only for the exact Alembic head bundled in their image.
+Kubernetes migration Jobs run `alembic upgrade head`; their force annotations recreate the Job when
+the backend image changes. CRM schema compatibility checks remain active during reconciliation.
+Migration changes must use expand/contract sequencing for rolling old pods, while destructive
+operations remain reviewed maintenance work.
 
 The controlled release sequence is:
 
-1. Merge a normal PR after both MALG PR checks pass.
-2. The `Prepare release` workflow opens a `chore(release): 0.<minor>.0` PR that updates
-   `pyproject.toml` and `uv.lock`, then requests auto-merge.
-3. After the release PR passes both required checks and merges, the `Tag merged release`
-   workflow creates `v0.<minor>.0` on that merged `main` commit.
-4. The tag triggers the publication workflow, which verifies the source version and commit
-   ancestry before publishing the immutable multi-platform images and seven-key release asset.
+1. Merge a normal PR after required MALG checks pass.
+2. The `Prepare release` workflow opens a `chore(release): 0.<minor>.0` PR, updates
+   `pyproject.toml` and `uv.lock`, and requests auto-merge.
+3. After that PR merges, the tag workflow creates `v0.<minor>.0` on the merged `main` commit.
+4. Publication verifies the source version and ancestry, then pushes both immutable images.
+5. Flux detects both matching image tags, opens the deployment PR, and auto-merges it only after
+   `static-checks` and branch protection succeed.
 
-Automation creates release PRs and tags only; it never pushes a release commit directly to `main`.
+Automation creates release and deployment pull requests; no workflow writes deployment manifests
+directly to `main`. Sisyphus validates image identity, migration safety, startup gates, force
+behavior, and network policy directly from Kubernetes manifests.
 
-The Sisyphus repository must receive the unchanged release asset in a separately reviewed image
-pull request. Its release checker fails closed when the asset, immutable images, exact revision,
-Flux labels, migration safety settings, or migration network policy are missing or inconsistent.
-Production rollout still requires backup/restore evidence, maintenance sequencing, schema and
-runtime checks, and explicit external approval; this repository does not apply Kubernetes
-resources.
-
+Production migration still requires encrypted off-node backups, isolated restore evidence,
+maintenance sequencing, schema/runtime checks, and explicit operator approval for destructive work.
+MALG does not apply Kubernetes resources itself.
 The controlled production sequence is:
 
 1. Enter reviewed maintenance: stop admission, drain or explicitly cancel work, and set API/workers
    to zero while retaining PostgreSQL and Twenty.
 2. Preserve encrypted off-node MALG and Twenty database/storage backups; prove isolated restore
    and readability with the unchanged Twenty encryption key. Only then authorize the first-cutover
-   migration Job. Apply the matching schema/revision with writers stopped; remove the one-shot
-   approval after completion. An already-current database upgrades as a no-op without approval.
+   migration Job. Apply the matching schema/revision with writers stopped; destructive changes require
+   explicit reviewed approval. An already-current database upgrades as a no-op.
 3. Restore API/frontend first. Verify exact revision, authentication, CRM compatibility, historical
    reads and selectors. Confirm real pod access to Twenty TCP 3000 and denial of its DB/Redis/MinIO.
 4. Restore three workers only after those gates. Run one labelled, bounded console research job

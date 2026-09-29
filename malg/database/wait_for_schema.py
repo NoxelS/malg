@@ -3,13 +3,31 @@
 from __future__ import annotations
 
 import argparse
+import os
 import time
+from pathlib import Path
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 
 from malg.database.session import database_url
 
-REQUIRED_DATABASE_REVISION = "20260924_01"
+
+def required_revision() -> str:
+    """Return the single migration head bundled with this application image.
+
+    ``ALEMBIC_CONFIG`` may point to an explicit configuration file.  Source
+    checkouts default to the repository configuration.  Configuration and
+    migration graph errors are raised immediately, before database polling.
+    """
+    config_path = os.environ.get("ALEMBIC_CONFIG")
+    path = Path(config_path) if config_path else Path(__file__).resolve().parents[2] / "alembic.ini"
+    script = ScriptDirectory.from_config(Config(str(path)))
+    heads = script.get_heads()
+    if len(heads) != 1:
+        raise RuntimeError(f"expected exactly one Alembic head, found {len(heads)}")
+    return heads[0]
 
 
 def current_revision(url: str | None = None) -> str | None:
@@ -25,10 +43,11 @@ def current_revision(url: str | None = None) -> str | None:
 
 def wait_for_schema(timeout_seconds: int = 300) -> bool:
     """Poll once per second until the exact bundled revision is available."""
+    revision = required_revision()
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
-            if current_revision() == REQUIRED_DATABASE_REVISION:
+            if current_revision() == revision:
                 return True
         except Exception:
             pass
