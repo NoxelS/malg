@@ -387,14 +387,15 @@ and is never injected by the release workflow.
 
 The controlled release sequence is:
 
-1. Merge a PR that changes `pyproject.toml` and `uv.lock` to the selected `0.<minor>.0`.
-2. Wait for both MALG PR checks to pass.
-3. Annotate the resulting `main` commit as `v0.<minor>.0`.
-4. Push that tag.
+1. Merge a normal PR after both MALG PR checks pass.
+2. The `Prepare release` workflow opens a `chore(release): 0.<minor>.0` PR that updates
+   `pyproject.toml` and `uv.lock`, then requests auto-merge.
+3. After the release PR passes both required checks and merges, the `Tag merged release`
+   workflow creates `v0.<minor>.0` on that merged `main` commit.
+4. The tag triggers the publication workflow, which verifies the source version and commit
+   ancestry before publishing the immutable multi-platform images and seven-key release asset.
 
-The tag workflow verifies that the source version matches the tag and that the tag's commit is
-contained in `main`. It publishes the immutable multi-platform images and seven-key release asset;
-it does not alter source files or push branches or tags.
+Automation creates release PRs and tags only; it never pushes a release commit directly to `main`.
 
 The Sisyphus repository must receive the unchanged release asset in a separately reviewed image
 pull request. Its release checker fails closed when the asset, immutable images, exact revision,
