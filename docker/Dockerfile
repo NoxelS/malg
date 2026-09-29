@@ -30,9 +30,9 @@ RUN --mount=type=cache,id=malg-uv-cache,target=/root/.cache/uv \
 FROM python:3.13-slim AS runtime
 
 ENV PATH="/app/.venv/bin:$PATH" \
+    ALEMBIC_CONFIG=/app/alembic.ini \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
-
 WORKDIR /app
 
 # The Compose file further removes every Linux capability and makes the image

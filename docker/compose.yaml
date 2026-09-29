@@ -54,7 +54,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["alembic", "upgrade", "20260924_01"]
+    command: ["alembic", "upgrade", "head"]
   api:
     env_file:
       - ../.env
