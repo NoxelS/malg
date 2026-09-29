@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 concurrency:
   group: prepare-release
@@ -49,7 +50,7 @@ jobs:
           echo "version=$next" >> "$GITHUB_OUTPUT"
           echo "branch=release/v$next" >> "$GITHUB_OUTPUT"
 
-      - name: Create release commit and pull request
+      - name: Create or update release pull request
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -61,6 +62,8 @@ jobs:
             --head "$RELEASE_BRANCH" --state open --json number --jq '.[0].number')
           if [ -n "$existing_pr" ]; then
             echo "Release PR #$existing_pr already exists"
+            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_BRANCH"
+            gh pr merge "$existing_pr" --repo "$GITHUB_REPOSITORY" --auto --squash
             exit 0
           fi
           git switch --create "$RELEASE_BRANCH"
@@ -96,4 +99,5 @@ jobs:
           pr_number=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$RELEASE_BRANCH" \
             --title "chore(release): $VERSION" \
             --body "Automated release preparation for MALG $VERSION. Required PR checks must pass before merge.")
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_BRANCH"
           gh pr merge "$pr_number" --repo "$GITHUB_REPOSITORY" --auto --squash
