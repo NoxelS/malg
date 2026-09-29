@@ -49,7 +49,7 @@ jobs:
           echo "version=$next" >> "$GITHUB_OUTPUT"
           echo "branch=release/v$next" >> "$GITHUB_OUTPUT"
 
-      - name: Create release commit and pull request
+      - name: Create or update release pull request
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -60,40 +60,42 @@ jobs:
           existing_pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main \
             --head "$RELEASE_BRANCH" --state open --json number --jq '.[0].number')
           if [ -n "$existing_pr" ]; then
-            echo "Release PR #$existing_pr already exists"
-            exit 0
-          fi
-          git switch --create "$RELEASE_BRANCH"
-          VERSION="$VERSION" python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
+            pr_number="$existing_pr"
+            echo "Release PR #$pr_number already exists"
+          else
+            git switch --create "$RELEASE_BRANCH"
+            VERSION="$VERSION" python - <<'PY'
+            import os
+            import re
+            from pathlib import Path
 
-          path = Path("pyproject.toml")
-          text = path.read_text()
-          version = os.environ["VERSION"]
-          updated, count = re.subn(
-              r'^version = "0\.[0-9]+\.0"$',
-              f'version = "{version}"',
-              text,
-              count=1,
-              flags=re.MULTILINE,
-          )
-          if count != 1:
-              raise SystemExit("expected exactly one project version")
-          path.write_text(updated)
-          PY
-          uv lock
-          if git diff --name-only | grep -Evx '(pyproject\.toml|uv\.lock)'; then
-            echo "release preparation changed files outside pyproject.toml and uv.lock" >&2
-            exit 1
+            path = Path("pyproject.toml")
+            text = path.read_text()
+            version = os.environ["VERSION"]
+            updated, count = re.subn(
+                r'^version = "0\.[0-9]+\.0"$',
+                f'version = "{version}"',
+                text,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            if count != 1:
+                raise SystemExit("expected exactly one project version")
+            path.write_text(updated)
+            PY
+            uv lock
+            if git diff --name-only | grep -Evx '(pyproject\.toml|uv\.lock)'; then
+              echo "release preparation changed files outside pyproject.toml and uv.lock" >&2
+              exit 1
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pyproject.toml uv.lock
+            git commit -m "chore(release): $VERSION"
+            git push --set-upstream origin "$RELEASE_BRANCH"
+            pr_number=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$RELEASE_BRANCH" \
+              --title "chore(release): $VERSION" \
+              --body "Automated release preparation for MALG $VERSION. Required PR checks must pass before merge.")
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml uv.lock
-          git commit -m "chore(release): $VERSION"
-          git push --set-upstream origin "$RELEASE_BRANCH"
-          pr_number=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$RELEASE_BRANCH" \
-            --title "chore(release): $VERSION" \
-            --body "Automated release preparation for MALG $VERSION. Required PR checks must pass before merge.")
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_BRANCH"
           gh pr merge "$pr_number" --repo "$GITHUB_REPOSITORY" --auto --squash
