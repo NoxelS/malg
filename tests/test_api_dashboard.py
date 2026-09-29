@@ -77,6 +77,7 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
             {"kind": "account_hydration", "average_duration_seconds": None},
             {"kind": "person", "average_duration_seconds": None},
             {"kind": "person_hydration", "average_duration_seconds": None},
+            {"kind": "opportunity", "average_duration_seconds": None},
         ],
     }
     workers = client.get("/api/v1/workers").json()

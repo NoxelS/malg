@@ -20,6 +20,7 @@ class ResearchJobKind(StrEnum):
     ACCOUNT_HYDRATION = "account_hydration"
     PERSON = "person"
     PERSON_HYDRATION = "person_hydration"
+    OPPORTUNITY = "opportunity"
 
 
 class ResearchJobStatus(StrEnum):
@@ -118,6 +119,17 @@ class PersonHydrationJobRequest(BaseModel):
     person_id: UUID
 
 
+class OpportunityResearchJobRequest(BaseModel):
+    """Propose one bounded project opportunity for a selected CRM combination."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal[ResearchJobKind.OPPORTUNITY] = ResearchJobKind.OPPORTUNITY
+    campaign_id: UUID
+    icp_id: UUID
+    account_id: UUID
+    person_id: UUID
+
+
 ResearchJobRequest = Annotated[
     CampaignResearchJobRequest
     | ICPResearchJobRequest
@@ -125,7 +137,8 @@ ResearchJobRequest = Annotated[
     | DiscoveryResearchJobRequest
     | AccountHydrationJobRequest
     | PersonResearchJobRequest
-    | PersonHydrationJobRequest,
+    | PersonHydrationJobRequest
+    | OpportunityResearchJobRequest,
     Field(discriminator="kind"),
 ]
 
