@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: tag-release-${{ github.event.pull_request.number }}
@@ -26,8 +27,9 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Create immutable release tag
+      - name: Create immutable release tag and dispatch publication
         env:
+          GH_TOKEN: ${{ github.token }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
           RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         shell: bash
@@ -61,9 +63,10 @@ jobs:
               exit 1
             }
             echo "$tag already exists at $MERGE_SHA"
-            exit 0
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag --annotate "$tag" "$MERGE_SHA" --message "$tag"
+            git push origin "$tag"
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag --annotate "$tag" "$MERGE_SHA" --message "$tag"
-          git push origin "$tag"
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$tag"
