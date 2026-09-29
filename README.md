@@ -420,3 +420,5 @@ Before retirement, rollback retains additive Twenty metadata and keeps old write
 After retirement, prefer forward repair; an old runtime requires restoring the archived MALG
 database with writers stopped and disconnected from Twenty. Never drop Twenty metadata as
 rollback or run competing old/new writers.
+
+<!-- Temporary CI workflow smoke test; close without merging. -->
