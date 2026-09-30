@@ -372,7 +372,7 @@ a desired hash or an older successful schema Job is not sufficient.
 
 ## Production images and GitHub configuration
 
-The release workflow publishes immutable multi-platform backend and frontend images:
+The CI/CD workflow publishes immutable multi-platform backend and frontend images:
 `ghcr.io/noxels/malg` and `ghcr.io/noxels/malg-frontend`. It records their digests in the GitHub
 Release notes but does not create a deployment metadata asset. There is intentionally no mutable
 `latest` tag.
@@ -391,16 +391,18 @@ operations remain reviewed maintenance work.
 
 The controlled release sequence is:
 
-1. Merge a normal PR after required MALG checks pass.
-2. The `Prepare release` workflow opens a `chore(release): 0.<minor>.0` PR, updates
-   `pyproject.toml` and `uv.lock`, and requests auto-merge.
-3. After that PR merges, the tag workflow creates `v0.<minor>.0` on the merged `main` commit.
-4. Publication verifies the source version and ancestry, then pushes both immutable images.
-5. Flux detects both matching image tags, opens the deployment PR, and auto-merges it only after
+1. Bump the `0.<minor>.0` version in `pyproject.toml` and update `uv.lock` in a normal PR when a
+   release is wanted. PR checks include Python quality and coverage, PostgreSQL integration, and
+   local builds of both images. All three checks must pass before merge.
+2. The merge to `main` reruns the checks. If that version already has a GitHub Release, it stops
+   after checking. Otherwise it builds and pushes both `linux/amd64` and `linux/arm64` images once,
+   verifies their digests, and creates a GitHub Release and `v0.<minor>.0` tag on the checked commit.
+   A failed publication can be rerun for the same commit; a tag on another commit is rejected.
+3. Flux detects both matching image tags, opens the deployment PR, and auto-merges it only after
    `static-checks` and branch protection succeed.
 
-Automation creates release and deployment pull requests; no workflow writes deployment manifests
-directly to `main`. Sisyphus validates image identity, migration safety, startup gates, force
+MALG does not create release pull requests or write deployment manifests directly to `main`.
+Sisyphus validates image identity, migration safety, startup gates, force
 behavior, and network policy directly from Kubernetes manifests.
 
 Production migration still requires encrypted off-node backups, isolated restore evidence,

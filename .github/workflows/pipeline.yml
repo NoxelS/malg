@@ -1,0 +1,282 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Check out source and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.9.22"
+          enable-cache: true
+
+      - name: Check locked dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run Python checks
+        run: make check
+
+      - name: Validate image build contexts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .dockerignore
+          for path in .env memory results; do
+            if git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
+              echo "runtime data or user configuration is tracked: $path" >&2
+              exit 1
+            fi
+          done
+          grep -Fxq 'memory' .dockerignore
+          grep -Fxq 'results' .dockerignore
+          test -f frontend/.dockerignore
+          test ! -e frontend/user.config.toml
+          test ! -e frontend/.env
+          grep -Fxq 'node_modules' frontend/.dockerignore
+          grep -Fxq 'dist' frontend/.dockerignore
+
+      - name: Select version for publication
+        id: release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          with Path("pyproject.toml").open("rb") as stream:
+              print(tomllib.load(stream)["project"]["version"])
+          PY
+          )
+          [[ "$version" =~ ^0\.([1-9][0-9]*)\.0$ ]] || {
+            echo "project version must match 0.<minor>.0" >&2
+            exit 1
+          }
+          minor="${BASH_REMATCH[1]}"
+          tag="v$version"
+          latest_tag=$(git tag --list 'v0.*.0' --sort=-version:refname | head -n 1)
+          if [[ "$latest_tag" =~ ^v0\.([1-9][0-9]*)\.0$ ]] && (( 10#$minor < 10#${BASH_REMATCH[1]} )); then
+            echo "project version is older than $latest_tag" >&2
+            exit 1
+          fi
+
+          if git show-ref --quiet --verify "refs/tags/$tag"; then
+            tag_sha=$(git rev-list -n 1 "$tag^{commit}")
+            git merge-base --is-ancestor "$tag_sha" "$GITHUB_SHA" || {
+              echo "$tag is not on the current main history" >&2
+              exit 1
+            }
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            test "$tag_sha" = "$GITHUB_SHA" || {
+              echo "$tag has no release and points to a different commit; rerun its original workflow" >&2
+              exit 1
+            }
+          fi
+
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  postgres-integration:
+    name: PostgreSQL and pgvector integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: malg
+          POSTGRES_PASSWORD: malg
+          POSTGRES_DB: malg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U malg -d malg"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.9.22"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --group dev
+
+      - name: Apply PostgreSQL migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://malg:malg@127.0.0.1:5432/malg
+          MALG_CRM_CUTOVER_APPROVED: "1"
+        run: uv run alembic upgrade head
+
+      - name: Run PostgreSQL memory and API integration tests
+        env:
+          DATABASE_URL: postgresql+psycopg://malg:malg@127.0.0.1:5432/malg
+        run: uv run pytest tests/test_postgres_memory.py -q
+
+  build:
+    name: Build images
+    if: github.event_name == 'pull_request'
+    needs: [check, postgres-integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build backend image without pushing
+        run: docker build --file docker/Dockerfile --tag malg:ci .
+
+      - name: Build frontend image without pushing
+        run: docker build --file frontend/Dockerfile --tag malg-frontend:ci frontend
+
+  publish:
+    name: Publish images and release
+    if: github.event_name == 'push' && needs.check.outputs.publish == 'true'
+    needs: [check, postgres-integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify release identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version=$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          with Path("pyproject.toml").open("rb") as stream:
+              print(tomllib.load(stream)["project"]["version"])
+          PY
+          )
+          test "$RELEASE_TAG" = "v$version"
+          test "$GITHUB_REF" = refs/heads/main
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/noxels/malg:${{ needs.check.outputs.tag }}
+            ghcr.io/noxels/malg:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.check.outputs.tag }}
+          sbom: true
+          provenance: mode=max
+
+      - name: Build and push frontend image
+        id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          build-args: |
+            MALG_VERSION=${{ needs.check.outputs.tag }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/noxels/malg-frontend:${{ needs.check.outputs.tag }}
+            ghcr.io/noxels/malg-frontend:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.check.outputs.tag }}
+          sbom: true
+          provenance: mode=max
+
+      - name: Verify published image digests
+        shell: bash
+        env:
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$BACKEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
+          [[ "$FRONTEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.check.outputs.tag }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG was already published"
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --generate-notes --title "$RELEASE_TAG" \
+            --notes "Published image digests:
+          - ghcr.io/noxels/malg@$BACKEND_DIGEST
+          - ghcr.io/noxels/malg-frontend@$FRONTEND_DIGEST"
