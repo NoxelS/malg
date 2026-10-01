@@ -67,7 +67,7 @@ def list_active_workers(session: Session, active_since: datetime) -> list[Worker
         select(WorkerHeartbeat, ResearchJob)
         .outerjoin(
             ResearchJob,
-            (ResearchJob.claim_token == WorkerHeartbeat.worker_token)
+            (ResearchJob.owner_worker_token == WorkerHeartbeat.worker_token)
             & (ResearchJob.status == "running"),
         )
         .where(WorkerHeartbeat.last_seen_at >= active_since)
