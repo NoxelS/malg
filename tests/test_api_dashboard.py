@@ -28,7 +28,8 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
                     kind="campaign",
                     status=status,
                     attempt_count=1 if status == "running" else 0,
-                    claim_token="running-worker" if status == "running" else None,
+                    owner_worker_token="running-worker" if status == "running" else None,
+                    claim_token="running-claim" if status == "running" else None,
                     claimed_at=now if status == "running" else None,
                 )
             )
