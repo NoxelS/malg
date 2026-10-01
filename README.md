@@ -367,8 +367,10 @@ Inspect/plan/check are read-only. A valid plan exits 0 even when additions are p
 2 for pending changes or conflicts. Apply preflights all conflicts, performs additive changes only,
 then unconditionally reads back the complete contract. A second apply must report no operations.
 Successful check/apply exits 0; authentication/transport failures exit 1. No command deletes or
-recreates mismatched relations. Runtime checks the observed contract at admission and publication;
-a desired hash or an older successful schema Job is not sufficient.
+recreates mismatched relations. Twenty metadata calls the native NoteTarget morph relation
+`target`; its record API exposes the opportunity endpoint as `targetOpportunityId`. Runtime
+checks the observed contract at admission and publication; a desired hash or an older successful
+schema Job is not sufficient.
 
 ## Production images and GitHub configuration
 

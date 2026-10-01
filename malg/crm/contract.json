@@ -10,7 +10,7 @@
     "person": {"api_name": "person", "required_fields": {"name": "FULL_NAME", "jobTitle": "TEXT", "emails": "EMAILS", "linkedinLink": "LINKS"}},
     "opportunity": {"api_name": "opportunity", "required_fields": {"name": "TEXT", "amount": "CURRENCY", "company": "RELATION", "pointOfContact": "RELATION"}},
     "note": {"api_name": "note", "required_fields": {"title": "TEXT", "bodyV2": "RICH_TEXT"}},
-    "noteTarget": {"api_name": "noteTarget", "required_fields": {"note": "RELATION", "targetOpportunity": "MORPH_RELATION"}}
+    "noteTarget": {"api_name": "noteTarget", "required_fields": {"note": "RELATION", "target": "MORPH_RELATION"}}
   },
   "custom_objects": {
     "campaign": {"name_singular": "malgCampaign", "name_plural": "malgCampaigns", "fields": {"name": {"type": "TEXT", "nullable": false}, "objective": {"type": "TEXT", "nullable": false}}},

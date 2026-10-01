@@ -182,6 +182,24 @@ def test_relation_conflicts_fail_closed_without_apply_mutations(
         asyncio.run(http.aclose())
 
 
+def test_native_note_target_morph_field_name_is_required(twenty_metadata: dict) -> None:
+    metadata = copy.deepcopy(twenty_metadata)
+    note_target = next(
+        edge["node"]
+        for edge in metadata["data"]["objects"]["edges"]
+        if edge["node"]["nameSingular"] == "noteTarget"
+    )
+    morph_field = next(field for field in note_target["fieldsList"] if field["name"] == "target")
+    morph_field["name"] = "targetOpportunity"
+    client, http, mutations = _client(metadata)
+    try:
+        with pytest.raises(SchemaConflict, match=r"noteTarget\.target"):
+            asyncio.run(reconcile(client, load_manifest(), apply=True))
+        assert mutations == [0]
+    finally:
+        asyncio.run(http.aclose())
+
+
 def test_apply_requires_unconditional_compatible_readback(twenty_metadata: dict) -> None:
     metadata = copy.deepcopy(twenty_metadata)
     campaign = next(
