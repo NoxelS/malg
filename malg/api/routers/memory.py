@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from nooa_memory.embeddings import HashingEmbedder  # type: ignore[import-untyped]
-from nooa_memory.schema import Memory  # type: ignore[import-untyped]
+from nooa_memory.schema import Memory, MemoryType  # type: ignore[import-untyped]
 from sqlalchemy import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from malg.api.dependencies import SessionDependency
-from malg.core.models.memory import MemoryPage
+from malg.core.models.memory import MemoryClearResult, MemoryOverviewPage, MemoryPage
 from malg.database.memory import PostgresMemoryStore
 from malg.database.session import make_session_factory
 
@@ -56,6 +56,54 @@ def list_memories(
     return MemoryPage(
         items=items[offset : offset + limit], total=len(items), limit=limit, offset=offset
     )
+
+
+@router.get("/memories/overview", response_model=MemoryOverviewPage)
+def list_memory_overview(
+    session: SessionDependency,
+    owner: Annotated[str | None, Query(max_length=255)] = None,
+    include_archived: bool = False,
+    memory_types: Annotated[list[MemoryType] | None, Query(alias="type")] = None,
+    statuses: Annotated[list[str] | None, Query(alias="status", max_length=16)] = None,
+    status_unset: bool | None = None,
+    query_text: Annotated[str | None, Query(alias="query", min_length=1, max_length=200)] = None,
+    created_after: float | None = None,
+    created_before: float | None = None,
+    sort: Literal[
+        "created_at",
+        "last_accessed_at",
+        "importance",
+        "salience",
+        "strength",
+        "access_count",
+        "type",
+    ] = "created_at",
+    direction: Literal["asc", "desc"] = "desc",
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> MemoryOverviewPage:
+    """Return a compact, server-filtered page for the memory overview table."""
+    items, total = _memory_store(session).overview(
+        include_archived=include_archived,
+        owner=owner,
+        memory_types=memory_types,
+        statuses=statuses,
+        status_unset=status_unset,
+        query_text=query_text,
+        created_after=created_after,
+        created_before=created_before,
+        sort=sort,
+        descending=direction == "desc",
+        limit=limit,
+        offset=offset,
+    )
+    return MemoryOverviewPage(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.delete("/memories", response_model=MemoryClearResult)
+def clear_memories(session: SessionDependency) -> MemoryClearResult:
+    """Globally delete every durable memory and memory association."""
+    return MemoryClearResult(deleted=_memory_store(session).clear())
 
 
 def _memory_or_404(store: PostgresMemoryStore, memory_id: str) -> Memory:

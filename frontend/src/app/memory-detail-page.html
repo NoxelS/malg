@@ -1,0 +1,11 @@
+<app-page-layout>
+  <app-page-header eyebrow="Operations" title="Memory detail" description="Full durable-memory record and its associations.">
+    <a page-header-actions tuiButton appearance="secondary" routerLink="/memory">Back to memory</a>
+    <button page-header-actions tuiButton type="button" appearance="secondary" (click)="refresh()">Refresh</button>
+  </app-page-header>
+  @if (loading()) { <app-state-message message="Loading memory…" /> }
+  @else if (error() || !memory()) { <app-state-message message="This memory could not be loaded." tone="error" /> }
+  @else if (memory(); as currentMemory) {
+    <section class="memory-detail"><dl><div><dt>ID</dt><dd>{{ currentMemory.id }}</dd></div><div><dt>Type</dt><dd>{{ currentMemory.type }}</dd></div><div><dt>Owner</dt><dd>{{ currentMemory.owner || 'Shared' }}</dd></div><div><dt>Archived</dt><dd>{{ currentMemory.archived ? 'Yes' : 'No' }}</dd></div><div><dt>Created</dt><dd>{{ timestamp(currentMemory.created_at) }}</dd></div><div><dt>Last accessed</dt><dd>{{ timestamp(currentMemory.last_accessed_at) }}</dd></div><div><dt>Importance</dt><dd>{{ currentMemory.importance }}</dd></div><div><dt>Salience</dt><dd>{{ currentMemory.salience }}</dd></div><div><dt>Strength</dt><dd>{{ currentMemory.strength }}</dd></div><div><dt>Accesses</dt><dd>{{ currentMemory.access_count }}</dd></div><div><dt>Todo status</dt><dd>{{ currentMemory.status || '—' }}</dd></div></dl><h2>Content</h2><p class="memory-content">{{ currentMemory.content }}</p>@if (currentMemory.tags.length) { <div class="memory-tags">@for (tag of currentMemory.tags; track tag) { <span tuiBadge appearance="secondary">{{ tag }}</span> }</div> } @if (currentMemory.edges.length || currentMemory.references.length) { <details><summary>Associations and references</summary>@if (currentMemory.edges.length) { <p><strong>Edges</strong><code>{{ currentMemory.edges | json }}</code></p> }@if (currentMemory.references.length) { <p><strong>References</strong><code>{{ currentMemory.references | json }}</code></p> }</details> }</section>
+  }
+</app-page-layout>

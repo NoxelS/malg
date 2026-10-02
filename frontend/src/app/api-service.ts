@@ -65,6 +65,55 @@ export interface ResearchJob {
   readonly attempt_count: number;
   readonly created_at: string;
 }
+export interface JobOverviewItem {
+  readonly job_id: string;
+  readonly kind: JobKind | string;
+  readonly status: string;
+  readonly result_outcome: ResearchOutcome | null;
+  readonly attempt_count: number;
+  readonly created_at: string;
+  readonly started_at: string | null;
+  readonly finished_at: string | null;
+  readonly deadline_at: string | null;
+  readonly campaign_id: string | null;
+  readonly icp_id: string | null;
+  readonly workflow_id: string | null;
+  readonly stage_key: string | null;
+}
+export interface JobOverviewPage { readonly items: readonly JobOverviewItem[]; readonly total: number; readonly limit: number; readonly offset: number; }
+export interface MemoryOverviewItem {
+  readonly id: string;
+  readonly type: string;
+  readonly content_preview: string;
+  readonly owner: string;
+  readonly importance: number;
+  readonly salience: number;
+  readonly strength: number;
+  readonly access_count: number;
+  readonly created_at: number;
+  readonly last_accessed_at: number;
+  readonly status: string | null;
+  readonly archived: boolean;
+}
+export interface MemoryOverviewPage { readonly items: readonly MemoryOverviewItem[]; readonly total: number; readonly limit: number; readonly offset: number; }
+export interface MemoryDetail {
+  readonly id: string;
+  readonly type: string;
+  readonly content: string;
+  readonly owner: string;
+  readonly importance: number;
+  readonly salience: number;
+  readonly strength: number;
+  readonly access_count: number;
+  readonly created_at: number;
+  readonly last_accessed_at: number;
+  readonly status: string | null;
+  readonly archived: boolean;
+  readonly tags: readonly string[];
+  readonly edges: readonly JsonValue[];
+  readonly references: readonly JsonValue[];
+}
+export interface MemoryClearResult { readonly deleted: number; }
 export interface StageRecord {
   readonly stage_result_id: string;
   readonly stage_key: string;
@@ -208,7 +257,11 @@ export class ApiService {
       params: new HttpParams().set('limit', limit).set('offset', offset).set('include_archived', includeArchived),
     });
   }
+  listMemoryOverview(params: HttpParams): Observable<MemoryOverviewPage> { return this.authorized('GET', '/api/v1/memories/overview', {params}); }
+  getMemory(memoryId: string): Observable<MemoryDetail> { return this.authorized('GET', `/api/v1/memories/${memoryId}`); }
+  clearMemories(): Observable<MemoryClearResult> { return this.authorized('DELETE', '/api/v1/memories'); }
   listJobs(): Observable<readonly ResearchJob[]> { return this.authorized('GET', '/api/v1/jobs'); }
+  listJobOverview(params: HttpParams): Observable<JobOverviewPage> { return this.authorized('GET', '/api/v1/jobs/overview', {params}); }
   getJob(jobId: string): Observable<ResearchJob> { return this.authorized('GET', `/api/v1/jobs/${jobId}`); }
   listJobRuns(jobId: string): Observable<readonly AgentRun[]> { return this.authorized('GET', `/api/v1/jobs/${jobId}/agent-runs`); }
   listRunTurns(runId: string): Observable<readonly AgentTurn[]> { return this.authorized('GET', `/api/v1/agent-runs/${runId}/turns`); }

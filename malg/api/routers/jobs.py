@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from malg.api.dependencies import CrmClientDependency, SessionDependency
 from malg.core.models.jobs import (
+    ResearchJobKind,
+    ResearchJobOverviewPage,
+    ResearchJobOverviewRecord,
     ResearchJobRecord,
     ResearchJobRequest,
     ResearchJobStatus,
@@ -65,6 +69,27 @@ def _record(job: ResearchJob) -> ResearchJobRecord:
             "workflow_id": job.workflow_id,
             "stage_key": job.stage_key,
             "deadline_at": job.deadline_at,
+        }
+    )
+
+
+def _overview_record(job: ResearchJob) -> ResearchJobOverviewRecord:
+    """Convert one durable job into the compact table read model."""
+    return ResearchJobOverviewRecord.model_validate(
+        {
+            "job_id": job.job_id,
+            "kind": job.kind,
+            "status": job.status,
+            "result_outcome": job.result_outcome,
+            "attempt_count": job.attempt_count,
+            "created_at": job.created_at,
+            "started_at": job.started_at,
+            "finished_at": job.finished_at,
+            "deadline_at": job.deadline_at,
+            "campaign_id": job.campaign_id,
+            "icp_id": job.icp_id,
+            "workflow_id": job.workflow_id,
+            "stage_key": job.stage_key,
         }
     )
 
@@ -132,6 +157,64 @@ def list_jobs(
     if job_status is not None:
         query = query.where(ResearchJob.status == job_status.value)
     return [_record(job) for job in session.scalars(query)]
+
+
+@router.get("/overview", response_model=ResearchJobOverviewPage)
+def list_job_overview(
+    session: SessionDependency,
+    status_filter: Annotated[list[ResearchJobStatus] | None, Query(alias="status")] = None,
+    kinds: Annotated[list[ResearchJobKind] | None, Query(alias="kind")] = None,
+    outcomes: Annotated[list[str] | None, Query(alias="outcome", max_length=32)] = None,
+    outcome_unset: bool | None = None,
+    job_id: Annotated[str | None, Query(min_length=1, max_length=36)] = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    started_after: datetime | None = None,
+    finished_after: datetime | None = None,
+    minimum_attempts: Annotated[int | None, Query(ge=0, le=1000)] = None,
+    sort: Literal[
+        "created_at", "started_at", "finished_at", "attempt_count", "status", "kind"
+    ] = "created_at",
+    direction: Literal["asc", "desc"] = "desc",
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> ResearchJobOverviewPage:
+    """Return one bounded, server-filtered page for the jobs overview table."""
+    query = select(ResearchJob)
+    filters: list[ColumnElement[bool]] = []
+    if status_filter:
+        filters.append(ResearchJob.status.in_([item.value for item in status_filter]))
+    if kinds:
+        filters.append(ResearchJob.kind.in_([item.value for item in kinds]))
+    if outcomes:
+        filters.append(ResearchJob.result_outcome.in_(outcomes))
+    if outcome_unset is True:
+        filters.append(ResearchJob.result_outcome.is_(None))
+    if outcome_unset is False:
+        filters.append(ResearchJob.result_outcome.is_not(None))
+    if job_id:
+        filters.append(ResearchJob.job_id.startswith(job_id))
+    if created_after:
+        filters.append(ResearchJob.created_at >= created_after)
+    if created_before:
+        filters.append(ResearchJob.created_at < created_before)
+    if started_after:
+        filters.append(ResearchJob.started_at >= started_after)
+    if finished_after:
+        filters.append(ResearchJob.finished_at >= finished_after)
+    if minimum_attempts is not None:
+        filters.append(ResearchJob.attempt_count >= minimum_attempts)
+    if filters:
+        query = query.where(*filters)
+    sort_column = getattr(ResearchJob, sort)
+    ordering = sort_column.asc() if direction == "asc" else sort_column.desc()
+    total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = session.scalars(
+        query.order_by(ordering, ResearchJob.job_id.desc()).limit(limit).offset(offset)
+    )
+    return ResearchJobOverviewPage(
+        items=[_overview_record(job) for job in rows], total=total, limit=limit, offset=offset
+    )
 
 
 @router.get("/workflows/{workflow_id}")

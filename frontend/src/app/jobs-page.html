@@ -64,16 +64,18 @@
       </div>
     }
   </section>
-  @if (loading()) { <app-state-message message="Loading jobs…" /> }
-  @else if (error()) { <app-state-message message="Jobs could not be loaded right now." tone="error" /> }
-  @else if (!jobs().length) { <app-state-message message="No research jobs yet." /> }
-  @else {
-    @if (actionError()) { <p class="action-error" role="alert">The requested job action could not be completed.</p> }
-    <section class="job-list" aria-label="Research jobs">@for (job of jobs(); track job.job_id) {
-      <article class="job-card" [class]="job.status"><header class="job-card__header"><div class="job-card__identity"><span class="job-card__eyebrow">{{ job.kind }} research</span><h2 [title]="job.job_id">{{ job.job_id }}</h2></div><span tuiBadge appearance="secondary" class="job-status">{{ job.status }}</span></header>
-      <dl class="job-meta"><div><dt>Attempts</dt><dd>{{ job.attempt_count }}</dd></div><div><dt>Created</dt><dd>{{ job.created_at | date:'medium' }}</dd></div>@if (job.result_outcome) { <div><dt>Outcome</dt><dd>{{ job.result_outcome }}</dd></div> }</dl>
-      @if (job.failure_detail) { <p class="job-failure"><strong>Failure detail</strong>{{ job.failure_detail }}</p> }
-      <div class="job-card__actions"><a tuiButton appearance="secondary" [routerLink]="['/jobs', job.job_id]">View details</a>@if (job.status === 'queued' || job.status === 'running') { <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="cancelJob(job)">{{ pendingJobId() === job.job_id ? 'Cancelling…' : 'Cancel job' }}</button> }@if (isDeletable(job)) { <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="deleteJob(job)">Delete job</button> }</div></article>
-    }</section>
-  }
+  <section class="jobs-overview" aria-labelledby="jobs-overview-heading">
+    <div class="jobs-overview__heading"><div><h2 id="jobs-overview-heading">Research jobs</h2><p>Filter and sort job history. Select a row to inspect its execution.</p></div><button tuiButton type="button" appearance="secondary" (click)="applyOverviewFilters()">Refresh</button></div>
+    <form class="jobs-filters" (submit)="$event.preventDefault(); applyOverviewFilters()">
+      <label>Job ID <input class="form-input" name="job-id" [(ngModel)]="jobIdFilter" (ngModelChange)="applyOverviewFilters()" placeholder="Prefix" /></label>
+      <label>Outcome <select class="form-select" name="outcome" [(ngModel)]="outcomeFilter" (ngModelChange)="applyOverviewFilters()"><option value="">All outcomes</option><option value="complete">Complete</option><option value="partial">Partial</option><option value="needs_review">Needs review</option><option value="insufficient_evidence">Insufficient evidence</option><option value="budget_exhausted">Budget exhausted</option></select></label>
+      <label>Created after <input class="form-input" type="datetime-local" name="created-after" [(ngModel)]="createdAfter" (ngModelChange)="applyOverviewFilters()" /></label>
+      <label>Minimum attempts <input class="form-input" type="number" min="0" max="1000" name="minimum-attempts" [(ngModel)]="minimumAttempts" (ngModelChange)="applyOverviewFilters()" /></label>
+      <fieldset><legend>Status</legend>@for (status of ['queued', 'running', 'succeeded', 'failed', 'cancelled']; track status) { <label><input type="checkbox" [checked]="selectedStatuses().includes(status)" (change)="toggleFilter('status', status, $any($event.target).checked)" /> {{ status }}</label> }</fieldset>
+      <fieldset><legend>Kind</legend>@for (kind of ['campaign', 'icp', 'account']; track kind) { <label><input type="checkbox" [checked]="selectedKinds().includes(kind)" (change)="toggleFilter('kind', kind, $any($event.target).checked)" /> {{ kind }}</label> }</fieldset>
+      <button tuiButton type="button" appearance="secondary" (click)="clearOverviewFilters()">Clear filters</button>
+    </form>
+    @if (overviewError()) { <app-state-message message="Jobs could not be loaded right now. Retry the request." tone="error" /> }
+    <div class="jobs-grid" [class.jobs-grid--loading]="overviewLoading()"><ag-grid-angular [theme]="gridTheme" [columnDefs]="columnDefs" [defaultColDef]="defaultColDef" [rowModelType]="'infinite'" [cacheBlockSize]="50" [pagination]="true" [paginationPageSize]="50" [maxBlocksInCache]="4" [getRowId]="getRowId" (gridReady)="onGridReady($event)" (rowClicked)="openJob($event)" /></div>
+  </section>
 </app-page-layout>

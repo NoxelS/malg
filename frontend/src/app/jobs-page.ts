@@ -1,26 +1,34 @@
-import {DatePipe} from '@angular/common';
+import {HttpParams} from '@angular/common/http';
 import {ChangeDetectionStrategy, Component, DestroyRef, OnInit, WritableSignal, inject, signal} from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {FormsModule} from '@angular/forms';
-import {RouterLink} from '@angular/router';
+import {Router} from '@angular/router';
 import {Observable} from 'rxjs';
-import {ApiService, CrmListItem, CrmPage, CrmStatus, JobKind, ResearchJob} from './api-service';
+import {AgGridAngular} from 'ag-grid-angular';
+import {ColDef, GridApi, GridReadyEvent, IDatasource, IGetRowsParams, RowClickedEvent} from 'ag-grid-community';
+import {ApiService, CrmListItem, CrmPage, CrmStatus, JobKind, JobOverviewItem} from './api-service';
 import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge} from '@taiga-ui/kit';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
 import {StateMessageComponent} from './components/state-message.component';
+import {overviewGridTheme, registerOverviewGridModules} from './components/overview-grid.config';
 
 type Selector = 'campaigns' | 'icps';
 type LoadState = 'idle' | 'loading' | 'error';
 
-@Component({selector: 'app-jobs-page', imports: [DatePipe, FormsModule, RouterLink, TuiBadge, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent], changeDetection: ChangeDetectionStrategy.OnPush, templateUrl: './jobs-page.html', styleUrl: './jobs-page.scss'})
+const formatDate = (params: {value: string | null | undefined}): string => params.value ? new Intl.DateTimeFormat(undefined, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(params.value)) : '—';
+
+registerOverviewGridModules();
+
+@Component({selector: 'app-jobs-page', imports: [AgGridAngular, FormsModule, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent], changeDetection: ChangeDetectionStrategy.OnPush, templateUrl: './jobs-page.html', styleUrl: './jobs-page.scss'})
 export class JobsPage implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
-  protected readonly jobs = signal<readonly ResearchJob[]>([]);
-  protected readonly loading = signal(true);
-  protected readonly error = signal(false);
+  private gridApi: GridApi<JobOverviewItem> | null = null;
+  protected readonly overviewLoading = signal(false);
+  protected readonly overviewError = signal(false);
   protected readonly crm = signal<CrmStatus | null>(null);
   protected readonly crmError = signal(false);
   protected readonly crmLoading = signal(false);
@@ -38,17 +46,77 @@ export class JobsPage implements OnInit {
   protected readonly selectorState = signal<Record<Selector, LoadState>>({campaigns: 'idle', icps: 'idle'});
   protected readonly enqueueError = signal('');
   protected readonly enqueuePending = signal(false);
-  protected readonly actionError = signal<'cancel' | 'delete' | null>(null);
-  protected readonly pendingJobId = signal<string | null>(null);
+  protected jobIdFilter = '';
+  protected outcomeFilter = '';
+  protected createdAfter = '';
+  protected minimumAttempts: number | null = null;
+  protected readonly selectedStatuses = signal<readonly string[]>([]);
+  protected readonly selectedKinds = signal<readonly string[]>([]);
+  protected readonly gridTheme = overviewGridTheme;
+  protected readonly defaultColDef: ColDef<JobOverviewItem> = {resizable: true, sortable: true, minWidth: 110};
+  protected readonly columnDefs: ColDef<JobOverviewItem>[] = [
+    {field: 'job_id', headerName: 'Job ID', minWidth: 220, flex: 2},
+    {field: 'kind', headerName: 'Kind', width: 130},
+    {field: 'status', headerName: 'Status', width: 130},
+    {field: 'result_outcome', headerName: 'Outcome', minWidth: 150},
+    {field: 'attempt_count', headerName: 'Attempts', width: 115},
+    {field: 'created_at', headerName: 'Created', minWidth: 180, valueFormatter: formatDate},
+    {field: 'started_at', headerName: 'Started', minWidth: 180, valueFormatter: formatDate},
+    {field: 'finished_at', headerName: 'Finished', minWidth: 180, valueFormatter: formatDate},
+    {field: 'deadline_at', headerName: 'Deadline', minWidth: 180, valueFormatter: formatDate},
+    {field: 'campaign_id', headerName: 'Campaign ID', minWidth: 190, hide: true},
+    {field: 'icp_id', headerName: 'ICP ID', minWidth: 190, hide: true},
+    {field: 'workflow_id', headerName: 'Workflow ID', minWidth: 190, hide: true},
+    {field: 'stage_key', headerName: 'Stage', minWidth: 160, hide: true},
+  ];
+  protected readonly getRowId = (params: {data: JobOverviewItem}): string => params.data.job_id;
+  private readonly datasource: IDatasource = {getRows: (params: IGetRowsParams<JobOverviewItem>) => this.loadOverviewRows(params.startRow, params.endRow - params.startRow, params.sortModel[0]?.colId, params.sortModel[0]?.sort, params.successCallback, params.failCallback)};
   private readonly generations: Record<Selector, number> = {campaigns: 0, icps: 0};
 
   ngOnInit(): void {
-    this.api.listJobs().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (jobs) => { this.jobs.set(jobs); this.loading.set(false); },
-      error: () => { this.error.set(true); this.loading.set(false); },
-    });
     this.refreshCrm();
   }
+
+  protected onGridReady(event: GridReadyEvent<JobOverviewItem>): void {
+    this.gridApi = event.api;
+    event.api.setGridOption('datasource', this.datasource);
+  }
+
+  protected applyOverviewFilters(): void { this.gridApi?.purgeInfiniteCache(); }
+
+  protected clearOverviewFilters(): void {
+    this.jobIdFilter = ''; this.outcomeFilter = ''; this.createdAfter = ''; this.minimumAttempts = null;
+    this.selectedStatuses.set([]); this.selectedKinds.set([]); this.applyOverviewFilters();
+  }
+
+  protected toggleFilter(values: 'status' | 'kind', value: string, checked: boolean): void {
+    const target = values === 'status' ? this.selectedStatuses : this.selectedKinds;
+    target.update((current) => checked ? [...current, value] : current.filter((item) => item !== value));
+    this.applyOverviewFilters();
+  }
+
+  protected openJob(event: RowClickedEvent<JobOverviewItem>): void {
+    if (event.data) void this.router.navigate(['/jobs', event.data.job_id]);
+  }
+
+  private loadOverviewRows(startRow: number, requestedLimit: number, sortColumn: string | undefined, sortDirection: string | null | undefined, success: (rows: JobOverviewItem[], lastRow?: number) => void, fail: () => void): void {
+    let params = new HttpParams();
+    this.selectedStatuses().forEach((status) => { params = params.append('status', status); });
+    this.selectedKinds().forEach((kind) => { params = params.append('kind', kind); });
+    if (this.jobIdFilter.trim()) params = params.set('job_id', this.jobIdFilter.trim());
+    if (this.outcomeFilter) params = params.set('outcome', this.outcomeFilter);
+    if (this.createdAfter) params = params.set('created_after', new Date(this.createdAfter).toISOString());
+    if (this.minimumAttempts !== null) params = params.set('minimum_attempts', String(this.minimumAttempts));
+    params = params.set('offset', String(startRow)).set('limit', String(Math.min(requestedLimit, 100)));
+    if (sortColumn && ['created_at', 'started_at', 'finished_at', 'attempt_count', 'status', 'kind'].includes(sortColumn)) params = params.set('sort', sortColumn);
+    if (sortDirection === 'asc' || sortDirection === 'desc') params = params.set('direction', sortDirection);
+    this.overviewLoading.set(true); this.overviewError.set(false);
+    this.api.listJobOverview(params).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (page) => { this.overviewLoading.set(false); success([...page.items], page.total); },
+      error: () => { this.overviewLoading.set(false); this.overviewError.set(true); fail(); },
+    });
+  }
+
 
   protected refreshCrm(): void {
     if (this.crmLoading()) return;
@@ -107,20 +175,9 @@ export class JobsPage implements OnInit {
       : kind === 'icp' ? this.api.submitJob({kind, campaign_id: this.selectedCampaign, icp_count: this.icpCount})
       : this.api.submitJob({kind: 'account', icp_id: this.selectedIcp, company_count: this.companyCount, people_per_company: this.peoplePerCompany, opportunities_per_company: this.opportunitiesPerCompany});
     request.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (added) => { this.jobs.update((jobs) => [added, ...jobs]); this.enqueuePending.set(false); },
+      next: () => { this.applyOverviewFilters(); this.enqueuePending.set(false); },
       error: () => { this.enqueuePending.set(false); this.enqueueError.set('The job could not be started. Check CRM compatibility and the selected scope.'); },
     });
   }
   private validCount(value: number, maximum: number): boolean { return Number.isInteger(value) && value >= 1 && value <= maximum; }
-  protected isDeletable(job: ResearchJob): boolean { return ['cancelled', 'succeeded', 'failed'].includes(job.status); }
-  protected cancelJob(job: ResearchJob): void {
-    if (!['queued', 'running'].includes(job.status) || this.pendingJobId()) return;
-    this.pendingJobId.set(job.job_id); this.actionError.set(null);
-    this.api.cancelJob(job.job_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: (updated) => { this.jobs.update((jobs) => jobs.map((item) => item.job_id === updated.job_id ? updated : item)); this.pendingJobId.set(null); }, error: () => { this.pendingJobId.set(null); this.actionError.set('cancel'); }});
-  }
-  protected deleteJob(job: ResearchJob): void {
-    if (!this.isDeletable(job) || this.pendingJobId()) return;
-    this.pendingJobId.set(job.job_id); this.actionError.set(null);
-    this.api.deleteJob(job.job_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: () => { this.jobs.update((jobs) => jobs.filter((item) => item.job_id !== job.job_id)); this.pendingJobId.set(null); }, error: () => { this.pendingJobId.set(null); this.actionError.set('delete'); }});
-  }
 }
