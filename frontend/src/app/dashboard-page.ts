@@ -21,10 +21,18 @@ interface DashboardJobDuration {
   readonly kind: string;
   readonly average_duration_seconds: number | null;
 }
+interface DashboardOutcomeCounts {
+  readonly complete: number;
+  readonly partial: number;
+  readonly needs_review: number;
+  readonly insufficient_evidence: number;
+  readonly budget_exhausted: number;
+}
 
 interface DashboardSummary {
   readonly active_workers: number;
   readonly jobs: DashboardJobCounts;
+  readonly outcomes: DashboardOutcomeCounts;
   readonly job_durations: readonly DashboardJobDuration[];
 }
 

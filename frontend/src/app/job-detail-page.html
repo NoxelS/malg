@@ -33,7 +33,7 @@
         <div><dt>Outcome</dt><dd>{{ display(currentJob.result_outcome ?? null) }}</dd></div>
         <div><dt>Origin</dt><dd>{{ display(currentJob.data_origin ?? null) }}</dd></div>
       </dl>
-      @if (currentJob.status === 'failed' && currentJob.data_origin === 'twenty') {
+      @if (canRetry(currentJob)) {
         <button tuiButton type="button" appearance="primary" [disabled]="retryingJob() || !canPublish()" (click)="retryJob()">{{ retryingJob() ? 'Retrying…' : 'Retry job' }}</button>
         @if (!canPublish()) { <p>Retry requires current compatible CRM. Refresh to check again.</p> }
       }
@@ -42,6 +42,16 @@
       }
       @if (currentJob.status === 'cancelled') { <p>Cancellation stops new work, not already-issued remote effects. Confirmed and pending writes remain visible below.</p> }
     </section>
+    @if (progress().length) {
+      <section class="detail-section" aria-labelledby="job-progress-heading">
+        <h2 id="job-progress-heading">Research progress</h2>
+        <div class="progress-grid">
+          @for (item of progress(); track item.name) {
+            <div><strong>{{ item.achieved }} / {{ item.target }}</strong><span>{{ item.name }}</span></div>
+          }
+        </div>
+      </section>
+    }
     <section class="detail-section">
       <h2>Immutable research input</h2>
       @if (inputPayload() !== null) { <app-trace-property-list [value]="inputPayload()" /> }
@@ -59,22 +69,6 @@
         </article>
       }
     </section>
-    @if (currentJob.kind === 'discovery' && candidates().length) {
-      <section class="detail-section">
-        <h2>Discovery candidates</h2>
-        <p>Discovery creates no CRM record. Each account research action requires your explicit selection.</p>
-        @for (candidate of candidates(); track candidate.website) {
-          <article class="stage-row">
-            <strong>{{ candidate.name }}</strong><p>{{ candidate.website }}</p><p>{{ candidate.reason }}</p>
-            @if (candidateJobs()[candidate.website]; as createdId) {
-              <a tuiButton appearance="secondary" [routerLink]="['/jobs', createdId]">Open account research job</a>
-            } @else {
-              <button tuiButton type="button" [disabled]="!canPublish() || candidatePending() !== null || currentJob.data_origin !== 'twenty'" (click)="enqueueCandidate(candidate)">Research this account</button>
-            }
-          </article>
-        }
-      </section>
-    }
     <section class="detail-section">
       <h2>CRM writes</h2>
       @if (writesUnavailable()) { <p role="alert">Write status could not be refreshed; do not assume pending effects are absent.</p> }

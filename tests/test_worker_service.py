@@ -11,21 +11,27 @@ from sqlalchemy import select
 from twenty_fake import publication_fixture
 
 from malg.config import WorkerConfig
-from malg.core.models.account import AccountData, AccountIdentity, AccountResearchResult
+from malg.core.models.account import (
+    AccountData,
+    AccountIdentity,
+    AccountResearchResult,
+    AccountValidationAssessment,
+    CheckOutcome,
+    Money,
+    ValidationCheck,
+)
 from malg.core.models.campaign import CampaignData
 from malg.core.models.icp import ICPData
 from malg.core.models.jobs import (
-    AccountHydrationJobRequest,
+    AccountResearchJobRequest,
     CampaignResearchJobRequest,
     ICPResearchJobRequest,
-    PersonHydrationJobRequest,
-    PersonResearchJobRequest,
 )
+from malg.core.models.opportunity import OpportunityData, OpportunityResearchResult
 from malg.core.models.person import PersonData
 from malg.core.models.research import ResearchResult
-from malg.database.jobs import cancel_job, claim_next_job, enqueue_job, fail_job, retry_failed_job
+from malg.database.jobs import claim_next_job, enqueue_job, fail_job, retry_failed_job
 from malg.database.models import (
-    CrmWriteOperation,
     ResearchJob,
     ResearchStageResult,
     ResearchWorkflow,
@@ -68,7 +74,7 @@ def requeue(fixture) -> None:
         retry_failed_job(session, job.job_id, datetime.now(UTC))
 
 
-async def save_checkpoint(fixture, result, *, missing=None) -> str:
+async def save_checkpoint(fixture, result) -> str:
     """Persist an already-validated research checkpoint before simulating a crash."""
     sessions, client, job = fixture[1], fixture[4], fixture[6]
     records = await client.read_scope(job.request_payload)
@@ -77,8 +83,6 @@ async def save_checkpoint(fixture, result, *, missing=None) -> str:
         "crm_inputs": {key: value.targeting_snapshot() for key, value in records.items()},
         "observed_records": {key: value.model_dump(mode="json") for key, value in records.items()},
     }
-    if missing is not None:
-        payload["missing_fields"] = missing
     with sessions.begin() as session:
         current = session.get(ResearchJob, job.job_id)
         workflow = create_workflow_for_job(
@@ -89,7 +93,7 @@ async def save_checkpoint(fixture, result, *, missing=None) -> str:
             job_id=job.job_id,
             claim_token=job.claim_token,
             workflow_id=workflow.workflow_id,
-            stage_key=f"{job.kind}.research",
+            stage_key=("icp.candidate.0.research" if job.kind == "icp" else f"{job.kind}.research"),
             input_hash=workflow.input_hash,
             outcome=result.outcome,
             payload=result.model_dump(mode="json"),
@@ -241,62 +245,17 @@ def test_changed_or_deleted_parent_prevents_any_new_publication(setup_worker, ch
     asyncio.run(run())
 
 
-def test_account_hydration_reuses_original_version_and_preserves_zero(setup_worker) -> None:
+def test_account_job_publishes_complete_company_person_opportunity_bundle(setup_worker) -> None:
     async def run() -> None:
-        company_id = uuid4()
-        fixture = setup_worker(AccountHydrationJobRequest(account_id=company_id))
-        remote = fixture[2]
-        remote.add(
-            "company",
-            {
-                "name": "Saved Company",
-                "domainName": {"primaryLinkUrl": "proof.example"},
-                "malgEmployees": 0,
-                "annualRevenue": {"amountMicros": "0", "currencyCode": "USD"},
-                "linkedinLink": {"primaryLinkUrl": "https://linkedin.com/company/proof/"},
-            },
-            str(company_id),
+        campaign_id, icp_id = uuid4(), uuid4()
+        fixture = setup_worker(
+            AccountResearchJobRequest(
+                icp_id=icp_id,
+                company_count=1,
+                people_per_company=2,
+                opportunities_per_company=2,
+            )
         )
-        original_version = remote.records["company", str(company_id)]["updatedAt"]
-        result = AccountResearchResult(
-            outcome="complete",
-            data=AccountData(
-                name="Saved Company",
-                sector="Observed sector",
-                employees=0,
-                website="https://proof.example",
-            ),
-            identity=AccountIdentity(
-                display_name="Saved Company", official_website="https://proof.example"
-            ),
-            qualification="accepted",
-        )
-        await save_checkpoint(fixture, result, missing=["sector"])
-        remote.edit("company", str(company_id), {})
-        await worker_for(fixture).run_once()
-        assert remote.records["company", str(company_id)]["malgEmployees"] == 0
-        assert remote.records["company", str(company_id)]["malgSector"] == "Observed sector"
-        with fixture[1]() as session:
-            job = session.get(ResearchJob, fixture[6].job_id)
-            assert job.status == "succeeded"
-            assert job.result_outcome == "complete"
-            operation = session.scalar(select(CrmWriteOperation))
-            assert operation.observed_record_version == original_version
-            keys = set(session.scalars(select(ResearchStageResult.stage_key)))
-            assert {
-                "account_hydration.observation",
-                "account_hydration.research",
-                "account_hydration.proposals",
-                "account_hydration.publication",
-            } <= keys
-
-    asyncio.run(run())
-
-
-def test_person_research_completes_native_company_link_and_stage_history(setup_worker) -> None:
-    async def run() -> None:
-        company_id, icp_id, campaign_id = uuid4(), uuid4(), uuid4()
-        fixture = setup_worker(PersonResearchJobRequest(account_id=company_id, icp_id=icp_id))
         remote = fixture[2]
         remote.add("malgCampaign", {"name": "Human", "objective": "Scope"}, str(campaign_id))
         remote.add(
@@ -313,94 +272,128 @@ def test_person_research_completes_native_company_link_and_stage_history(setup_w
             },
             str(icp_id),
         )
-        remote.add(
-            "company",
-            {"name": "Saved Company", "domainName": {"primaryLinkUrl": "proof.example"}},
-            str(company_id),
+        account = AccountResearchResult(
+            outcome="complete",
+            data=AccountData(
+                name="Proof Company", sector="Software", website="https://proof.example"
+            ),
+            identity=AccountIdentity(
+                display_name="Proof Company", official_website="https://proof.example"
+            ),
+            qualification="accepted",
         )
-        remote.add(
-            "malgMembership",
-            {"name": "Membership", "companyId": str(company_id), "icpId": str(icp_id)},
+        validation = AccountValidationAssessment(
+            outcome="accepted",
+            rationale="The official site confirms the identity and fit.",
+            checks=[
+                ValidationCheck(
+                    check_type="identity",
+                    target="proof.example",
+                    outcome=CheckOutcome.PASS,
+                    reason="Observed official domain",
+                )
+            ],
+            validated_at=datetime.now(UTC),
         )
-        await save_checkpoint(
-            fixture,
-            ResearchResult[PersonData](
-                outcome="complete",
-                data=PersonData(first_name="Ada", last_name="Lovelace", job_title="Founder"),
+        first_person = ResearchResult[PersonData](
+            outcome="complete",
+            data=PersonData(first_name="Ada", last_name="Lovelace", job_title="Founder"),
+        )
+        second_person = ResearchResult[PersonData](
+            outcome="complete",
+            data=PersonData(first_name="Grace", last_name="Hopper", job_title="CTO"),
+        )
+        first_opportunity = OpportunityResearchResult(
+            outcome="complete",
+            data=OpportunityData(
+                name="CRM workflow assessment",
+                pitch="Assess the current CRM workflow and identify bounded improvements.",
+                scope="Review the existing process and prepare an implementation plan.",
+                deliverables=["Workflow assessment", "Implementation plan"],
+                rationale="The ICP identifies CRM as the relevant workflow.",
+                estimated_price=Money(amount="5000", currency_code="EUR"),
+                pricing_rationale="Five consulting days at an assumed blended rate.",
             ),
         )
-        await worker_for(fixture).run_once()
-        assert len(remote.creates) == 1
-        kind, person_id = remote.creates[0]
-        assert kind == "person"
-        assert remote.records[kind, person_id]["companyId"] == str(company_id)
+        second_opportunity = OpportunityResearchResult(
+            outcome="complete",
+            data=OpportunityData(
+                name="CRM implementation sprint",
+                pitch="Implement the highest-priority workflow improvement.",
+                scope="Deliver one bounded CRM workflow improvement.",
+                deliverables=["Configured workflow", "Handover notes"],
+                rationale="The assessment creates a bounded implementation opportunity.",
+                estimated_price=Money(amount="8000", currency_code="EUR"),
+                pricing_rationale="Eight consulting days at an assumed blended rate.",
+            ),
+        )
+        records = await fixture[4].read_scope(fixture[6].request_payload)
+        input_payload = {
+            "request": fixture[6].request_payload,
+            "crm_inputs": {key: value.targeting_snapshot() for key, value in records.items()},
+            "observed_records": {
+                key: value.model_dump(mode="json") for key, value in records.items()
+            },
+        }
+        with fixture[1].begin() as session:
+            current = session.get(ResearchJob, fixture[6].job_id)
+            workflow = create_workflow_for_job(
+                session, current, input_payload, datetime.now(UTC) + timedelta(minutes=20)
+            )
+            for stage_key, result in (
+                ("account.candidate.0.research", account),
+                ("account.candidate.0.validation", validation),
+                ("account.candidate.0.person.0.research", first_person),
+                ("account.candidate.0.person.1.research", second_person),
+                ("account.candidate.0.opportunity.0.research", first_opportunity),
+                ("account.candidate.0.opportunity.1.research", second_opportunity),
+            ):
+                persist_stage_result(
+                    session,
+                    job_id=current.job_id,
+                    claim_token=current.claim_token,
+                    workflow_id=workflow.workflow_id,
+                    stage_key=stage_key,
+                    input_hash=workflow.input_hash,
+                    outcome="complete",
+                    payload=result.model_dump(mode="json"),
+                    now=datetime.now(UTC),
+                )
+        requeue(fixture)
+        assert await worker_for(fixture).run_once()
+        created_kinds = [kind for kind, _ in remote.creates]
+        assert created_kinds == [
+            "company",
+            "malgMembership",
+            "person",
+            "person",
+            "opportunity",
+            "note",
+            "noteTarget",
+            "opportunity",
+            "note",
+            "noteTarget",
+        ]
         with fixture[1]() as session:
             job = session.get(ResearchJob, fixture[6].job_id)
             assert job.status == "succeeded"
             assert job.result_outcome == "complete"
-            assert job.result_refs[0]["record_id"] == person_id
-            assert set(session.scalars(select(ResearchStageResult.stage_key))) == {
-                "person.research",
-                "person.publication",
+            publication = session.scalar(
+                select(ResearchStageResult).where(
+                    ResearchStageResult.stage_key == "account.publication"
+                )
+            )
+            assert publication.payload["target_counts"] == {
+                "companies": 1,
+                "people": 2,
+                "opportunities": 2,
             }
-
-    asyncio.run(run())
-
-
-def test_person_without_company_finishes_review_without_generation_or_writes(setup_worker) -> None:
-    fixture = setup_worker(PersonHydrationJobRequest(person_id=uuid4()))
-    fixture[2].add("person", {"name": {"firstName": "Mononym"}}, fixture[6].person_id)
-    requeue(fixture)
-    asyncio.run(worker_for(fixture).run_once())
-    with fixture[1]() as session:
-        job = session.get(ResearchJob, fixture[6].job_id)
-        assert job.status == "succeeded"
-        assert job.result_outcome == "needs_review"
-    assert fixture[2].creates == []
-    assert fixture[2].updates == 0
-
-
-def test_worker_cancels_waiting_remote_operation_when_claim_is_revoked(setup_worker) -> None:
-    async def run() -> None:
-        company_id = uuid4()
-        fixture = setup_worker(AccountHydrationJobRequest(account_id=company_id))
-        remote = fixture[2]
-        remote.add(
-            "company",
-            {"name": "Saved Company", "domainName": {"primaryLinkUrl": "proof.example"}},
-            str(company_id),
-        )
-        result = AccountResearchResult(
-            outcome="partial",
-            data=AccountData(
-                name="Saved Company", sector="Observed", website="https://proof.example"
-            ),
-            identity=AccountIdentity(
-                display_name="Saved Company", official_website="https://proof.example"
-            ),
-            qualification="accepted",
-        )
-        await save_checkpoint(
-            fixture, result, missing=["sector", "employees", "annual_revenue", "linkedin_url"]
-        )
-        issued = asyncio.Event()
-
-        async def pause_transport():
-            issued.set()
-            await asyncio.Event().wait()
-
-        remote.before_fill = pause_transport
-        execution = asyncio.create_task(worker_for(fixture).run_once())
-        await asyncio.wait_for(issued.wait(), 3)
-        with fixture[1].begin() as session:
-            cancel_job(session, fixture[6].job_id, datetime.now(UTC))
-        assert await asyncio.wait_for(execution, 3)
-        with fixture[1]() as session:
-            job = session.get(ResearchJob, fixture[6].job_id)
-            assert job.status == "cancelled"
-            assert job.result_outcome is None
-            assert session.get(ResearchWorkflow, job.workflow_id).status == "cancelled"
-            assert session.scalar(select(CrmWriteOperation)).status == "prepared"
-        assert remote.updates == 0
+            assert publication.payload["achieved_counts"] == publication.payload["target_counts"]
+            progress = session.scalars(
+                select(ResearchStageResult)
+                .where(ResearchStageResult.stage_key == "account.progress")
+                .order_by(ResearchStageResult.revision)
+            ).all()
+            assert progress[-1].payload["achieved_counts"] == publication.payload["target_counts"]
 
     asyncio.run(run())

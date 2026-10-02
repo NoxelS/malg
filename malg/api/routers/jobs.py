@@ -12,13 +12,6 @@ from sqlalchemy.orm import Session
 
 from malg.api.dependencies import CrmClientDependency, SessionDependency
 from malg.core.models.jobs import (
-    AccountResearchJobBatchRequest,
-    AccountResearchJobRequest,
-    CampaignResearchJobBatchRequest,
-    CampaignResearchJobRequest,
-    ICPResearchJobBatchRequest,
-    ICPResearchJobRequest,
-    ResearchJobKind,
     ResearchJobRecord,
     ResearchJobRequest,
     ResearchJobStatus,
@@ -34,9 +27,7 @@ from malg.crm.schema import SchemaConflict
 from malg.database.jobs import (
     cancel_job,
     delete_job,
-    enqueue_campaign_jobs,
     enqueue_job,
-    enqueue_scoped_jobs,
     retry_failed_job,
 )
 from malg.database.models import (
@@ -129,69 +120,6 @@ async def create_job(
     _capture_contract(job, contract)
     session.commit()
     return _record(job)
-
-
-@router.post(
-    "/campaigns",
-    response_model=list[ResearchJobRecord],
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def create_campaign_jobs(
-    payload: CampaignResearchJobBatchRequest,
-    session: SessionDependency,
-    client: CrmClientDependency,
-) -> list[ResearchJobRecord]:
-    """Enqueue a bounded batch of independent campaign research jobs."""
-    contract, _ = await _admit(CampaignResearchJobRequest(), client)
-    jobs = enqueue_campaign_jobs(payload.amount, session)
-    for job in jobs:
-        _capture_contract(job, contract)
-    session.commit()
-    return [_record(job) for job in jobs]
-
-
-@router.post(
-    "/icps",
-    response_model=list[ResearchJobRecord],
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def create_icp_jobs(
-    payload: ICPResearchJobBatchRequest, session: SessionDependency, client: CrmClientDependency
-) -> list[ResearchJobRecord]:
-    """Enqueue a bounded batch of ICP jobs for a remote campaign reference."""
-    contract, _ = await _admit(ICPResearchJobRequest(campaign_id=payload.campaign_id), client)
-    jobs = enqueue_scoped_jobs(
-        ResearchJobKind.ICP, payload.amount, session, campaign_id=str(payload.campaign_id)
-    )
-    for job in jobs:
-        _capture_contract(job, contract)
-    session.commit()
-    return [_record(job) for job in jobs]
-
-
-@router.post(
-    "/accounts",
-    response_model=list[ResearchJobRecord],
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def create_account_jobs(
-    payload: AccountResearchJobBatchRequest, session: SessionDependency, client: CrmClientDependency
-) -> list[ResearchJobRecord]:
-    """Enqueue a bounded batch of account jobs for remote campaign and ICP references."""
-    contract, _ = await _admit(
-        AccountResearchJobRequest(campaign_id=payload.campaign_id, icp_id=payload.icp_id), client
-    )
-    jobs = enqueue_scoped_jobs(
-        ResearchJobKind.ACCOUNT,
-        payload.amount,
-        session,
-        campaign_id=str(payload.campaign_id) if payload.campaign_id else None,
-        icp_id=str(payload.icp_id),
-    )
-    for job in jobs:
-        _capture_contract(job, contract)
-    session.commit()
-    return [_record(job) for job in jobs]
 
 
 @router.get("", response_model=list[ResearchJobRecord])

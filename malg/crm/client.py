@@ -599,7 +599,7 @@ class TwentyClient:
             if not isinstance(fields[field_name], Mapping) or set(fields[field_name]) != {
                 "lastName"
             }:
-                raise ValueError("FullName hydration only permits a missing lastName component.")
+                raise ValueError("FullName enrichment only permits a missing lastName component.")
             empty_predicate = blank("lastName")
         else:
             empty_predicate = {field_name: {"is": "NULL"}}
@@ -784,7 +784,7 @@ def _parse_typed_node(
 
 
 def _observed_composites(node: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """Preserve complete native components per field for safe hydration predicates."""
+    """Preserve complete native components per field for safe enrichment predicates."""
     observed: dict[str, dict[str, Any]] = {}
     for key in ("domainName", "linkedinLink", "emails", "name", "annualRevenue"):
         value = node.get(key)

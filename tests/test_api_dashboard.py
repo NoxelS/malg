@@ -31,6 +31,7 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
                     owner_worker_token="running-worker" if status == "running" else None,
                     claim_token="running-claim" if status == "running" else None,
                     claimed_at=now if status == "running" else None,
+                    result_outcome="complete" if status == "succeeded" else None,
                 )
             )
         session.add(
@@ -40,6 +41,7 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
                 status="succeeded",
                 started_at=now - timedelta(seconds=30),
                 finished_at=now,
+                result_outcome="complete",
             )
         )
         session.add(
@@ -49,6 +51,7 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
                 status="succeeded",
                 started_at=now - timedelta(seconds=90),
                 finished_at=now,
+                result_outcome="partial",
             )
         )
         session.add(
@@ -58,6 +61,7 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
                 status="succeeded",
                 started_at=now - timedelta(seconds=120),
                 finished_at=now,
+                result_outcome="budget_exhausted",
             )
         )
         session.add(WorkerHeartbeat(worker_token="idle-worker", last_seen_at=now))
@@ -70,15 +74,17 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
     assert client.get("/api/v1/dashboard").json() == {
         "active_workers": 2,
         "jobs": {"queued": 1, "running": 1, "succeeded": 4, "failed": 1, "cancelled": 1},
+        "outcomes": {
+            "complete": 2,
+            "partial": 1,
+            "needs_review": 0,
+            "insufficient_evidence": 0,
+            "budget_exhausted": 1,
+        },
         "job_durations": [
             {"kind": "campaign", "average_duration_seconds": 60.0},
             {"kind": "icp", "average_duration_seconds": 120.0},
-            {"kind": "discovery", "average_duration_seconds": None},
             {"kind": "account", "average_duration_seconds": None},
-            {"kind": "account_hydration", "average_duration_seconds": None},
-            {"kind": "person", "average_duration_seconds": None},
-            {"kind": "person_hydration", "average_duration_seconds": None},
-            {"kind": "opportunity", "average_duration_seconds": None},
         ],
     }
     workers = client.get("/api/v1/workers").json()

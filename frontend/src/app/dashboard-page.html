@@ -15,9 +15,20 @@
       <div class="jobs-grid">
         <article class="metric-card"><span>Queued</span><strong>{{ data.jobs.queued }}</strong></article>
         <article class="metric-card"><span>Running</span><strong>{{ data.jobs.running }}</strong></article>
-        <article class="metric-card"><span>Succeeded</span><strong>{{ data.jobs.succeeded }}</strong></article>
+        <article class="metric-card"><span>Finished</span><strong>{{ data.jobs.succeeded }}</strong></article>
         <article class="metric-card"><span>Failed</span><strong>{{ data.jobs.failed }}</strong></article>
         <article class="metric-card"><span>Cancelled</span><strong>{{ data.jobs.cancelled }}</strong></article>
+      </div>
+    </section>
+
+    <section class="dashboard-section" aria-labelledby="outcomes-heading">
+      <app-section-heading headingId="outcomes-heading" title="Research outcomes" description="Business results from finished jobs" />
+      <div class="jobs-grid">
+        <article class="metric-card"><span>Complete</span><strong>{{ data.outcomes.complete }}</strong></article>
+        <article class="metric-card"><span>Partial</span><strong>{{ data.outcomes.partial }}</strong></article>
+        <article class="metric-card"><span>No evidence</span><strong>{{ data.outcomes.insufficient_evidence }}</strong></article>
+        <article class="metric-card"><span>Budget exhausted</span><strong>{{ data.outcomes.budget_exhausted }}</strong></article>
+        <article class="metric-card"><span>Needs review</span><strong>{{ data.outcomes.needs_review }}</strong></article>
       </div>
     </section>
 

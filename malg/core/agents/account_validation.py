@@ -19,8 +19,8 @@ class AccountValidationAgent(BrowserSupport):
 
     async def validate_account(
         self,
-        campaign: CampaignData | None,
-        icp: ICPData | None,
+        campaign: CampaignData,
+        icp: ICPData,
         candidate: AccountResearchResult,
         probes: AccountProbeReport,
     ) -> AccountValidationAssessment:
@@ -33,8 +33,7 @@ class AccountValidationAgent(BrowserSupport):
         claims using bounded self.retrieval.search/fetch and cite actual source URLs.
         Search returns response.results with hit.url attributes. Fetch with
         purpose="evidence" and read page.excerpts (dicts with id/text).
-        Campaign/ICP may be absent for hydration: verify the saved identity without
-        inventing targeting requirements. Use the supplied probes and at most one
+        Campaign and ICP define the qualification scope. Use the supplied probes and at most one
         independent source fetch to verify decisive identity/fit claims; do not
         repeat broad discovery or investigate optional registry/company details.
         Return by the third reasoning turn, reserving remaining turns for errors.
