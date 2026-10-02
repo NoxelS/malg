@@ -259,6 +259,8 @@ export class ApiService {
   }
   listMemoryOverview(params: HttpParams): Observable<MemoryOverviewPage> { return this.authorized('GET', '/api/v1/memories/overview', {params}); }
   getMemory(memoryId: string): Observable<MemoryDetail> { return this.authorized('GET', `/api/v1/memories/${memoryId}`); }
+  /** Delete one memory and its associations through the authenticated API. */
+  deleteMemory(memoryId: string): Observable<void> { return this.authorized('DELETE', `/api/v1/memories/${encodeURIComponent(memoryId)}`); }
   clearMemories(): Observable<MemoryClearResult> { return this.authorized('DELETE', '/api/v1/memories'); }
   listJobs(): Observable<readonly ResearchJob[]> { return this.authorized('GET', '/api/v1/jobs'); }
   listJobOverview(params: HttpParams): Observable<JobOverviewPage> { return this.authorized('GET', '/api/v1/jobs/overview', {params}); }

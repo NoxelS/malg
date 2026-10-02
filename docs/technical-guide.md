@@ -286,6 +286,14 @@ Twenty. The `ApiService` is the exclusive same-origin API client and stores its 
 in `sessionStorage`, attaching it to protected requests and owning logout/expiry behavior.
 Job detail independently displays immutable inputs, stage revisions, outcomes, traces, partial
 remote references and the write journal. Pending effects remain visible after cancellation.
+The jobs overview uses Taiga UI filters and status badges. Row actions delete finished job
+history; **Delete shown** applies only to eligible rows on the current filtered page (including
+when filtering by cancelled). Active jobs and other pages are excluded. Research artifacts and
+CRM records are retained. Unresolved CRM writes block deletion, and batch results report
+partial failures so remaining rows can be retried.
+The memory overview uses the same filter styling, readable previews, type badges, and
+individual or current-page deletion. Memory deletion also removes its associations.
+The separately confirmed global clear still removes all memories, regardless of filters.
 
 Start it locally with:
 
