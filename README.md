@@ -391,17 +391,22 @@ the backend image changes. CRM schema compatibility checks remain active during 
 Migration changes must use expand/contract sequencing for rolling old pods, while destructive
 operations remain reviewed maintenance work.
 
-The controlled release sequence is:
+The release sequence is:
 
-1. Bump the `0.<minor>.0` version in `pyproject.toml` and update `uv.lock` in a normal PR when a
-   release is wanted. PR checks include Python quality and coverage, PostgreSQL integration, and
-   local builds of both images. All three checks must pass before merge.
-2. The merge to `main` reruns the checks. If that version already has a GitHub Release, it stops
-   after checking. Otherwise it builds and pushes both `linux/amd64` and `linux/arm64` images once,
-   verifies their digests, and creates a GitHub Release and `v0.<minor>.0` tag on the checked commit.
-   A failed publication can be rerun for the same commit; a tag on another commit is rejected.
+1. Pull requests targeting `main` run Python quality and coverage checks, PostgreSQL integration,
+   and local builds of both images. They do not reserve tags or push images.
+2. Every push to `main` runs checks, then allocates the next unused immutable `v0.<minor>.0`
+   release tag, reserves it at that commit, builds and pushes both `linux/amd64` and `linux/arm64`
+   images, verifies their digests, and creates the GitHub Release. Main runs are queued so each
+   commit is published in order. An interrupted run reuses its reserved tag when rerun for the
+   same commit. If the GitHub Release already exists, it is not published again. The concurrency
+   queue holds up to 100 pending workflow runs.
 3. Flux detects both matching image tags, opens the deployment PR, and auto-merges it only after
    `static-checks` and branch protection succeed.
+
+Package version changes in `pyproject.toml` and `uv.lock` remain normal package-maintenance work;
+they do not request or gate deployment image releases.
+
 
 MALG does not create release pull requests or write deployment manifests directly to `main`.
 Sisyphus validates image identity, migration safety, startup gates, force
