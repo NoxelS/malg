@@ -10,17 +10,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number || 'main' }}
+  queue: max
 
 jobs:
   check:
     name: Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs:
-      publish: ${{ steps.release.outputs.publish }}
-      tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Check out source and tags
         uses: actions/checkout@v4
@@ -59,53 +56,6 @@ jobs:
           test ! -e frontend/.env
           grep -Fxq 'node_modules' frontend/.dockerignore
           grep -Fxq 'dist' frontend/.dockerignore
-
-      - name: Select version for publication
-        id: release
-        if: github.event_name == 'push'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          version=$(python - <<'PY'
-          import tomllib
-          from pathlib import Path
-
-          with Path("pyproject.toml").open("rb") as stream:
-              print(tomllib.load(stream)["project"]["version"])
-          PY
-          )
-          [[ "$version" =~ ^0\.([1-9][0-9]*)\.0$ ]] || {
-            echo "project version must match 0.<minor>.0" >&2
-            exit 1
-          }
-          minor="${BASH_REMATCH[1]}"
-          tag="v$version"
-          latest_tag=$(git tag --list 'v0.*.0' --sort=-version:refname | head -n 1)
-          if [[ "$latest_tag" =~ ^v0\.([1-9][0-9]*)\.0$ ]] && (( 10#$minor < 10#${BASH_REMATCH[1]} )); then
-            echo "project version is older than $latest_tag" >&2
-            exit 1
-          fi
-
-          if git show-ref --quiet --verify "refs/tags/$tag"; then
-            tag_sha=$(git rev-list -n 1 "$tag^{commit}")
-            git merge-base --is-ancestor "$tag_sha" "$GITHUB_SHA" || {
-              echo "$tag is not on the current main history" >&2
-              exit 1
-            }
-            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            test "$tag_sha" = "$GITHUB_SHA" || {
-              echo "$tag has no release and points to a different commit; rerun its original workflow" >&2
-              exit 1
-            }
-          fi
-
-          echo "publish=true" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   postgres-integration:
     name: PostgreSQL and pgvector integration
@@ -171,7 +121,7 @@ jobs:
 
   publish:
     name: Publish images and release
-    if: github.event_name == 'push' && needs.check.outputs.publish == 'true'
+    if: github.event_name == 'push'
     needs: [check, postgres-integration]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -182,32 +132,127 @@ jobs:
       - name: Check out reviewed source
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
-      - name: Verify release identity
+      - name: Select and reserve release tag
+        id: release
         shell: bash
         env:
-          RELEASE_TAG: ${{ needs.check.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version=$(python - <<'PY'
-          import tomllib
-          from pathlib import Path
+          test "$GITHUB_REF" = refs/heads/main
 
-          with Path("pyproject.toml").open("rb") as stream:
-              print(tomllib.load(stream)["project"]["version"])
-          PY
-          )
-          test "$RELEASE_TAG" = "v$version"
+          current_tags=()
+          highest_minor=0
+          highest_tag=""
+          while IFS= read -r candidate; do
+            [[ "$candidate" =~ ^v0\.([1-9][0-9]*)\.0$ ]] || continue
+            minor="${BASH_REMATCH[1]}"
+            if (( 10#$minor > highest_minor )); then
+              highest_minor=$((10#$minor))
+              highest_tag="$candidate"
+            fi
+            candidate_sha=$(git rev-parse "$candidate^{commit}")
+            if [[ "$candidate_sha" = "$GITHUB_SHA" ]]; then
+              current_tags+=("$candidate")
+            fi
+          done < <(git tag --list 'v0.*.0')
+
+          if (( ${#current_tags[@]} > 1 )); then
+            printf 'current commit has multiple release tags: %s\n' "${current_tags[*]}" >&2
+            exit 1
+          fi
+
+          if (( ${#current_tags[@]} == 1 )); then
+            RELEASE_TAG="${current_tags[0]}"
+          else
+            if [[ -n "$highest_tag" ]]; then
+              highest_sha=$(git rev-parse "$highest_tag^{commit}")
+              if git merge-base --is-ancestor "$GITHUB_SHA" "$highest_sha"; then
+                echo "publish=false" >> "$GITHUB_OUTPUT"
+                echo "$GITHUB_SHA is already superseded by release $highest_tag"
+                exit 0
+              fi
+              git merge-base --is-ancestor "$highest_sha" "$GITHUB_SHA" || {
+                echo "main history diverges from release $highest_tag" >&2
+                exit 1
+              }
+            fi
+            RELEASE_TAG="v0.$((highest_minor + 1)).0"
+          fi
+
+          [[ "$RELEASE_TAG" =~ ^v0\.[1-9][0-9]*\.0$ ]]
+
+          resolve_tag_sha() {
+            local object_sha object_type
+            IFS=$'\t' read -r object_sha object_type < <(
+              gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" \
+                --jq '[.object.sha, .object.type] | @tsv'
+            )
+            for _ in 1 2 3 4 5; do
+              if [[ "$object_type" = commit ]]; then
+                printf '%s\n' "$object_sha"
+                return 0
+              fi
+              [[ "$object_type" = tag ]] || return 1
+              IFS=$'\t' read -r object_sha object_type < <(
+                gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" \
+                  --jq '[.object.sha, .object.type] | @tsv'
+              )
+            done
+            return 1
+          }
+
+          publish=true
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            publish=false
+          fi
+
+          if tag_sha=$(resolve_tag_sha 2>/dev/null); then
+            test "$tag_sha" = "$GITHUB_SHA" || {
+              echo "$RELEASE_TAG already resolves to $tag_sha, not $GITHUB_SHA" >&2
+              exit 1
+            }
+          elif gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$GITHUB_SHA" >/dev/null; then
+            echo "reserved $RELEASE_TAG at $GITHUB_SHA"
+          else
+            tag_sha=$(resolve_tag_sha) || {
+              echo "could not create or resolve $RELEASE_TAG" >&2
+              exit 1
+            }
+            test "$tag_sha" = "$GITHUB_SHA" || {
+              echo "$RELEASE_TAG already resolves to $tag_sha, not $GITHUB_SHA" >&2
+              exit 1
+            }
+          fi
+
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release identity
+        if: steps.release.outputs.publish == 'true'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v0\.[1-9][0-9]*\.0$ ]]
           test "$GITHUB_REF" = refs/heads/main
 
       - name: Set up QEMU
+        if: steps.release.outputs.publish == 'true'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Buildx
+        if: steps.release.outputs.publish == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.release.outputs.publish == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -215,6 +260,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push backend image
+        if: steps.release.outputs.publish == 'true'
         id: backend
         uses: docker/build-push-action@v6
         with:
@@ -223,36 +269,38 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/noxels/malg:${{ needs.check.outputs.tag }}
+            ghcr.io/noxels/malg:${{ steps.release.outputs.tag }}
             ghcr.io/noxels/malg:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ needs.check.outputs.tag }}
+            org.opencontainers.image.version=${{ steps.release.outputs.tag }}
           sbom: true
           provenance: mode=max
 
       - name: Build and push frontend image
+        if: steps.release.outputs.publish == 'true'
         id: frontend
         uses: docker/build-push-action@v6
         with:
           context: frontend
           file: frontend/Dockerfile
           build-args: |
-            MALG_VERSION=${{ needs.check.outputs.tag }}
+            MALG_VERSION=${{ steps.release.outputs.tag }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/noxels/malg-frontend:${{ needs.check.outputs.tag }}
+            ghcr.io/noxels/malg-frontend:${{ steps.release.outputs.tag }}
             ghcr.io/noxels/malg-frontend:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ needs.check.outputs.tag }}
+            org.opencontainers.image.version=${{ steps.release.outputs.tag }}
           sbom: true
           provenance: mode=max
 
       - name: Verify published image digests
+        if: steps.release.outputs.publish == 'true'
         shell: bash
         env:
           BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
@@ -263,10 +311,11 @@ jobs:
           [[ "$FRONTEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
 
       - name: Create GitHub release
+        if: steps.release.outputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.check.outputs.tag }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
           BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
           FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
         run: |
