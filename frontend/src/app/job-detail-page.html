@@ -40,6 +40,9 @@
       @if (currentJob.status === 'queued' || currentJob.status === 'running') {
         <button tuiButton type="button" appearance="secondary" [disabled]="cancellingJob()" (click)="cancelJob()">{{ cancellingJob() ? 'Cancelling…' : 'Cancel job' }}</button>
       }
+      @if (isDeletable(currentJob)) {
+        <button tuiButton type="button" appearance="secondary" [disabled]="deletingJob()" (click)="deleteJob()">{{ deletingJob() ? 'Deleting…' : 'Delete job' }}</button>
+      }
       @if (currentJob.status === 'cancelled') { <p>Cancellation stops new work, not already-issued remote effects. Confirmed and pending writes remain visible below.</p> }
     </section>
     @if (progress().length) {

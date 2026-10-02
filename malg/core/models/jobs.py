@@ -85,3 +85,35 @@ class ResearchJobRecord(BaseModel):
     stage_key: str | None = None
     deadline_at: datetime | None = None
     result_outcome: str | None = None
+
+
+class ResearchJobOverviewRecord(BaseModel):
+    """Compact read model for browsing durable research jobs.
+
+    The overview deliberately omits request payloads, result references, and
+    diagnostics. Clients fetch those potentially large fields from the job
+    detail endpoint after an operator chooses a row.
+    """
+
+    job_id: str
+    kind: str
+    status: ResearchJobStatus
+    result_outcome: str | None = None
+    attempt_count: int
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    deadline_at: datetime | None = None
+    campaign_id: str | None = None
+    icp_id: str | None = None
+    workflow_id: str | None = None
+    stage_key: str | None = None
+
+
+class ResearchJobOverviewPage(BaseModel):
+    """One bounded page of filtered research-job overview records."""
+
+    items: list[ResearchJobOverviewRecord]
+    total: int
+    limit: int
+    offset: int
