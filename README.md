@@ -148,23 +148,23 @@ execution evidence, not a fallback CRM. Relevant parent changes block publicatio
 | Kind | Request and result |
 | --- | --- |
 | `campaign` | No parent; one Campaign. |
-| `icp` | `campaign_id`; one lean ICP with sector, geography, optional employee bounds, buyer role and workflow. |
-| `discovery` | `icp_id`, `limit` 1–20; candidate results only, with explicit Account enqueue. |
-| `account` | `icp_id`, optional name/website hints; one qualifying Company and Membership. |
-| `account_hydration` | `account_id`; research and atomically fill only missing fields. |
-| `person` | `account_id`, `icp_id`; require Membership and publish one Company-linked Person. |
-| `person_hydration` | `person_id`; use its actual Company, preserve populated contact/name components. |
+| `icp` | `campaign_id`, `icp_count` 1–20; distinct ICPs with sector, geography, optional employee bounds, buyer role and workflow. |
+| `account` | `icp_id`, `company_count` 1–20, `people_per_company` 1–5 and `opportunities_per_company` 1–3; complete Company bundles beneath the ICP. |
 
-Campaign/ICP/Account batch admission accepts 1–100 jobs atomically. ICP generation is one lean
-research pass, not five nested generations. Twenty identities and actual parent UUIDs replace
-local business-table deduplication. Confirmed create intents reconcile remote identity on replay;
-they never overwrite intervening human edits. Failed Membership publication keeps the Company
-reference and resumes the same immutable operation.
+These are autonomous pipelines, not manual selection queues. An Account job discovers and
+validates each Company, researches the requested associated People and Opportunities, and then
+publishes only complete bundles. Existing matching Companies and People are reused. Verified
+values fill only empty CRM fields as part of that same pipeline; there is no separate hydration
+job and populated human values are never replaced. No pipeline sends outreach or automates
+LinkedIn activity.
 
-Hydration uses version-and-emptiness predicates, one field per mutation. Zero is populated;
-secondary emails/links and existing FullName components are preserved. Conflicts stay in local
-execution results. Completed status is separate from the public research outcome: `complete`,
-`partial`, `needs_review`, `insufficient_evidence` or `budget_exhausted`.
+Twenty identities and actual parent UUIDs replace local business-table deduplication. Confirmed
+create intents reconcile remote identity on replay and preserve intervening human edits. Failed
+publication resumes the same immutable operations. Progress checkpoints expose target and achieved
+counts after every fully published ICP or Account bundle. A job outcome is `complete` only when all
+requested counts are reached, `partial` when some complete units were published, or otherwise
+`needs_review`, `insufficient_evidence` or `budget_exhausted`. Historical job kinds remain visible
+but are neither claimable nor retryable.
 
 ## Authenticated HTTP CLI
 
@@ -177,8 +177,20 @@ uv run python -m malg jobs submit --request-file request.json
 uv run python -m malg jobs retry <job-uuid>
 ```
 
-For example, `request.json` can contain `{"kind":"campaign"}`. Other kinds use the strict UUID
-request fields above; extra fields are rejected. Commands print JSON and exit 0 on success,
+For example, `request.json` can contain:
+
+```json
+{
+  "kind": "account",
+  "icp_id": "00000000-0000-0000-0000-000000000000",
+  "company_count": 5,
+  "people_per_company": 2,
+  "opportunities_per_company": 1
+}
+```
+
+Campaign requests only require `{"kind":"campaign"}`. ICP requests require `campaign_id` and may
+set `icp_count`. Extra fields are rejected. Commands print JSON and exit 0 on success,
 2 for invalid input or rejected requests, and 1 for authentication, transport or server failure.
 The CLI does not invoke agents or access the database directly.
 

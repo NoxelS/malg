@@ -19,10 +19,9 @@ class PersonResearchAgent(BrowserSupport):
         self,
         company_id: UUID,
         company_name: str,
-        icp: ICPData | None,
+        icp: ICPData,
         *,
-        missing_fields: list[str] | None = None,
-        saved_person: PersonData | None = None,
+        exclusions: list[PersonData] | None = None,
     ) -> ResearchResult[PersonData]:
         """Return one sourced buyer-relevant Person for the supplied Company.
 
@@ -41,15 +40,14 @@ class PersonResearchAgent(BrowserSupport):
         role at this Company. Aim to return by the third reasoning turn and
         reserve remaining turns for correcting execution errors. Do not expand
         into email discovery, biographies or multiple people. Never fetch LinkedIn
-        or lnkd.in, including for hydration. A missing LinkedIn URL can remain null.
+        or lnkd.in. A missing LinkedIn URL can remain null.
         Prefer the Company website or one reliable public source for a missing
         name component. Print only relevant complete excerpts, then return rather
         than performing another turn to expand a truncated printout.
 
-        For hydration, saved_person fixes identity and missing_fields is the only
-        allowed research scope; ICP may be absent. Preserve every populated field,
-        including a known first name when researching only last_name. Otherwise
-        use the ICP buyer role and workflow to select one currently relevant person.
+        Host-supplied exclusions identify people already selected for this Company;
+        return a distinct person. Use the ICP buyer role and workflow to select one
+        currently relevant person.
         Unknown optional values remain null. Return insufficient_evidence or
         budget_exhausted instead of inventing a person. Never send messages,
         verify mailboxes with SMTP, automate LinkedIn, or mutate any CRM.

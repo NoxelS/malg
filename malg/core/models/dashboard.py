@@ -18,6 +18,16 @@ class DashboardJobCounts(BaseModel):
     cancelled: int = 0
 
 
+class DashboardOutcomeCounts(BaseModel):
+    """Completed jobs grouped by their business result rather than execution transport."""
+
+    complete: int = 0
+    partial: int = 0
+    needs_review: int = 0
+    insufficient_evidence: int = 0
+    budget_exhausted: int = 0
+
+
 class DashboardJobDuration(BaseModel):
     """Average execution time for one research job kind."""
 
@@ -30,12 +40,15 @@ class DashboardSummary(BaseModel):
 
     active_workers: int
     jobs: DashboardJobCounts
+    outcomes: DashboardOutcomeCounts
     job_durations: list[DashboardJobDuration]
 
 
 class WorkerJobSummary(BaseModel):
+    """Current worker ownership, including display-only historical job kinds."""
+
     job_id: str
-    kind: ResearchJobKind
+    kind: str
     attempt_count: int
     claimed_at: datetime
 

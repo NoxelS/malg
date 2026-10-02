@@ -235,15 +235,17 @@ class CrmPublisher:
         company_id: str,
         person_id: str,
         unknowns: list[str],
+        stable_key: str | None = None,
         claim_token: str,
     ) -> tuple[str, str, str]:
         """Publish one deterministic Opportunity, Note, and native NoteTarget."""
         job_uuid = str(UUID(job_id))
         campaign_uuid, icp_uuid = str(UUID(campaign_id)), str(UUID(icp_id))
         company_uuid, person_uuid = str(UUID(company_id)), str(UUID(person_id))
-        opportunity_id = str(deterministic_id(self.workspace_id, "opportunity", job_uuid))
-        note_id = str(deterministic_id(self.workspace_id, "note", job_uuid))
-        target_id = str(deterministic_id(self.workspace_id, "noteTarget", job_uuid))
+        identity = job_uuid if stable_key is None else f"{job_uuid}:{stable_key}"
+        opportunity_id = str(deterministic_id(self.workspace_id, "opportunity", identity))
+        note_id = str(deterministic_id(self.workspace_id, "note", identity))
+        target_id = str(deterministic_id(self.workspace_id, "noteTarget", identity))
         micros = str(int(data.estimated_price.amount * Decimal(1_000_000)))
 
         opportunity_fields = {
@@ -455,7 +457,7 @@ class CrmPublisher:
             claim_token=claim_token,
         )
 
-    async def hydrate(
+    async def fill_missing(
         self,
         job_id: str,
         object_name: str,
@@ -465,13 +467,13 @@ class CrmPublisher:
         *,
         claim_token: str,
     ) -> list[dict[str, str | None]]:
-        """Journal one guarded field mutation at a time and reconcile zero-row races."""
+        """Enrich verified empty fields and reconcile concurrent human edits."""
         await self._check(job_id, claim_token)
         outcomes = []
         for field, value in proposals.items():
             operation = self._prepare(
                 job_id,
-                f"{object_name}.hydration",
+                f"{object_name}.enrichment",
                 object_name,
                 record_id,
                 field,
