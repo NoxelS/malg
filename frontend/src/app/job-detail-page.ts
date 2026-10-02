@@ -1,6 +1,6 @@
 import {DatePipe, JsonPipe} from '@angular/common';
 import {HttpErrorResponse} from '@angular/common/http';
-import {ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, inject, signal} from '@angular/core';
+import {ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal} from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {ActivatedRoute, RouterLink} from '@angular/router';
 import {forkJoin, of} from 'rxjs';
@@ -35,6 +35,16 @@ interface RunState {
   readonly failedEventCursor: number | null;
 }
 
+interface JobProgressItem {
+  readonly name: string;
+  readonly achieved: number;
+  readonly target: number;
+}
+
+function isJsonObject(value: JsonValue | undefined): value is {[key: string]: JsonValue} {
+  return value !== null && value !== undefined && typeof value === 'object' && !Array.isArray(value);
+}
+
 const emptyRunState = (): RunState => ({
   turns: {loading: false, data: null, failure: null},
   events: {loading: false, data: null, failure: null},
@@ -44,12 +54,6 @@ const emptyRunState = (): RunState => ({
   loadingMoreFailure: null,
   failedEventCursor: null,
 });
-
-interface DiscoveryCandidate {
-  readonly name: string;
-  readonly website: string;
-  readonly reason: string;
-}
 
 @Component({
   selector: 'app-job-detail-page',
@@ -65,13 +69,23 @@ export class JobDetailPage implements OnDestroy, OnInit {
   protected readonly job = signal<ResearchJob | null>(null);
   protected readonly runs = signal<readonly AgentRun[]>([]);
   protected readonly stages = signal<readonly StageRecord[]>([]);
+  protected readonly progress = computed<readonly JobProgressItem[]>(() => {
+    const candidates = this.stages().filter((stage) => stage.stage_key.endsWith('.progress') || stage.stage_key.endsWith('.publication'));
+    const stage = candidates[candidates.length - 1];
+    if (!stage || !isJsonObject(stage.payload)) return [];
+    const targets = stage.payload['target_counts'];
+    const achieved = stage.payload['achieved_counts'];
+    if (!isJsonObject(targets) || !isJsonObject(achieved)) return [];
+    return Object.entries(targets).flatMap(([name, target]) => {
+      const actual = achieved[name];
+      return typeof target === 'number' && typeof actual === 'number' ? [{name, achieved: actual, target}] : [];
+    });
+  });
   protected readonly writes = signal<JobWrites | null>(null);
   protected readonly inputPayload = signal<JsonValue>(null);
   protected readonly stagesUnavailable = signal(false);
   protected readonly writesUnavailable = signal(false);
   protected readonly crm = signal<CrmStatus | null>(null);
-  protected readonly candidatePending = signal<string | null>(null);
-  protected readonly candidateJobs = signal<Record<string, string>>({});
   protected readonly cancellingJob = signal(false);
   protected readonly loading = signal(true);
   protected readonly error = signal<'not-found' | 'unavailable' | null>(null);
@@ -94,7 +108,7 @@ export class JobDetailPage implements OnDestroy, OnInit {
       this.runs.set([]);
       this.runStates.set({});
       this.stages.set([]); this.writes.set(null); this.inputPayload.set(null);
-      this.candidateJobs.set({}); this.error.set(null);
+      this.error.set(null);
       this.loadCrm();
       this.loadJob(false);
     });
@@ -102,7 +116,7 @@ export class JobDetailPage implements OnDestroy, OnInit {
   ngOnDestroy(): void { ++this.generation; clearTimeout(this.pollHandle); }
   protected retryJob(): void {
     const job = this.job();
-    if (!job || job.status !== 'failed' || job.data_origin !== 'twenty' || !this.canPublish() || this.retryingJob()) return;
+    if (!job || !this.canRetry(job) || !this.canPublish() || this.retryingJob()) return;
     this.retryingJob.set(true); this.jobActionError.set(false);
     this.api.retryJob(this.jobId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: (updated) => { this.job.set(updated); this.retryingJob.set(false); this.loadJob(true); }, error: () => { this.retryingJob.set(false); this.jobActionError.set(true); this.loadCrm(); }});
   }
@@ -110,6 +124,9 @@ export class JobDetailPage implements OnDestroy, OnInit {
   protected refresh(): void { this.loadJob(true); this.loadCrm(); }
 
   protected canPublish(): boolean { return this.crm()?.available === true && this.crm()?.schema_compatible === true; }
+  protected canRetry(job: ResearchJob): boolean {
+    return job.status === 'failed' && job.data_origin === 'twenty' && ['campaign', 'icp', 'account'].includes(job.kind);
+  }
 
   private loadCrm(): void {
     const generation = this.generation;
@@ -125,26 +142,6 @@ export class JobDetailPage implements OnDestroy, OnInit {
     this.api.cancelJob(this.jobId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (job) => { this.job.set(job); this.cancellingJob.set(false); this.loadJob(true); },
       error: () => { this.cancellingJob.set(false); this.jobActionError.set(true); },
-    });
-  }
-
-  protected candidates(): readonly DiscoveryCandidate[] {
-    const stage = [...this.stages()].reverse().find((item) => item.stage_key === 'discovery.research');
-    const payload = stage?.payload;
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Array.isArray(payload['candidates'])) return [];
-    return payload['candidates'].flatMap((candidate) => {
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) || typeof candidate['name'] !== 'string' || typeof candidate['website'] !== 'string') return [];
-      return [{name: candidate['name'], website: candidate['website'], reason: typeof candidate['reason'] === 'string' ? candidate['reason'] : ''}];
-    });
-  }
-
-  protected enqueueCandidate(candidate: DiscoveryCandidate): void {
-    const job = this.job();
-    if (!job?.icp_id || job.data_origin !== 'twenty' || !this.canPublish() || this.candidatePending() || this.candidateJobs()[candidate.website]) return;
-    this.candidatePending.set(candidate.website); this.jobActionError.set(false);
-    this.api.submitJob({kind: 'account', icp_id: job.icp_id, name: candidate.name, website: candidate.website}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (created) => { this.candidateJobs.update((jobs) => ({...jobs, [candidate.website]: created.job_id})); this.candidatePending.set(null); },
-      error: () => { this.candidatePending.set(null); this.jobActionError.set(true); },
     });
   }
 

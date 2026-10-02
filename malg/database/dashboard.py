@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from malg.core.models.dashboard import (
     DashboardJobCounts,
     DashboardJobDuration,
+    DashboardOutcomeCounts,
     DashboardSummary,
     WorkerJobSummary,
     WorkerSummary,
@@ -26,6 +27,24 @@ def get_dashboard_summary(session: Session, active_since: datetime) -> Dashboard
     ):
         if status in counts:
             counts[status] = count
+
+    outcomes = {
+        outcome: 0
+        for outcome in (
+            "complete",
+            "partial",
+            "needs_review",
+            "insufficient_evidence",
+            "budget_exhausted",
+        )
+    }
+    for outcome, count in session.execute(
+        select(ResearchJob.result_outcome, func.count())
+        .where(ResearchJob.status == ResearchJobStatus.SUCCEEDED.value)
+        .group_by(ResearchJob.result_outcome)
+    ):
+        if outcome in outcomes:
+            outcomes[outcome] = count
 
     duration_totals = {kind: [0.0, 0] for kind in ResearchJobKind}
     for kind, started_at, finished_at in session.execute(
@@ -57,6 +76,7 @@ def get_dashboard_summary(session: Session, active_since: datetime) -> Dashboard
         )
         or 0,
         jobs=DashboardJobCounts(**counts),
+        outcomes=DashboardOutcomeCounts(**outcomes),
         job_durations=job_durations,
     )
 

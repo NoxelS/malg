@@ -5,18 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from pydantic import TypeAdapter
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from malg.core.models.jobs import (
-    AccountHydrationJobRequest,
     AccountResearchJobRequest,
-    DiscoveryResearchJobRequest,
     ICPResearchJobRequest,
-    OpportunityResearchJobRequest,
-    PersonHydrationJobRequest,
-    PersonResearchJobRequest,
     ResearchJobKind,
     ResearchJobRequest,
     ResearchJobStatus,
@@ -33,52 +27,13 @@ def enqueue_job(request: ResearchJobRequest, session: Session) -> ResearchJob:
         request_payload=request.model_dump(mode="json"),
         data_origin="twenty",
     )
-    if isinstance(
-        request, (ICPResearchJobRequest, AccountResearchJobRequest, DiscoveryResearchJobRequest)
-    ):
-        job.campaign_id = str(request.campaign_id) if request.campaign_id else None
-    if isinstance(request, (AccountResearchJobRequest, DiscoveryResearchJobRequest)):
-        job.icp_id = str(request.icp_id)
-    if isinstance(request, (AccountHydrationJobRequest,)):
-        job.account_id = str(request.account_id)
-    if isinstance(request, (PersonResearchJobRequest,)):
-        job.account_id = str(request.account_id)
-        job.icp_id = str(request.icp_id)
-    if isinstance(request, OpportunityResearchJobRequest):
+    if isinstance(request, ICPResearchJobRequest):
         job.campaign_id = str(request.campaign_id)
+    if isinstance(request, AccountResearchJobRequest):
         job.icp_id = str(request.icp_id)
-        job.account_id = str(request.account_id)
-        job.person_id = str(request.person_id)
-    if isinstance(request, PersonHydrationJobRequest):
-        job.person_id = str(request.person_id)
     session.add(job)
     session.flush()
     return job
-
-
-def enqueue_scoped_jobs(
-    kind: ResearchJobKind,
-    amount: int,
-    session: Session,
-    *,
-    campaign_id: str | None = None,
-    icp_id: str | None = None,
-) -> list[ResearchJob]:
-    """Insert a bounded batch of queued jobs with the supplied scope."""
-    if not 1 <= amount <= 100:
-        raise ValueError("batch amount must be between 1 and 100")
-    payload = {"kind": kind.value}
-    if campaign_id is not None:
-        payload["campaign_id"] = campaign_id
-    if icp_id is not None:
-        payload["icp_id"] = icp_id
-    request: ResearchJobRequest = TypeAdapter(ResearchJobRequest).validate_python(payload)
-    return [enqueue_job(request, session) for _ in range(amount)]
-
-
-def enqueue_campaign_jobs(amount: int, session: Session) -> list[ResearchJob]:
-    """Insert a bounded batch of independently queued campaign jobs."""
-    return enqueue_scoped_jobs(ResearchJobKind.CAMPAIGN, amount, session)
 
 
 def claim_next_job(
@@ -110,6 +65,7 @@ def claim_next_job(
         .where(
             ResearchJob.status == ResearchJobStatus.QUEUED.value,
             ResearchJob.data_origin == "twenty",
+            ResearchJob.kind.in_([kind.value for kind in ResearchJobKind]),
         )
         .order_by(ResearchJob.created_at, ResearchJob.job_id)
         .with_for_update(skip_locked=True)
@@ -241,7 +197,13 @@ def delete_job(session: Session, job_id: str) -> bool:
 def retry_failed_job(session: Session, job_id: str, now: datetime) -> ResearchJob | None:
     """Requeue one failed job while preserving its identity and request snapshot."""
     job = session.scalar(select(ResearchJob).where(ResearchJob.job_id == job_id).with_for_update())
-    if job is None or job.status != ResearchJobStatus.FAILED.value or job.data_origin != "twenty":
+    public_kinds = {kind.value for kind in ResearchJobKind}
+    if (
+        job is None
+        or job.status != ResearchJobStatus.FAILED.value
+        or job.data_origin != "twenty"
+        or job.kind not in public_kinds
+    ):
         return None
     job.attempt_window_count = 0
     job.status = ResearchJobStatus.QUEUED.value

@@ -28,6 +28,9 @@ _CONNECTIONS = {
     "company": "companies",
     "person": "people",
     "malgMembership": "malgMemberships",
+    "opportunity": "opportunities",
+    "note": "notes",
+    "noteTarget": "noteTargets",
 }
 _NAMES = {
     "Company": "company",
@@ -35,6 +38,9 @@ _NAMES = {
     "MalgCampaign": "malgCampaign",
     "MalgIcp": "malgIcp",
     "MalgMembership": "malgMembership",
+    "Opportunity": "opportunity",
+    "Note": "note",
+    "NoteTarget": "noteTarget",
 }
 
 
@@ -126,7 +132,10 @@ class RemoteTwenty:
             return httpx.Response(200, json=self.metadata)
         body = json.loads(request.content)
         query, variables = body["query"], body["variables"]
-        create = re.search(r"\bcreate(Company|Person|MalgCampaign|MalgIcp|MalgMembership)\(", query)
+        create = re.search(
+            r"\bcreate(Company|Person|MalgCampaign|MalgIcp|MalgMembership|Opportunity|Note|NoteTarget)\(",
+            query,
+        )
         if create:
             operation = create.group(1)
             object_name = _NAMES[operation]

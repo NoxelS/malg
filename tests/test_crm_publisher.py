@@ -1,4 +1,4 @@
-"""Observable replay, cancellation and atomic-hydration behavior through real HTTP adapters."""
+"""Observable replay, cancellation and atomic enrichment through real HTTP adapters."""
 
 from __future__ import annotations
 
@@ -228,7 +228,7 @@ def test_independent_rejection_and_conflicting_company_identity_publish_nothing(
     asyncio.run(run())
 
 
-def test_concurrent_human_value_wins_atomic_hydration_race(publication) -> None:
+def test_concurrent_human_value_wins_atomic_enrichment_race(publication) -> None:
     async def run() -> None:
         _, sessions, remote, _, _, publisher, job = publication
         identifier = remote.add(
@@ -248,7 +248,7 @@ def test_concurrent_human_value_wins_atomic_hydration_race(publication) -> None:
 
         remote.before_fill = pause_transport
         outcomes, _ = await asyncio.gather(
-            publisher.hydrate(
+            publisher.fill_missing(
                 job.job_id,
                 "company",
                 identifier,
@@ -268,12 +268,12 @@ def test_concurrent_human_value_wins_atomic_hydration_race(publication) -> None:
     asyncio.run(run())
 
 
-def test_hydration_preserves_zero_secondary_contacts_and_fullname_sibling(publication) -> None:
+def test_enrichment_preserves_zero_secondary_contacts_and_fullname_sibling(publication) -> None:
     async def run() -> None:
         _, _, remote, _, _, publisher, job = publication
         company_id = remote.add("company", {"malgEmployees": 0})
         version = remote.records["company", company_id]["updatedAt"]
-        outcome = await publisher.hydrate(
+        outcome = await publisher.fill_missing(
             job.job_id,
             "company",
             company_id,
@@ -295,7 +295,7 @@ def test_hydration_preserves_zero_secondary_contacts_and_fullname_sibling(public
             },
         )
         version = remote.records["person", person_id]["updatedAt"]
-        outcomes = await publisher.hydrate(
+        outcomes = await publisher.fill_missing(
             job.job_id,
             "person",
             person_id,

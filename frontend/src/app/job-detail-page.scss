@@ -7,6 +7,11 @@ h3 { color: var(--tui-text-primary); font: var(--tui-font-heading-6); margin: 0 
 .metadata-grid__wide { grid-column: span 2; }
 dt { color: var(--tui-text-tertiary); font: var(--tui-font-text-s); }
 dd { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .25rem 0 0; overflow-wrap: anywhere; user-select: text; }
+.progress-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+.progress-grid > div { background: var(--tui-background-neutral-1); border-radius: var(--tui-radius-m); padding: 1rem; }
+.progress-grid strong, .progress-grid span { display: block; }
+.progress-grid strong { color: var(--tui-text-primary); font: var(--tui-font-heading-5); }
+.progress-grid span { color: var(--tui-text-secondary); font: var(--tui-font-text-s); margin-block-start: .25rem; text-transform: capitalize; }
 .run-list { display: grid; gap: 1rem; }
 .run-card { border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-l); overflow: hidden; }
 .run-card__summary { align-items: flex-start; cursor: pointer; display: flex; gap: 1rem; justify-content: space-between; list-style: none; padding: 1.25rem; }

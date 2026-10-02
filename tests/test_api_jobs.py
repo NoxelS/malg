@@ -14,8 +14,8 @@ from malg.crm.client import TwentyClient
 from malg.database.models import Base, CrmWriteOperation, ResearchJob
 
 
-def test_missing_remote_parent_rejects_entire_batch(twenty_metadata):
-    """A human-created/missing remote Campaign is checked before local inserts."""
+def test_missing_remote_parent_rejects_autonomous_job(twenty_metadata):
+    """A human-created or missing remote Campaign is checked before local inserts."""
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
@@ -42,7 +42,10 @@ def test_missing_remote_parent_rejects_entire_batch(twenty_metadata):
             "/api/v1/auth/token", json={"username": "admin", "password": "secret"}
         ).json()["access_token"]
         client.headers["Authorization"] = "Bearer " + token
-        response = client.post("/api/v1/jobs/icps", json={"campaign_id": str(uuid4()), "amount": 3})
+        response = client.post(
+            "/api/v1/jobs",
+            json={"kind": "icp", "campaign_id": str(uuid4()), "icp_count": 3},
+        )
         assert response.status_code == 404, response.text
         assert response.json()["detail"] == "crm_record_missing"
         with Session(engine) as session:
@@ -53,6 +56,25 @@ def test_missing_remote_parent_rejects_entire_batch(twenty_metadata):
         assert response.json()["request_payload"] == {"kind": "campaign"}
         assert (
             client.post("/api/v1/jobs", json={"kind": "campaign", "extra": True}).status_code == 422
+        )
+        assert (
+            client.post(
+                "/api/v1/jobs", json={"kind": "discovery", "icp_id": str(uuid4())}
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                "/api/v1/jobs",
+                json={
+                    "kind": "account",
+                    "icp_id": str(uuid4()),
+                    "company_count": 21,
+                    "people_per_company": 2,
+                    "opportunities_per_company": 1,
+                },
+            ).status_code
+            == 422
         )
         with Session(engine) as session:
             assert session.scalar(select(func.count()).select_from(ResearchJob)) == 1

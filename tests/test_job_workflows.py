@@ -67,3 +67,28 @@ def test_job_with_unresolved_remote_write_cannot_be_deleted() -> None:
         reconcile_write(session, operation, status="confirmed")
         assert delete_job(session, job.job_id)
         assert session.get(ResearchJob, job.job_id) is None
+
+
+def test_worker_does_not_claim_historical_job_kinds() -> None:
+    """Legacy queued rows remain display-only after their public API removal."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+
+    with sessions.begin() as session:
+        session.add(
+            ResearchJob(
+                job_id="historical-discovery",
+                kind="discovery",
+                status="queued",
+                request_payload={"kind": "discovery"},
+                data_origin="twenty",
+            )
+        )
+        current = enqueue_job(CampaignResearchJobRequest(), session)
+        current_job_id = current.job_id
+
+    with sessions.begin() as session:
+        claimed = claim_next_job(session, "worker", datetime.now(UTC), 60, 3)
+        assert claimed is not None
+        assert claimed.job_id == current_job_id

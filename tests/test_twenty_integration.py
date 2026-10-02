@@ -22,16 +22,6 @@ def test_identity_normalization_is_conservative() -> None:
     )
 
 
-def test_hydration_preserves_zero_and_composite_values() -> None:
-    """Only genuinely empty fields are selected for remote updates."""
-    from malg.crm.hydration import missing_fields
-
-    assert missing_fields(
-        {"employees": 0, "website": {"primaryLinkUrl": "", "secondaryLinks": []}},
-        {"employees": 50, "website": {"primaryLinkUrl": "https://acme.test"}},
-    ) == {"website": {"primaryLinkUrl": "https://acme.test"}}
-
-
 def test_company_matching_rejects_ambiguous_identity() -> None:
     """Domain and LinkedIn evidence must identify the same unique company."""
     from malg.crm.matching import choose_company_match
