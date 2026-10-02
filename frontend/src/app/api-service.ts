@@ -81,6 +81,39 @@ export interface JobOverviewItem {
   readonly stage_key: string | null;
 }
 export interface JobOverviewPage { readonly items: readonly JobOverviewItem[]; readonly total: number; readonly limit: number; readonly offset: number; }
+export interface MemoryOverviewItem {
+  readonly id: string;
+  readonly type: string;
+  readonly content_preview: string;
+  readonly owner: string;
+  readonly importance: number;
+  readonly salience: number;
+  readonly strength: number;
+  readonly access_count: number;
+  readonly created_at: number;
+  readonly last_accessed_at: number;
+  readonly status: string | null;
+  readonly archived: boolean;
+}
+export interface MemoryOverviewPage { readonly items: readonly MemoryOverviewItem[]; readonly total: number; readonly limit: number; readonly offset: number; }
+export interface MemoryDetail {
+  readonly id: string;
+  readonly type: string;
+  readonly content: string;
+  readonly owner: string;
+  readonly importance: number;
+  readonly salience: number;
+  readonly strength: number;
+  readonly access_count: number;
+  readonly created_at: number;
+  readonly last_accessed_at: number;
+  readonly status: string | null;
+  readonly archived: boolean;
+  readonly tags: readonly string[];
+  readonly edges: readonly JsonValue[];
+  readonly references: readonly JsonValue[];
+}
+export interface MemoryClearResult { readonly deleted: number; }
 export interface StageRecord {
   readonly stage_result_id: string;
   readonly stage_key: string;
@@ -224,6 +257,9 @@ export class ApiService {
       params: new HttpParams().set('limit', limit).set('offset', offset).set('include_archived', includeArchived),
     });
   }
+  listMemoryOverview(params: HttpParams): Observable<MemoryOverviewPage> { return this.authorized('GET', '/api/v1/memories/overview', {params}); }
+  getMemory(memoryId: string): Observable<MemoryDetail> { return this.authorized('GET', `/api/v1/memories/${memoryId}`); }
+  clearMemories(): Observable<MemoryClearResult> { return this.authorized('DELETE', '/api/v1/memories'); }
   listJobs(): Observable<readonly ResearchJob[]> { return this.authorized('GET', '/api/v1/jobs'); }
   listJobOverview(params: HttpParams): Observable<JobOverviewPage> { return this.authorized('GET', '/api/v1/jobs/overview', {params}); }
   getJob(jobId: string): Observable<ResearchJob> { return this.authorized('GET', `/api/v1/jobs/${jobId}`); }

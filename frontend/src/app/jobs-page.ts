@@ -5,20 +5,21 @@ import {FormsModule} from '@angular/forms';
 import {Router} from '@angular/router';
 import {Observable} from 'rxjs';
 import {AgGridAngular} from 'ag-grid-angular';
-import {ColDef, GridApi, GridReadyEvent, IDatasource, IGetRowsParams, InfiniteRowModelModule, ModuleRegistry, PaginationModule, RowClickedEvent, themeQuartz} from 'ag-grid-community';
+import {ColDef, GridApi, GridReadyEvent, IDatasource, IGetRowsParams, RowClickedEvent} from 'ag-grid-community';
 import {ApiService, CrmListItem, CrmPage, CrmStatus, JobKind, JobOverviewItem} from './api-service';
 import {TuiButton} from '@taiga-ui/core';
 import {TuiBadge} from '@taiga-ui/kit';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
 import {StateMessageComponent} from './components/state-message.component';
+import {overviewGridTheme, registerOverviewGridModules} from './components/overview-grid.config';
 
 type Selector = 'campaigns' | 'icps';
 type LoadState = 'idle' | 'loading' | 'error';
 
 const formatDate = (params: {value: string | null | undefined}): string => params.value ? new Intl.DateTimeFormat(undefined, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(params.value)) : '—';
 
-ModuleRegistry.registerModules([InfiniteRowModelModule, PaginationModule]);
+registerOverviewGridModules();
 
 @Component({selector: 'app-jobs-page', imports: [AgGridAngular, FormsModule, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent], changeDetection: ChangeDetectionStrategy.OnPush, templateUrl: './jobs-page.html', styleUrl: './jobs-page.scss'})
 export class JobsPage implements OnInit {
@@ -51,17 +52,7 @@ export class JobsPage implements OnInit {
   protected minimumAttempts: number | null = null;
   protected readonly selectedStatuses = signal<readonly string[]>([]);
   protected readonly selectedKinds = signal<readonly string[]>([]);
-  protected readonly gridTheme = themeQuartz.withParams({
-    accentColor: '#d61f69',
-    borderColor: 'var(--tui-border-normal)',
-    borderRadius: 12,
-    fontFamily: 'Inter, Arial, sans-serif',
-    headerBackgroundColor: 'var(--tui-background-neutral-1)',
-    headerTextColor: 'var(--tui-text-primary)',
-    spacing: 8,
-    textColor: 'var(--tui-text-primary)',
-    backgroundColor: 'var(--tui-background-base)',
-  });
+  protected readonly gridTheme = overviewGridTheme;
   protected readonly defaultColDef: ColDef<JobOverviewItem> = {resizable: true, sortable: true, minWidth: 110};
   protected readonly columnDefs: ColDef<JobOverviewItem>[] = [
     {field: 'job_id', headerName: 'Job ID', minWidth: 220, flex: 2},

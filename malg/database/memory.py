@@ -13,6 +13,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import bindparam, delete, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from malg.core.models.memory import MemoryOverviewRecord
 from malg.database.models import AgentMemory, AgentMemoryEdge, AgentMemoryMaintenance
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -156,6 +157,15 @@ class PostgresMemoryStore:
             session.execute(delete(AgentMemory).where(AgentMemory.id == id))
             session.commit()
 
+    def clear(self) -> int:
+        """Delete every durable memory and its associations in one transaction."""
+        with self.sessions() as session:
+            deleted = int(session.scalar(select(func.count()).select_from(AgentMemory)) or 0)
+            session.execute(delete(AgentMemoryEdge))
+            session.execute(delete(AgentMemory))
+            session.commit()
+        return deleted
+
     def get(self, id: str) -> Memory | None:
         with self.sessions() as session:
             row = session.get(AgentMemory, id)
@@ -222,6 +232,100 @@ class PostgresMemoryStore:
                 )
                 or 0
             )
+
+    def overview(
+        self,
+        *,
+        include_archived: bool,
+        owner: str | None,
+        memory_types: list[MemoryType] | None,
+        statuses: list[str] | None,
+        status_unset: bool | None,
+        query_text: str | None,
+        created_after: float | None,
+        created_before: float | None,
+        sort: str,
+        descending: bool,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[MemoryOverviewRecord], int]:
+        """Return compact, SQL-paginated rows for the operational memory table."""
+        clauses: list[Any] = []
+        if not include_archived:
+            clauses.append(AgentMemory.archived.is_(False))
+        if owner is not None:
+            clauses.append(AgentMemory.owner == owner)
+        if memory_types:
+            clauses.append(
+                AgentMemory.type.in_([memory_type.value for memory_type in memory_types])
+            )
+        if statuses:
+            clauses.append(AgentMemory.status.in_(statuses))
+        if status_unset is True:
+            clauses.append(AgentMemory.status.is_(None))
+        if status_unset is False:
+            clauses.append(AgentMemory.status.is_not(None))
+        if query_text:
+            clauses.append(AgentMemory.content.ilike(f"%{query_text}%"))
+        if created_after is not None:
+            clauses.append(AgentMemory.created_at >= created_after)
+        if created_before is not None:
+            clauses.append(AgentMemory.created_at < created_before)
+        sort_columns = {
+            "created_at": AgentMemory.created_at,
+            "last_accessed_at": AgentMemory.last_accessed_at,
+            "importance": AgentMemory.importance,
+            "salience": AgentMemory.salience,
+            "strength": AgentMemory.strength,
+            "access_count": AgentMemory.access_count,
+            "type": AgentMemory.type,
+        }
+        sort_column = sort_columns[sort]
+        ordering = sort_column.desc() if descending else sort_column.asc()
+        with self.sessions() as session:
+            total = int(
+                session.scalar(select(func.count()).select_from(AgentMemory).where(*clauses)) or 0
+            )
+            rows = session.execute(
+                select(
+                    AgentMemory.id,
+                    AgentMemory.type,
+                    func.substr(AgentMemory.content, 1, 280).label("content_preview"),
+                    AgentMemory.owner,
+                    AgentMemory.importance,
+                    AgentMemory.salience,
+                    AgentMemory.strength,
+                    AgentMemory.access_count,
+                    AgentMemory.created_at,
+                    AgentMemory.last_accessed_at,
+                    AgentMemory.status,
+                    AgentMemory.archived,
+                )
+                .where(*clauses)
+                .order_by(ordering, AgentMemory.id.desc())
+                .limit(limit)
+                .offset(offset)
+            ).all()
+        return (
+            [
+                MemoryOverviewRecord(
+                    id=row.id,
+                    type=row.type,
+                    content_preview=row.content_preview,
+                    owner=row.owner,
+                    importance=row.importance,
+                    salience=row.salience,
+                    strength=row.strength,
+                    access_count=row.access_count,
+                    created_at=row.created_at,
+                    last_accessed_at=row.last_accessed_at,
+                    status=row.status,
+                    archived=row.archived,
+                )
+                for row in rows
+            ],
+            total,
+        )
 
     def knn(
         self, query_vec: np.ndarray, k: int, *, owner: str | None = None
