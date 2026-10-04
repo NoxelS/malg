@@ -198,6 +198,61 @@ def test_icp_uses_human_created_remote_campaign_without_local_business_history(
     asyncio.run(run())
 
 
+def test_icp_invalid_evidence_candidate_does_not_abort_remaining_candidates(
+    setup_worker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fail-closed ICP candidate leaves enough budget to find a later valid one."""
+
+    async def run() -> None:
+        campaign_id = uuid4()
+        fixture = setup_worker(ICPResearchJobRequest(campaign_id=campaign_id, icp_count=1))
+        fixture[2].add(
+            "malgCampaign",
+            {"name": "Human campaign", "objective": "Observed scope"},
+            str(campaign_id),
+        )
+        worker = worker_for(fixture)
+        requeue(fixture)
+        results = iter(
+            [
+                ResearchResult[ICPData](
+                    outcome="insufficient_evidence",
+                    unknowns=["invalid_evidence_reference"],
+                ),
+                ResearchResult[ICPData](
+                    outcome="complete",
+                    data=ICPData(
+                        name="Validated profile",
+                        sector="Manufacturing",
+                        geography="Germany",
+                        buyer_role="Operations",
+                        workflow="Supplier qualification",
+                    ),
+                ),
+            ]
+        )
+
+        async def research(*_args, **_kwargs):
+            return next(results)
+
+        monkeypatch.setattr(worker, "_research", research)
+
+        assert await worker.run_once()
+        with fixture[1]() as session:
+            job = session.get(ResearchJob, fixture[6].job_id)
+            assert job.status == "succeeded"
+            assert job.result_outcome == "complete"
+            publication = session.scalar(
+                select(ResearchStageResult).where(
+                    ResearchStageResult.stage_key == "icp.publication"
+                )
+            )
+            assert publication.payload["attempts"] == 2
+        assert len(fixture[2].creates) == 1
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("change", ["changed", "deleted"])
 def test_changed_or_deleted_parent_prevents_any_new_publication(setup_worker, change) -> None:
     async def run() -> None:
