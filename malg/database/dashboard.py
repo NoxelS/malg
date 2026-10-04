@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from malg.core.models.dashboard import (
@@ -13,6 +13,7 @@ from malg.core.models.dashboard import (
     DashboardOutcomeCounts,
     DashboardSummary,
     WorkerJobSummary,
+    WorkerOverviewPage,
     WorkerSummary,
 )
 from malg.core.models.jobs import ResearchJobKind, ResearchJobStatus
@@ -82,8 +83,51 @@ def get_dashboard_summary(session: Session, active_since: datetime) -> Dashboard
 
 
 def list_active_workers(session: Session, active_since: datetime) -> list[WorkerSummary]:
-    """List fresh workers with their current running claim, if any."""
-    rows = session.execute(
+    """List all fresh workers with their current running claim, if any."""
+    return _select_workers(session, active_since)
+
+
+def list_worker_overview(
+    session: Session,
+    active_since: datetime,
+    *,
+    limit: int,
+    offset: int,
+    sort: str,
+    direction: str,
+) -> WorkerOverviewPage:
+    """Return one bounded page of fresh workers in a deterministic order."""
+    total = session.scalar(
+        select(func.count())
+        .select_from(WorkerHeartbeat)
+        .where(WorkerHeartbeat.last_seen_at >= active_since)
+    ) or 0
+    return WorkerOverviewPage(
+        items=_select_workers(
+            session,
+            active_since,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+            direction=direction,
+        ),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def _select_workers(
+    session: Session,
+    active_since: datetime,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+    sort: str = "status",
+    direction: str = "asc",
+) -> list[WorkerSummary]:
+    """Build fresh worker rows, applying only known ordering columns."""
+    statement = (
         select(WorkerHeartbeat, ResearchJob)
         .outerjoin(
             ResearchJob,
@@ -91,7 +135,26 @@ def list_active_workers(session: Session, active_since: datetime) -> list[Worker
             & (ResearchJob.status == "running"),
         )
         .where(WorkerHeartbeat.last_seen_at >= active_since)
-    ).all()
+    )
+    sort_columns = {
+        "status": case((ResearchJob.status == "running", 0), else_=1),
+        "last_seen_at": WorkerHeartbeat.last_seen_at,
+        "online_since": WorkerHeartbeat.created_at,
+        "claimed_at": ResearchJob.claimed_at,
+        "kind": ResearchJob.kind,
+        "attempt_count": ResearchJob.attempt_count,
+    }
+    sort_column = sort_columns.get(sort, WorkerHeartbeat.last_seen_at)
+    ordering = sort_column.asc() if direction == "asc" else sort_column.desc()
+    statement = statement.order_by(
+        ordering,
+        case((ResearchJob.status == "running", 0), else_=1),
+        WorkerHeartbeat.last_seen_at.desc(),
+        WorkerHeartbeat.worker_token,
+    )
+    if limit is not None:
+        statement = statement.offset(offset).limit(limit)
+    rows = session.execute(statement).all()
     workers: list[WorkerSummary] = []
     for heartbeat, job in rows:
         workers.append(
@@ -112,11 +175,4 @@ def list_active_workers(session: Session, active_since: datetime) -> list[Worker
                 ),
             )
         )
-    workers.sort(
-        key=lambda worker: (
-            worker.status != "running",
-            -worker.last_seen_at.timestamp(),
-            worker.worker_id,
-        )
-    )
     return workers

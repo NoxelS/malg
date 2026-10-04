@@ -10,8 +10,52 @@ export interface TokenResponse {
   readonly expires_in: number;
 }
 
-export interface DashboardSummary { readonly [key: string]: unknown; }
-export interface WorkerSummary { readonly [key: string]: unknown; }
+export interface DashboardJobCounts {
+  readonly queued: number;
+  readonly running: number;
+  readonly succeeded: number;
+  readonly failed: number;
+  readonly cancelled: number;
+}
+export interface DashboardOutcomeCounts {
+  readonly complete: number;
+  readonly partial: number;
+  readonly needs_review: number;
+  readonly insufficient_evidence: number;
+  readonly budget_exhausted: number;
+}
+export interface DashboardJobDuration {
+  readonly kind: string;
+  readonly average_duration_seconds: number | null;
+}
+export interface DashboardSummary {
+  readonly active_workers: number;
+  readonly jobs: DashboardJobCounts;
+  readonly outcomes: DashboardOutcomeCounts;
+  readonly job_durations: readonly DashboardJobDuration[];
+}
+export interface WorkerJobSummary {
+  readonly job_id: string;
+  readonly kind: string;
+  readonly attempt_count: number;
+  readonly claimed_at: string;
+}
+export interface WorkerSummary {
+  readonly worker_id: string;
+  readonly online_since: string;
+  readonly last_seen_at: string;
+  readonly status: 'idle' | 'running';
+  readonly job: WorkerJobSummary | null;
+}
+export interface WorkerOverviewItem extends WorkerSummary {
+  readonly running_for_seconds: number | null;
+}
+export interface WorkerOverviewPage {
+  readonly items: readonly WorkerOverviewItem[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
 export interface CrmListItem {
   readonly id: string;
   readonly display_name: string;
@@ -226,8 +270,9 @@ export class ApiService {
     sessionStorage.removeItem(this.tokenKey);
     sessionStorage.removeItem(this.expiryKey);
   }
-  listDashboard(): Observable<any> { return this.authorized('GET', '/api/v1/dashboard'); }
-  listWorkers(): Observable<any> { return this.authorized('GET', '/api/v1/workers'); }
+  listDashboard(): Observable<DashboardSummary> { return this.authorized('GET', '/api/v1/dashboard'); }
+  listWorkers(): Observable<readonly WorkerSummary[]> { return this.authorized('GET', '/api/v1/workers'); }
+  listWorkerOverview(params: HttpParams): Observable<WorkerOverviewPage> { return this.authorized('GET', '/api/v1/workers/overview', {params}); }
   getCrmStatus(): Observable<CrmStatus> { return this.authorized('GET', '/api/v1/crm/status'); }
   listCrmCampaigns(cursor?: string): Observable<CrmPage> {
     return this.authorized('GET', '/api/v1/crm/campaigns', {params: cursor ? new HttpParams().set('cursor', cursor) : undefined});
