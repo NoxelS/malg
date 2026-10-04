@@ -28,7 +28,7 @@ from malg.core.agent_tracing import (
     record_active_event,
 )
 from malg.core.budget import BudgetExhausted, ResearchBudget, bind_budget
-from malg.core.claims import validate_claim_proposal
+from malg.core.claims import ClaimValidationError, validate_claim_proposal
 from malg.core.models.account import (
     AccountData,
     AccountIdentity,
@@ -276,12 +276,25 @@ async def _child_stage_async(
         }
         claims = []
         if isinstance(result, ResearchResult) and result.data is not None:
-            for observation in result.observations:
-                if observation.field not in type(result.data).model_fields:
-                    raise ValueError("research observation references an unknown business field")
-                claims.append(validate_claim_proposal(observation, excerpts))
-            if result.outcome in {"complete", "partial"} and not claims:
-                raise ValueError("research result lacks verified source observations")
+            try:
+                for observation in result.observations:
+                    if observation.field not in type(result.data).model_fields:
+                        raise ValueError(
+                            "research observation references an unknown business field"
+                        )
+                    claims.append(validate_claim_proposal(observation, excerpts))
+                if result.outcome in {"complete", "partial"} and not claims:
+                    raise ClaimValidationError("missing_evidence_claim")
+            except ClaimValidationError as error:
+                if kind != "icp":
+                    raise
+                # A malformed ICP citation is not publishable, but must not discard
+                # earlier checkpoints or terminate the remaining candidate budget.
+                result = ResearchResult[ICPData](
+                    outcome="insufficient_evidence", unknowns=[error.code]
+                )
+                claims = []
+                trace.event("invalid_evidence", {"reason": error.code})
         with sessions.begin() as session:
             require_claim(session, job_id, claim_token, datetime.now(UTC))
             for fetch in fetches:
