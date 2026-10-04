@@ -33,7 +33,9 @@ def dashboard_router(active_worker_timeout_seconds: int) -> APIRouter:
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0)] = 0,
         sort: Annotated[
-            Literal["status", "last_seen_at", "online_since", "claimed_at", "kind", "attempt_count"],
+            Literal[
+                "status", "last_seen_at", "online_since", "claimed_at", "kind", "attempt_count"
+            ],
             Query(),
         ] = "status",
         direction: Literal["asc", "desc"] = "asc",

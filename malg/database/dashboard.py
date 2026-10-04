@@ -97,11 +97,14 @@ def list_worker_overview(
     direction: str,
 ) -> WorkerOverviewPage:
     """Return one bounded page of fresh workers in a deterministic order."""
-    total = session.scalar(
-        select(func.count())
-        .select_from(WorkerHeartbeat)
-        .where(WorkerHeartbeat.last_seen_at >= active_since)
-    ) or 0
+    total = (
+        session.scalar(
+            select(func.count())
+            .select_from(WorkerHeartbeat)
+            .where(WorkerHeartbeat.last_seen_at >= active_since)
+        )
+        or 0
+    )
     return WorkerOverviewPage(
         items=_select_workers(
             session,
