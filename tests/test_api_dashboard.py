@@ -98,3 +98,14 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
     }
     assert workers[1]["status"] == "idle"
     assert workers[1]["job"] is None
+
+    first_page = client.get("/api/v1/workers/overview", params={"limit": 1, "offset": 0})
+    assert first_page.status_code == 200
+    assert first_page.json()["total"] == 2
+    assert [worker["worker_id"] for worker in first_page.json()["items"]] == ["running-worker"]
+    assert first_page.json()["limit"] == 1
+    assert first_page.json()["offset"] == 0
+
+    second_page = client.get("/api/v1/workers/overview", params={"limit": 1, "offset": 1})
+    assert [worker["worker_id"] for worker in second_page.json()["items"]] == ["idle-worker"]
+    assert client.get("/api/v1/workers/overview", params={"limit": 101}).status_code == 422

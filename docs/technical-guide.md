@@ -272,6 +272,11 @@ TOKEN=$(curl -s http://127.0.0.1:8000/api/v1/auth/token \
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/api/v1/dashboard
 ```
 
+The dashboard worker table reads `GET /api/v1/workers/overview` with `limit` (1–100), `offset`,
+`sort` (`status`, `last_seen_at`, `online_since`, `claimed_at`, `kind`, or `attempt_count`), and
+`direction` (`asc` or `desc`). It returns a bounded page and the total number of workers inside the
+configured liveness window. The original `GET /api/v1/workers` list remains available.
+
 The API does not apply migrations at runtime; it waits read-only until the sole Alembic version
 row equals the migration head bundled in that image. Start ordinary services only after the separately reviewed migration has established
 that head:
@@ -290,6 +295,8 @@ with `MALG_POSTGRES_DB`, `MALG_POSTGRES_USER`, and `MALG_POSTGRES_PASSWORD` befo
 authenticate. Dashboard, jobs, detail and read-only memory stay local; business editing links to
 Twenty. The `ApiService` is the exclusive same-origin API client and stores its bearer token only
 in `sessionStorage`, attaching it to protected requests and owning logout/expiry behavior.
+The dashboard presents job and outcome counts, average successful run durations, and active worker
+count as compact Taiga toast tiles; active workers are shown in a server-paged table.
 Job detail independently displays immutable inputs, stage revisions, outcomes, traces, partial
 remote references and the write journal. Pending effects remain visible after cancellation.
 The jobs overview uses Taiga UI filters and status badges. Row actions delete finished job

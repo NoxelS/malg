@@ -1,6 +1,6 @@
 """Operational persistence for jobs, evidence, traces, memory, and write intents."""
 
-from malg.database.dashboard import get_dashboard_summary, list_active_workers
+from malg.database.dashboard import get_dashboard_summary, list_active_workers, list_worker_overview
 from malg.database.jobs import (
     cancel_job,
     claim_next_job,
@@ -46,6 +46,7 @@ __all__ = [
     "fail_job",
     "get_dashboard_summary",
     "list_active_workers",
+    "list_worker_overview",
     "record_worker_heartbeat",
     "renew_claim",
     "require_claim",
