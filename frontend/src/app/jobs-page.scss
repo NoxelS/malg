@@ -19,6 +19,11 @@
   margin-block-end: 1.5rem;
 }
 .job-launcher__header h2 { margin: 0; }
+.jobs-overview { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-l); box-shadow: var(--tui-shadow-small); padding: 1.5rem; }
+.jobs-overview__heading { align-items: start; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; margin-block-end: 1.5rem; }
+.jobs-overview__heading h2, .jobs-overview__heading p { margin: 0; }.jobs-overview__heading p { color: var(--tui-text-secondary); margin-block-start: .5rem; }
+.jobs-filters { align-items: end; display: grid; gap: 1rem; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-block-end: 1.5rem; }.jobs-filters > label { color: var(--tui-text-primary); display: grid; font: var(--tui-font-text-s); font-weight: 600; gap: .375rem; }.jobs-filters fieldset { border: 0; display: flex; flex-wrap: wrap; gap: .5rem; margin: 0; min-width: 0; padding: 0; }.jobs-filters fieldset label { font: var(--tui-font-text-s); white-space: nowrap; }.jobs-filters legend { color: var(--tui-text-secondary); font: var(--tui-font-text-s); margin-block-end: .375rem; }.jobs-grid { height: min(42rem, 70vh); min-height: 24rem; }.jobs-grid > ag-grid-angular { display: block; height: 100%; width: 100%; }.jobs-grid--loading { opacity: .7; pointer-events: none; }
+@media (max-width: 64rem) { .jobs-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }.jobs-grid :is(.ag-row, .ag-cell) { cursor: pointer; } @media (max-width: 42rem) { .jobs-filters { grid-template-columns: 1fr; } .jobs-overview { padding: 1rem; } }
 .job-launcher__fields {
   align-items: start;
   display: grid;
@@ -32,29 +37,6 @@
   font: var(--tui-font-text-s);
   font-weight: 600;
   gap: .5rem;
-}
-.job-launcher__control {
-  background-color: var(--tui-background-base);
-  border: 1px solid var(--tui-border-normal);
-  border-radius: var(--tui-radius-m);
-  box-sizing: border-box;
-  color: var(--tui-text-primary);
-  display: block;
-  font: var(--tui-font-text-m);
-  min-height: 2.75rem;
-  min-width: 0;
-  padding: .625rem .875rem;
-  width: 100%;
-}
-.job-launcher__control.form-select { padding-inline-end: 2.5rem; }
-.job-launcher__control::placeholder {
-  color: var(--tui-text-secondary);
-  opacity: 1;
-}
-.job-launcher__control:focus {
-  --tw-ring-color: var(--malg-pink);
-  border-color: var(--malg-pink);
-  box-shadow: 0 0 0 3px var(--malg-pink-pale-hover);
 }
 .job-launcher__hint,
 .job-launcher__feedback {
@@ -75,26 +57,6 @@
   padding-block-start: 1.5rem;
 }
 .job-launcher__actions .job-launcher__hint { margin: 0; }
-.job-list { display: grid; gap: 1rem; }
-.job-card { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-inline-start: .3rem solid var(--tui-border-normal); border-radius: var(--tui-radius-l); box-shadow: var(--tui-shadow-small); min-width: 0; padding: 1.5rem; }
-.job-card.queued { border-inline-start-color: var(--tui-text-action); }
-.job-card.running { border-inline-start-color: var(--tui-text-positive); }
-.job-card.succeeded { border-inline-start-color: var(--tui-text-positive); }
-.job-card.failed { border-inline-start-color: var(--tui-text-negative); }
-.job-card.cancelled { border-inline-start-color: var(--tui-text-tertiary); }
-.job-card__header { align-items: flex-start; display: flex; gap: 1rem; justify-content: space-between; }
-.job-card__identity { min-width: 0; }
-.job-card__eyebrow { color: var(--tui-text-action); font: var(--tui-font-text-s); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-h2 { color: var(--tui-text-primary); font: var(--tui-font-heading-5); margin: .5rem 0 0; overflow-wrap: anywhere; }
-.job-status { flex: 0 0 auto; text-transform: capitalize; }
-.job-meta { display: grid; gap: 1rem 2rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 1.5rem 0; }
-.job-meta div { min-width: 0; }
-dt { color: var(--tui-text-tertiary); font: var(--tui-font-text-s); }
-dd { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .25rem 0 0; overflow-wrap: anywhere; }
-.job-failure { border-block-start: 1px solid var(--tui-border-normal); color: var(--tui-text-negative); display: grid; gap: .35rem; margin: 0 0 1.25rem; padding-block-start: 1.25rem; overflow-wrap: anywhere; }
-.job-failure strong { font: var(--tui-font-text-s); text-transform: uppercase; }
-.job-card__actions { align-items: center; display: flex; flex-wrap: wrap; gap: .75rem; }
-@media (max-width: 48rem) { .job-card__actions > * { flex: 1 1 auto; } }
 @media (max-width: 48rem) {
   .job-launcher { padding: 1rem; }
   .job-launcher__fields { grid-template-columns: 1fr; }
@@ -103,6 +65,16 @@ dd { color: var(--tui-text-secondary); font: var(--tui-font-text-m); margin: .25
   .job-launcher__header > *,
   .job-launcher__actions > * { width: 100%; }
   .job-launcher__actions .job-launcher__hint { width: auto; }
-  .job-card__header { flex-direction: column; }
-  .job-meta { grid-template-columns: 1fr; }
 }
+
+.jobs-filters { background: var(--tui-background-neutral-1); border-radius: var(--tui-radius-m); padding: 1rem; }
+.jobs-filters > label { gap: .5rem; }
+.jobs-filters fieldset { align-self: start; grid-column: span 2; gap: .5rem; }
+.jobs-filters fieldset label { align-items: center; display: flex; gap: .5rem; padding: .5rem .75rem; border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-m); background: var(--tui-background-base); cursor: pointer; }
+.jobs-filters fieldset label:has(input:checked) { border-color: var(--tui-text-action); background: var(--tui-background-accent-1); }
+.jobs-filters tui-textfield { min-width: 0; font-weight: 400; }
+.jobs-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; margin-bottom: 1rem; }
+.jobs-toolbar p { margin: 0; color: var(--tui-text-secondary); font: var(--tui-font-text-s); }
+.jobs-toolbar .jobs-toolbar__hint { flex-basis: 100%; }
+.jobs-action-result { padding: 1rem; border-radius: var(--tui-radius-m); background: var(--tui-background-neutral-1); }
+@media (max-width: 42rem) { .jobs-filters fieldset { grid-column: 1; } }

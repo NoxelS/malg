@@ -1,5 +1,6 @@
 """Admission observes real remote scope while history remains local."""
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import httpx
@@ -119,6 +120,84 @@ def test_local_job_history_and_cancellation_do_not_require_crm():
         assert cancelled.json()["status"] == "cancelled"
         assert client.get(f"/api/v1/jobs/{job_id}", headers=headers).json()["status"] == "cancelled"
         assert client.post(f"/api/v1/jobs/{job_id}/cancel", headers=headers).status_code == 409
+
+
+def test_job_overview_paginates_server_filtered_history():
+    """Overview filtering occurs before deterministic pagination."""
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    started = datetime(2026, 10, 1, tzinfo=UTC)
+    ids = [str(uuid4()) for _ in range(3)]
+    with Session(engine) as session:
+        session.add_all(
+            [
+                ResearchJob(
+                    job_id=ids[0],
+                    kind="campaign",
+                    status="queued",
+                    result_refs=[],
+                    attempt_count=0,
+                    created_at=started,
+                ),
+                ResearchJob(
+                    job_id=ids[1],
+                    kind="account",
+                    status="failed",
+                    result_outcome="partial",
+                    result_refs=[],
+                    attempt_count=2,
+                    created_at=started + timedelta(minutes=1),
+                ),
+                ResearchJob(
+                    job_id=ids[2],
+                    kind="account",
+                    status="failed",
+                    result_outcome="complete",
+                    result_refs=[],
+                    attempt_count=3,
+                    created_at=started + timedelta(minutes=2),
+                ),
+            ]
+        )
+        session.commit()
+
+    with TestClient(
+        create_app(database_engine=engine, auth_config=AuthConfig("admin", "secret"))
+    ) as client:
+        token = client.post(
+            "/api/v1/auth/token", json={"username": "admin", "password": "secret"}
+        ).json()["access_token"]
+        response = client.get(
+            "/api/v1/jobs/overview",
+            params=[
+                ("status", "failed"),
+                ("kind", "account"),
+                ("minimum_attempts", "2"),
+                ("limit", "1"),
+            ],
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["total"] == 2
+        assert body["items"][0]["job_id"] == ids[2]
+        assert "request_payload" not in body["items"][0]
+
+        second = client.get(
+            "/api/v1/jobs/overview",
+            params=[
+                ("status", "failed"),
+                ("kind", "account"),
+                ("minimum_attempts", "2"),
+                ("limit", "1"),
+                ("offset", "1"),
+            ],
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert second.status_code == 200, second.text
+        assert second.json()["items"][0]["job_id"] == ids[1]
 
 
 def test_cancelled_pending_effects_remain_visible_without_crm():

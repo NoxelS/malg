@@ -1,62 +1,26 @@
 <app-page-layout>
   <app-page-header eyebrow="Operations" title="Memory" description="Durable agent findings and recall history." />
-
-  <div class="memory-toolbar">
-    <label class="archive-toggle">
-      <input type="checkbox" [checked]="includeArchived()" (change)="toggleArchived($event)" />
-      <span>Include archived</span>
-    </label>
-    @if (!loading() && !error() && memories().length) {
-      <span class="memory-count">{{ memories().length }} of {{ total() }}</span>
-    }
-  </div>
-
-  @if (loading()) {
-    <app-state-message message="Loading memories…" />
-  } @else if (error()) {
-    <app-state-message message="Memories could not be loaded right now." tone="error" />
-  } @else if (!memories().length) {
-    <app-state-message message="No durable memories yet." />
-  } @else {
-    <section class="memory-list" aria-label="Durable memories">
-      @for (memory of memories(); track memory.id) {
-        <article class="memory-card" [class.memory-card--archived]="memory.archived">
-          <header class="memory-card__header">
-            <div class="memory-card__identity">
-              <span class="memory-card__eyebrow">{{ memory.type }}</span>
-              <h2 [title]="memory.id">{{ memory.id }}</h2>
-            </div>
-            @if (memory.archived) { <span tuiBadge appearance="secondary">Archived</span> }
-          </header>
-
-          <p class="memory-content">{{ memory.content }}</p>
-          <dl class="memory-meta">
-            <div><dt>Owner</dt><dd>{{ memory.owner }}</dd></div>
-            <div><dt>Importance</dt><dd>{{ memory.importance }}</dd></div>
-            <div><dt>Created</dt><dd>{{ memory.created_at | date:'medium' }}</dd></div>
-            @if (memory.status) { <div><dt>Todo status</dt><dd>{{ memory.status }}</dd></div> }
-            @if (memory.salience !== undefined) { <div><dt>Salience</dt><dd>{{ memory.salience }}</dd></div> }
-            @if (memory.strength !== undefined) { <div><dt>Strength</dt><dd>{{ memory.strength }}</dd></div> }
-          </dl>
-          @if (memory.tags.length) {
-            <div class="memory-tags" aria-label="Tags">
-              @for (tag of memory.tags; track tag) { <span tuiBadge appearance="secondary">{{ tag }}</span> }
-            </div>
-          }
-          @if (memory.edges?.length || memory.references?.length) {
-            <details class="memory-details">
-              <summary>Associations and references</summary>
-              @if (memory.edges?.length) { <p><strong>Edges</strong> <code>{{ memory.edges | json }}</code></p> }
-              @if (memory.references?.length) { <p><strong>References</strong> <code>{{ memory.references | json }}</code></p> }
-            </details>
-          }
-        </article>
-      }
-    </section>
-    @if (memories().length < total()) {
-      <button class="load-more" type="button" (click)="loadMore()" [disabled]="loadingMore()">
-        {{ loadingMore() ? 'Loading…' : 'Load more' }}
-      </button>
-    }
-  }
+  <section class="memory-overview" aria-labelledby="memory-overview-heading">
+    <div class="memory-overview__heading"><div><h2 id="memory-overview-heading">Durable memories</h2><p>Filter and sort memory records. Select a row to read the full entry.</p></div><button tuiButton type="button" appearance="secondary" (click)="applyFilters()">Refresh</button></div>
+    <form class="memory-filters" (submit)="$event.preventDefault(); applyFilters()">
+      <label>Search content <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput name="memory-query" [(ngModel)]="contentQuery" (ngModelChange)="applyFilters()" placeholder="Words in the memory" /></tui-textfield></label>
+      <label>Owner <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput name="owner" [(ngModel)]="ownerFilter" (ngModelChange)="applyFilters()" placeholder="Exact owner" /></tui-textfield></label>
+      <label>Type <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false" [stringify]="typeLabel"><select tuiSelect [items]="typeOptions" name="type" [(ngModel)]="typeFilter" (ngModelChange)="applyFilters()"></select></tui-textfield></label>
+      <label>Todo status <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput name="status" [(ngModel)]="statusFilter" (ngModelChange)="applyFilters()" placeholder="For example, open" /></tui-textfield></label>
+      <label class="memory-archive-toggle"><input tuiCheckbox type="checkbox" name="include-archived" [ngModel]="includeArchived()" (ngModelChange)="includeArchived.set($event); applyFilters()" /> Include archived</label>
+      <button tuiButton type="button" appearance="secondary" (click)="clearFilters()">Clear filters</button>
+    </form>
+    @if (error()) { <app-state-message message="Memories could not be loaded right now. Retry the request." tone="error" /> }
+    @if (clearedCount() !== null) { <p class="memory-notice" role="status">Deleted {{ clearedCount() }} memories.</p> }
+    <div class="memory-toolbar">
+      <p aria-live="polite">{{ shownMemories().length }} shown · {{ totalMemories() }} matching memories</p>
+      <button tuiButton type="button" size="m" appearance="secondary-destructive" [disabled]="deleting() || clearing() || loading() || !shownMemories().length" (click)="deleteMemories(shownMemories())">{{ deleting() ? 'Deleting…' : 'Delete shown (' + shownMemories().length + ')' }}</button>
+      <p class="memory-toolbar__hint">Deletes only memories on this page and their associations. This cannot be undone.</p>
+    </div>
+    @if (deleteMessage()) { <p class="memory-action-result" role="status">{{ deleteMessage() }}</p> }
+    <div class="memory-grid" [class.memory-grid--loading]="loading()"><ag-grid-angular [theme]="gridTheme" [columnDefs]="columnDefs" [defaultColDef]="defaultColDef" [rowModelType]="'infinite'" [cacheBlockSize]="50" [pagination]="true" [paginationPageSize]="50" [paginationPageSizeSelector]="[25, 50, 100]" [rowHeight]="88" (paginationChanged)="updateShownMemories()" (modelUpdated)="updateShownMemories()" [maxBlocksInCache]="4" [getRowId]="getRowId" (gridReady)="onGridReady($event)" (rowClicked)="openMemory($event)" /></div>
+    <div class="memory-danger-zone"><div><h3>Clear global memory</h3><p>Deletes every durable memory and its associations for all owners.</p></div><button tuiButton type="button" appearance="secondary-destructive" [disabled]="deleting() || clearing()" (click)="requestClear()">Clear all memories</button></div>
+    @if (clearConfirmationOpen()) { <section class="clear-confirmation" role="alert"><p>Delete every memory for every owner? This cannot be undone.</p><div><button tuiButton type="button" appearance="secondary" [disabled]="clearing()" (click)="cancelClear()">Cancel</button><button tuiButton type="button" appearance="primary-destructive" [disabled]="clearing() || deleting()" (click)="clearAllMemories()">{{ clearing() ? 'Clearing…' : 'Delete all memories' }}</button></div></section> }
+    @if (clearError()) { <app-state-message message="The memory database could not be cleared." tone="error" /> }
+  </section>
 </app-page-layout>

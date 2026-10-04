@@ -15,18 +15,13 @@
       <div class="job-launcher__fields">
         <div class="job-launcher__field">
           <label>Job kind
-            <select class="form-select job-launcher__control" [ngModel]="selectedKind()" (ngModelChange)="selectedKind.set($event); kindChanged()">
-              <option value="campaign">Campaign research</option><option value="icp">ICP research</option><option value="account">Account research</option>
-            </select>
+            <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false" [stringify]="label"><select tuiSelect [items]="kindOptions" [ngModel]="selectedKind()" (ngModelChange)="selectedKind.set($event); kindChanged()"></select></tui-textfield>
           </label>
         </div>
         @if (selectedKind() === 'icp') {
           <div class="job-launcher__field">
             <label>Campaign
-              <select class="form-select job-launcher__control" [(ngModel)]="selectedCampaign" (ngModelChange)="campaignChanged()">
-                <option value="">Select a campaign</option>
-                @for (campaign of campaigns(); track campaign.id) { <option [value]="campaign.id">{{ campaign.display_name }}</option> }
-              </select>
+              <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false" [stringify]="crmLabel"><select tuiSelect [items]="campaignIds()" [(ngModel)]="selectedCampaign" (ngModelChange)="campaignChanged()"></select></tui-textfield>
             </label>
             @if (selectorState().campaigns === 'loading') { <p class="job-launcher__feedback" role="status">Loading campaigns…</p> }
             @else if (selectorState().campaigns === 'error') { <p class="job-launcher__feedback job-launcher__feedback--error" role="alert">Campaigns could not be loaded.</p><button tuiButton type="button" (click)="loadCampaigns()">Retry campaigns</button> }
@@ -34,13 +29,13 @@
             @if (campaignCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().campaigns === 'loading'" (click)="loadCampaigns()">Load more campaigns</button> }
           </div>
           <div class="job-launcher__field">
-            <label>ICPs to find <input class="form-input job-launcher__control" type="number" min="1" max="20" step="1" [(ngModel)]="icpCount" /></label>
+            <label>ICPs to find <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="number" min="1" max="20" step="1" [(ngModel)]="icpCount" /></tui-textfield></label>
           </div>
         }
         @if (selectedKind() === 'account') {
           <div class="job-launcher__field">
             <label>ICP
-              <select class="form-select job-launcher__control" [(ngModel)]="selectedIcp"><option value="">Select an ICP</option>@for (icp of icps(); track icp.id) { <option [value]="icp.id">{{ icp.display_name }}</option> }</select>
+              <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false" [stringify]="crmLabel"><select tuiSelect [items]="icpIds()" [(ngModel)]="selectedIcp"></select></tui-textfield>
             </label>
             @if (selectorState().icps === 'loading') { <p class="job-launcher__feedback" role="status">Loading ICPs…</p> }
             @else if (selectorState().icps === 'error') { <p class="job-launcher__feedback job-launcher__feedback--error" role="alert">ICPs could not be loaded.</p><button tuiButton type="button" (click)="loadIcps()">Retry ICPs</button> }
@@ -48,13 +43,13 @@
             @if (icpCursor()) { <button tuiButton type="button" appearance="secondary" [disabled]="selectorState().icps === 'loading'" (click)="loadIcps()">Load more ICPs</button> }
           </div>
           <div class="job-launcher__field">
-            <label>Companies <input class="form-input job-launcher__control" type="number" min="1" max="20" step="1" [(ngModel)]="companyCount" /></label>
+            <label>Companies <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="number" min="1" max="20" step="1" [(ngModel)]="companyCount" /></tui-textfield></label>
           </div>
           <div class="job-launcher__field">
-            <label>People per company <input class="form-input job-launcher__control" type="number" min="1" max="5" step="1" [(ngModel)]="peoplePerCompany" /></label>
+            <label>People per company <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="number" min="1" max="5" step="1" [(ngModel)]="peoplePerCompany" /></tui-textfield></label>
           </div>
           <div class="job-launcher__field">
-            <label>Opportunities per company <input class="form-input job-launcher__control" type="number" min="1" max="3" step="1" [(ngModel)]="opportunitiesPerCompany" /></label>
+            <label>Opportunities per company <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="number" min="1" max="3" step="1" [(ngModel)]="opportunitiesPerCompany" /></tui-textfield></label>
           </div>
           <p class="job-launcher__hint">Companies, associated people, and opportunities are researched and published automatically. Existing Twenty values are preserved.</p>
         }
@@ -64,16 +59,24 @@
       </div>
     }
   </section>
-  @if (loading()) { <app-state-message message="Loading jobs…" /> }
-  @else if (error()) { <app-state-message message="Jobs could not be loaded right now." tone="error" /> }
-  @else if (!jobs().length) { <app-state-message message="No research jobs yet." /> }
-  @else {
-    @if (actionError()) { <p class="action-error" role="alert">The requested job action could not be completed.</p> }
-    <section class="job-list" aria-label="Research jobs">@for (job of jobs(); track job.job_id) {
-      <article class="job-card" [class]="job.status"><header class="job-card__header"><div class="job-card__identity"><span class="job-card__eyebrow">{{ job.kind }} research</span><h2 [title]="job.job_id">{{ job.job_id }}</h2></div><span tuiBadge appearance="secondary" class="job-status">{{ job.status }}</span></header>
-      <dl class="job-meta"><div><dt>Attempts</dt><dd>{{ job.attempt_count }}</dd></div><div><dt>Created</dt><dd>{{ job.created_at | date:'medium' }}</dd></div>@if (job.result_outcome) { <div><dt>Outcome</dt><dd>{{ job.result_outcome }}</dd></div> }</dl>
-      @if (job.failure_detail) { <p class="job-failure"><strong>Failure detail</strong>{{ job.failure_detail }}</p> }
-      <div class="job-card__actions"><a tuiButton appearance="secondary" [routerLink]="['/jobs', job.job_id]">View details</a>@if (job.status === 'queued' || job.status === 'running') { <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="cancelJob(job)">{{ pendingJobId() === job.job_id ? 'Cancelling…' : 'Cancel job' }}</button> }@if (isDeletable(job)) { <button tuiButton type="button" appearance="secondary" [disabled]="pendingJobId() === job.job_id" (click)="deleteJob(job)">Delete job</button> }</div></article>
-    }</section>
-  }
+  <section class="jobs-overview" aria-labelledby="jobs-overview-heading">
+    <div class="jobs-overview__heading"><div><h2 id="jobs-overview-heading">Research jobs</h2><p>Filter and sort job history. Select a row to inspect its execution.</p></div><button tuiButton type="button" appearance="secondary" (click)="applyOverviewFilters()">Refresh</button></div>
+    <form class="jobs-filters" (submit)="$event.preventDefault(); applyOverviewFilters()">
+      <label>Job ID <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput name="job-id" [(ngModel)]="jobIdFilter" (ngModelChange)="applyOverviewFilters()" placeholder="Prefix" /></tui-textfield></label>
+      <label>Outcome <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false" [stringify]="label"><select tuiSelect [items]="outcomeOptions" name="outcome" [(ngModel)]="outcomeFilter" (ngModelChange)="applyOverviewFilters()"></select></tui-textfield></label>
+      <label>Created after <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="datetime-local" name="created-after" [(ngModel)]="createdAfter" (ngModelChange)="applyOverviewFilters()" /></tui-textfield></label>
+      <label>Minimum attempts <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="number" min="0" max="1000" name="minimum-attempts" [(ngModel)]="minimumAttempts" (ngModelChange)="applyOverviewFilters()" /></tui-textfield></label>
+      <fieldset><legend>Status</legend>@for (status of ['queued', 'running', 'succeeded', 'failed', 'cancelled']; track status) { <label><input tuiCheckbox type="checkbox" [ngModel]="selectedStatuses().includes(status)" [ngModelOptions]="{standalone: true}" (ngModelChange)="toggleFilter('status', status, $event)" /> {{ label(status) }}</label> }</fieldset>
+      <fieldset><legend>Kind</legend>@for (kind of ['campaign', 'icp', 'account']; track kind) { <label><input tuiCheckbox type="checkbox" [ngModel]="selectedKinds().includes(kind)" [ngModelOptions]="{standalone: true}" (ngModelChange)="toggleFilter('kind', kind, $event)" /> {{ label(kind) }}</label> }</fieldset>
+      <button tuiButton type="button" appearance="secondary" (click)="clearOverviewFilters()">Clear filters</button>
+    </form>
+    @if (overviewError()) { <app-state-message message="Jobs could not be loaded right now. Retry the request." tone="error" /> }
+    <div class="jobs-toolbar">
+      <p aria-live="polite">{{ shownJobs().length }} shown · {{ totalJobs() }} matching jobs</p>
+      <button tuiButton type="button" size="m" appearance="secondary-destructive" [disabled]="deleting() || overviewLoading() || !deletableShownJobs().length" (click)="deleteJobs(deletableShownJobs())">{{ deleting() ? 'Deleting…' : 'Delete shown (' + deletableShownJobs().length + ')' }}</button>
+      <p class="jobs-toolbar__hint">Deletes finished jobs on this page. Research artifacts and CRM records are kept.</p>
+    </div>
+    @if (deleteMessage()) { <p class="jobs-action-result" role="status">{{ deleteMessage() }}</p> }
+    <div class="jobs-grid" [class.jobs-grid--loading]="overviewLoading()"><ag-grid-angular [theme]="gridTheme" [columnDefs]="columnDefs" [defaultColDef]="defaultColDef" [rowModelType]="'infinite'" [cacheBlockSize]="50" [pagination]="true" [paginationPageSize]="50" [paginationPageSizeSelector]="[25, 50, 100]" [rowHeight]="68" (paginationChanged)="updateShownJobs()" (modelUpdated)="updateShownJobs()" [maxBlocksInCache]="4" [getRowId]="getRowId" (gridReady)="onGridReady($event)" (rowClicked)="openJob($event)" /></div>
+  </section>
 </app-page-layout>

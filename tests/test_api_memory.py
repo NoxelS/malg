@@ -36,6 +36,12 @@ def test_memory_api_crud_owner_filter_pagination_archive_and_edges() -> None:
         ]
         == "one"
     )
+    overview = client.get("/api/v1/memories/overview", params={"owner": "alice", "limit": 1})
+    assert overview.status_code == 200
+    assert overview.json()["total"] == 2
+    assert overview.json()["items"][0]["owner"] == "alice"
+    assert overview.json()["items"][0]["content_preview"]
+    assert "edges" not in overview.json()["items"][0]
 
     replacement = records[0].model_copy(
         update={
@@ -68,4 +74,8 @@ def test_memory_api_crud_owner_filter_pagination_archive_and_edges() -> None:
     assert client.delete("/api/v1/memories/two").status_code == 204
     assert client.get("/api/v1/memories/two").status_code == 404
     assert client.delete("/api/v1/memories/missing").status_code == 404
+    cleared = client.delete("/api/v1/memories")
+    assert cleared.status_code == 200
+    assert cleared.json() == {"deleted": 2}
+    assert client.get("/api/v1/memories/overview").json()["total"] == 0
     engine.dispose()

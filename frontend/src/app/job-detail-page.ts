@@ -2,7 +2,7 @@ import {DatePipe, JsonPipe} from '@angular/common';
 import {HttpErrorResponse} from '@angular/common/http';
 import {ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal} from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
-import {ActivatedRoute, RouterLink} from '@angular/router';
+import {ActivatedRoute, Router, RouterLink} from '@angular/router';
 import {forkJoin, of} from 'rxjs';
 import {catchError, finalize, tap} from 'rxjs/operators';
 import {ApiService, AgentRun, AgentTraceEvent, AgentTraceEventPage, AgentTurn, CrmStatus, JobWrites, JsonValue, ResearchJob, StageRecord} from './api-service';
@@ -65,6 +65,7 @@ const emptyRunState = (): RunState => ({
 export class JobDetailPage implements OnDestroy, OnInit {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly job = signal<ResearchJob | null>(null);
   protected readonly runs = signal<readonly AgentRun[]>([]);
@@ -87,6 +88,7 @@ export class JobDetailPage implements OnDestroy, OnInit {
   protected readonly writesUnavailable = signal(false);
   protected readonly crm = signal<CrmStatus | null>(null);
   protected readonly cancellingJob = signal(false);
+  protected readonly deletingJob = signal(false);
   protected readonly loading = signal(true);
   protected readonly error = signal<'not-found' | 'unavailable' | null>(null);
   protected readonly traceUnavailable = signal(false);
@@ -142,6 +144,18 @@ export class JobDetailPage implements OnDestroy, OnInit {
     this.api.cancelJob(this.jobId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (job) => { this.job.set(job); this.cancellingJob.set(false); this.loadJob(true); },
       error: () => { this.cancellingJob.set(false); this.jobActionError.set(true); },
+    });
+  }
+
+  protected isDeletable(job: ResearchJob): boolean { return ['cancelled', 'succeeded', 'failed'].includes(job.status); }
+
+  protected deleteJob(): void {
+    const job = this.job();
+    if (!job || !this.isDeletable(job) || this.deletingJob()) return;
+    this.deletingJob.set(true); this.jobActionError.set(false);
+    this.api.deleteJob(this.jobId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.deletingJob.set(false); void this.router.navigate(['/jobs']); },
+      error: () => { this.deletingJob.set(false); this.jobActionError.set(true); },
     });
   }
 
