@@ -112,6 +112,12 @@ deadlines, reasoning iterations and shared LLM/search/fetch allowances. The supe
 performs generation and persists fenced evidence; only the parent publishes to Twenty. Cancellation
 terminates the child, prevents new operations and preserves already-observed remote effects.
 
+The supplied defaults favor completing account bundles: each stage has a one-hour deadline, and
+each workflow unit has a two-hour deadline. They allow up to 512 reasoning iterations, 256 LLM
+attempts per stage, 512 per workflow unit, and 1,000 search / 2,000 fetch attempts per workflow
+unit. These are intentionally generous but still finite so cancellation, cleanup and worker
+recovery remain dependable. Deployments may override them with `MALG_RESEARCH__...`.
+
 ## Persistent campaign-research memory
 
 Campaign research has explicit, durable NOOA memory backed by PostgreSQL. The agent can recall,
