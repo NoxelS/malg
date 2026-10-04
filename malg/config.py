@@ -149,16 +149,16 @@ class WorkerConfig:
 class ResearchConfig:
     """Finite host-owned limits shared by every research workflow stage."""
 
-    workflow_timeout_seconds: int = 600
-    stage_timeout_seconds: int = 180
-    llm_attempt_timeout_seconds: int = 90
-    initialization_timeout_seconds: int = 20
-    cleanup_reserve_seconds: int = 5
-    max_iterations: int = 6
-    max_llm_attempts_per_stage: int = 12
-    max_llm_attempts_per_workflow: int = 24
-    max_search_requests: int = 12
-    max_fetch_requests: int = 20
+    workflow_timeout_seconds: int = 7200
+    stage_timeout_seconds: int = 3600
+    llm_attempt_timeout_seconds: int = 600
+    initialization_timeout_seconds: int = 90
+    cleanup_reserve_seconds: int = 60
+    max_iterations: int = 512
+    max_llm_attempts_per_stage: int = 256
+    max_llm_attempts_per_workflow: int = 512
+    max_search_requests: int = 1000
+    max_fetch_requests: int = 2000
 
 
 def get_research_config(settings: Dynaconf) -> ResearchConfig:
