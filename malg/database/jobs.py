@@ -30,6 +30,7 @@ def enqueue_job(request: ResearchJobRequest, session: Session) -> ResearchJob:
     if isinstance(request, ICPResearchJobRequest):
         job.campaign_id = str(request.campaign_id)
     if isinstance(request, AccountResearchJobRequest):
+        job.campaign_id = str(request.campaign_id) if request.campaign_id else None
         job.icp_id = str(request.icp_id)
     session.add(job)
     session.flush()
