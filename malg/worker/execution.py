@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import multiprocessing
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from multiprocessing.connection import Connection
@@ -18,10 +19,30 @@ class ExecutionConfig:
     cleanup_reserve_seconds: float = 5
 
 
+class ResearchExecutionError(RuntimeError):
+    """A child failure carrying only a host-allowlisted public reason code."""
+
+    codes = frozenset({"llm_rate_limited", "evidence_storage_failed", "research_execution_failed"})
+
+    def __init__(self, code: str) -> None:
+        """Replace unknown codes with the generic failure; never expose child payloads."""
+        self.code = code if code in self.codes else "research_execution_failed"
+        super().__init__(self.code)
+
+
 def _child_entry(entrypoint: Callable[[Connection], None], initialized: Connection) -> None:
     """Run a picklable stage; the stage signals after its resources initialize."""
     try:
         entrypoint(initialized)
+    except Exception as error:
+        code = "research_execution_failed"
+        if type(error).__name__ == "GenerationError" and "RateLimitError" in str(error):
+            code = "llm_rate_limited"
+        elif type(error).__name__ == "DataError":
+            code = "evidence_storage_failed"
+        with suppress(OSError):
+            initialized.send_bytes(f"failed:{code}".encode("ascii"))
+        raise
     finally:
         initialized.close()
 
@@ -66,20 +87,31 @@ async def run_supervised(
     process.start()
     sender.close()
     initialized = False
+    failure_code: str | None = None
     init_deadline = asyncio.get_running_loop().time() + limits.initialization_timeout_seconds
     try:
         while True:
-            if not initialized and receiver.poll():
+            if receiver.poll():
                 try:
-                    initialized = receiver.recv_bytes() == b"initialized"
-                except EOFError as error:
-                    raise RuntimeError("research child exited before initialization") from error
-                if not initialized:
-                    raise RuntimeError("invalid research initialization notification")
+                    message = receiver.recv_bytes(128)
+                except EOFError:
+                    message = b""
+                if message == b"initialized":
+                    initialized = True
+                elif message.startswith(b"failed:"):
+                    failure_code = message[7:].decode("ascii", errors="replace")
+                elif message:
+                    raise ResearchExecutionError("research_execution_failed")
             if not process.is_alive():
                 await asyncio.to_thread(process.join)
+                # The child may send its final message between poll and exit.
+                if failure_code is None and receiver.poll():
+                    with suppress(EOFError):
+                        message = receiver.recv_bytes(128)
+                        if message.startswith(b"failed:"):
+                            failure_code = message[7:].decode("ascii", errors="replace")
                 if not initialized or process.exitcode:
-                    raise RuntimeError(f"research child failed ({process.exitcode})")
+                    raise ResearchExecutionError(failure_code or "research_execution_failed")
                 return
             remaining = (deadline_at.astimezone(UTC) - datetime.now(UTC)).total_seconds()
             if remaining <= limits.cleanup_reserve_seconds:

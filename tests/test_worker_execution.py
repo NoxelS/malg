@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from malg.worker.execution import ExecutionConfig, run_supervised
+from malg.worker.execution import ExecutionConfig, ResearchExecutionError, run_supervised
 
 
 def _delayed_write(path: str, connection, *, initialize: bool, started=None) -> None:
@@ -54,3 +54,31 @@ def test_initialization_timeout_terminates_silent_child(tmp_path):
         assert not await asyncio.to_thread(Path(path).exists)
 
     asyncio.run(run())
+
+
+class GenerationError(Exception):
+    """Serializable third-party generation boundary error for a spawned child."""
+
+
+def _failed_stage(connection, error_type: str) -> None:
+    connection.send_bytes(b"initialized")
+    if error_type == "rate_limit":
+        raise GenerationError("RateLimitError: private upstream payload")
+    raise RuntimeError("private upstream payload")
+
+
+@pytest.mark.parametrize(
+    ("error_type", "code"),
+    [("rate_limit", "llm_rate_limited"), ("other", "research_execution_failed")],
+)
+def test_child_failure_exposes_only_safe_public_code(error_type, code) -> None:
+    with pytest.raises(ResearchExecutionError) as failure:
+        asyncio.run(
+            run_supervised(
+                partial(_failed_stage, error_type=error_type),
+                deadline_at=datetime.now(UTC) + timedelta(seconds=10),
+                config=ExecutionConfig(5, 0),
+            )
+        )
+    assert failure.value.code == code
+    assert str(failure.value) == code
