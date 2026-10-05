@@ -29,7 +29,11 @@ class AccountResearchAgent(BrowserSupport):
         LinkedIn URLs, email addresses, exact employee counts, revenue or currency.
         Unknown values and published ranges stay null; zero is a real value.
         Search returns response.results with hit.url attributes. Fetch with
-        purpose="evidence"; page.excerpts contains dicts with id/text. Observations
+        purpose="evidence"; page.excerpts contains dicts with id/text. On a failed
+        fetch, read page.text for the host-provided diagnostic. Missing pages and
+        nonexistent hostnames are not evidence; do not infer that the company
+        itself does not exist. Use another observed public source or return
+        insufficient_evidence. Observations
         have field, text, excerpt_ids=[excerpt["id"]], and an exact quote from
         excerpt["text"]. Use these attributes directly. If a candidate website is
         supplied, fetch it first; otherwise make one discovery search. Fetch at

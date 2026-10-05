@@ -54,6 +54,17 @@ Search titles and snippets are untrusted discovery hints, not evidence. Repeated
 queries and URLs reuse per-stage observations. Failed external requests and redirects consume
 the shared finite workflow budget.
 
+Failed fetches return a human-readable diagnostic in `page.text` and no evidence
+excerpts. HTTP 404/410 and DNS host-not-found explain that the page or hostname
+is missing; temporary DNS, connection failures and denied access do not assert
+nonexistence. Visible source text replaces null characters before creating
+excerpts, so generated quotes and PostgreSQL checkpoints use identical text.
+Malformed citations discard the candidate as `insufficient_evidence`, with a
+safe reason in `unknowns`, rather than terminating the workflow. Earlier
+checkpoints and CRM publications remain durable. Child failures expose only
+allowlisted public codes such as `llm_rate_limited` and `evidence_storage_failed`;
+full diagnostics remain in authenticated traces.
+
 Retrieval and safe probes reject LinkedIn and `lnkd.in`, including redirects. LinkedIn URLs
 may be retained only as identifiers observed in other public sources; they are never probed.
 Compose and the prepared production Lightpanda command also block those URL patterns and
