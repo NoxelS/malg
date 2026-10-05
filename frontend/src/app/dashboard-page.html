@@ -4,58 +4,63 @@
   @if (loading()) {
     <app-state-message message="Loading dashboard…" />
   } @else if (error()) {
-    <app-state-message message="Dashboard data could not be loaded right now." tone="error" />
+    <app-state-message message="Dashboard data could not be loaded right now. Refresh to retry." tone="error" />
   } @else if (summary(); as data) {
-    <app-summary-grid aria-label="Dashboard summary">
-      <app-summary-card label="Active workers" [value]="data.active_workers" hint="Checked in recently" />
-    </app-summary-grid>
-
-    <section class="dashboard-section" aria-labelledby="jobs-heading">
-      <app-section-heading headingId="jobs-heading" title="Jobs" description="Durable research work by current status" />
-      <div class="jobs-grid">
-        <article class="metric-card"><span>Queued</span><strong>{{ data.jobs.queued }}</strong></article>
-        <article class="metric-card"><span>Running</span><strong>{{ data.jobs.running }}</strong></article>
-        <article class="metric-card"><span>Finished</span><strong>{{ data.jobs.succeeded }}</strong></article>
-        <article class="metric-card"><span>Failed</span><strong>{{ data.jobs.failed }}</strong></article>
-        <article class="metric-card"><span>Cancelled</span><strong>{{ data.jobs.cancelled }}</strong></article>
+    <section class="dashboard-section controller-section" aria-labelledby="continuous-research-heading">
+      <div class="dashboard-section__heading">
+        <app-section-heading headingId="continuous-research-heading" title="Continuous account research" description="Keeps at least one matching account-research job queued. Turning this off lets existing jobs finish." />
+        @if (controller(); as value) { <div class="controller-section__actions"><button tuiButton type="button" appearance="secondary" [disabled]="value.enabled || controllerBusy()" (click)="openControllerConfiguration()">Configure</button><button tuiButton type="button" [appearance]="value.enabled ? 'secondary-destructive' : 'primary'" [disabled]="controllerBusy() || (!value.configuration && !value.enabled)" (click)="setControllerEnabled(!value.enabled)">{{ controllerBusy() ? 'Saving…' : value.enabled ? 'Disable' : 'Enable' }}</button></div> }
       </div>
+      @if (controllerError()) { <app-state-message [message]="controllerError()" tone="error" /> }
+      @if (controller(); as value) { <p class="controller-section__status">{{ value.enabled ? 'Active' : 'Off' }} · {{ value.queued_matching_jobs }} queued · {{ value.running_matching_jobs }} running</p>@if (value.configuration; as configuration) { <p class="controller-section__configuration">{{ controllerLabel(configuration.campaign_id) }} · {{ controllerLabel(configuration.icp_id) }} · {{ configuration.company_count }} companies × {{ configuration.people_per_company }} people × {{ configuration.opportunities_per_company }} opportunities</p> } @else { <p class="controller-section__configuration">Configure the account-research request before enabling continuous research.</p> } }
     </section>
-
-    <section class="dashboard-section" aria-labelledby="outcomes-heading">
-      <app-section-heading headingId="outcomes-heading" title="Research outcomes" description="Business results from finished jobs" />
-      <div class="jobs-grid">
-        <article class="metric-card"><span>Complete</span><strong>{{ data.outcomes.complete }}</strong></article>
-        <article class="metric-card"><span>Partial</span><strong>{{ data.outcomes.partial }}</strong></article>
-        <article class="metric-card"><span>No evidence</span><strong>{{ data.outcomes.insufficient_evidence }}</strong></article>
-        <article class="metric-card"><span>Budget exhausted</span><strong>{{ data.outcomes.budget_exhausted }}</strong></article>
-        <article class="metric-card"><span>Needs review</span><strong>{{ data.outcomes.needs_review }}</strong></article>
+    @if (configuringController()) { <div class="research-overlay" role="presentation"><section class="research-dialog" role="dialog" aria-modal="true" aria-labelledby="controller-dialog-title"><h2 id="controller-dialog-title">Configure continuous research</h2><p class="research-dialog__description">Uses the same account-research settings as a manual account job.</p><label>Campaign<tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false" [stringify]="controllerLabel"><select tuiSelect [items]="controllerCampaignIds()" [(ngModel)]="controllerCampaign" (ngModelChange)="controllerCampaignChanged()"></select></tui-textfield></label><label>ICP<tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false" [stringify]="controllerLabel"><select tuiSelect [items]="controllerIcpIds()" [(ngModel)]="controllerIcp"></select></tui-textfield></label><label>Companies<tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="number" min="1" max="20" [(ngModel)]="controllerCompanies" /></tui-textfield></label><label>People per company<tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="number" min="1" max="5" [(ngModel)]="controllerPeople" /></tui-textfield></label><label>Opportunities per company<tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput type="number" min="1" max="3" [(ngModel)]="controllerOpportunities" /></tui-textfield></label><div class="research-dialog__actions"><button tuiButton type="button" appearance="secondary" [disabled]="controllerBusy()" (click)="closeControllerConfiguration()">Cancel</button><button tuiButton type="button" [disabled]="controllerBusy() || !validControllerCounts() || !controllerCampaign || !controllerIcp" (click)="saveControllerConfiguration()">{{ controllerBusy() ? 'Saving…' : 'Save configuration' }}</button></div></section></div> }
+    <section class="dashboard-section dashboard-statistics" aria-labelledby="snapshot-heading">
+      <div class="dashboard-section__heading">
+        <app-section-heading headingId="snapshot-heading" title="Operational snapshot" description="Current jobs, research outcomes, worker availability, and average successful run duration." />
+        <button tuiButton type="button" appearance="secondary" [disabled]="refreshing()" (click)="refresh()">{{ refreshing() ? 'Refreshing…' : 'Refresh' }}</button>
       </div>
-    </section>
 
-    <section class="dashboard-section" aria-labelledby="workers-heading">
-      <app-section-heading headingId="workers-heading" title="Active workers" description="Workers that have checked in within the liveness window" />
-      @if (!workers().length) {
-        <app-state-message message="No active workers right now." />
-      } @else {
-        <div class="worker-grid">
-          @for (worker of workers(); track worker.worker_id) {
-            <article class="worker-card" [class.worker-card--running]="worker.status === 'running'" [class.worker-card--idle]="worker.status === 'idle'">
-              <header class="worker-card__header"><div><span class="worker-card__label">Worker</span><strong class="worker-card__id" [title]="worker.worker_id" [attr.aria-label]="'Worker ' + worker.worker_id">{{ worker.worker_id.slice(0, 8) }}</strong></div><span class="worker-status" [class.worker-status--running]="worker.status === 'running'">{{ worker.status === 'running' ? 'Running' : 'Idle' }}</span></header>
-              <dl class="worker-meta"><div><dt>Online since</dt><dd>{{ worker.online_since | date:'medium' }}</dd></div><div><dt>Last check-in</dt><dd>{{ worker.last_seen_at | date:'medium' }}</dd></div></dl>
-              @if (worker.job; as job) { <div class="worker-job"><span class="worker-card__label">Current job</span><strong>{{ job.job_id }}</strong><dl class="worker-job__details"><div><dt>Kind</dt><dd>{{ job.kind }}</dd></div><div><dt>Attempt</dt><dd>{{ job.attempt_count }}</dd></div><div><dt>Running for</dt><dd>{{ worker.runningFor }}</dd></div></dl><a class="card-action" [routerLink]="['/jobs', job.job_id]">View job</a></div> } @else { <p class="worker-empty">No job claimed</p> }
-            </article>
+      <div class="stat-group" aria-label="Job counts">
+        <h3>Jobs</h3>
+        <div class="stat-grid">
+          <article tuiToast class="stat-toast"><span>Queued</span><strong>{{ data.jobs.queued }}</strong></article>
+          <article tuiToast class="stat-toast"><span>Running</span><strong>{{ data.jobs.running }}</strong></article>
+          <article tuiToast class="stat-toast"><span>Finished</span><strong>{{ data.jobs.succeeded }}</strong></article>
+          <article tuiToast class="stat-toast"><span>Failed</span><strong>{{ data.jobs.failed }}</strong></article>
+          <article tuiToast class="stat-toast"><span>Cancelled</span><strong>{{ data.jobs.cancelled }}</strong></article>
+        </div>
+      </div>
+
+      <div class="stat-group" aria-label="Research outcome counts">
+        <h3>Research outcomes</h3>
+        <div class="stat-grid">
+          <article tuiToast class="stat-toast"><span>Complete</span><strong>{{ data.outcomes.complete }}</strong></article>
+          <article tuiToast class="stat-toast"><span>Partial</span><strong>{{ data.outcomes.partial }}</strong></article>
+          <article tuiToast class="stat-toast"><span>No evidence</span><strong>{{ data.outcomes.insufficient_evidence }}</strong></article>
+          <article tuiToast class="stat-toast"><span>Budget exhausted</span><strong>{{ data.outcomes.budget_exhausted }}</strong></article>
+          <article tuiToast class="stat-toast"><span>Needs review</span><strong>{{ data.outcomes.needs_review }}</strong></article>
+        </div>
+      </div>
+
+      <div class="stat-group" aria-label="Workers and average successful run duration">
+        <h3>Workers and run duration</h3>
+        <div class="stat-grid">
+          <article tuiToast class="stat-toast"><span>Active workers</span><strong>{{ data.active_workers }}</strong></article>
+          @for (duration of data.job_durations; track duration.kind) {
+            <article tuiToast class="stat-toast"><span>{{ durationLabel(duration) }} average</span><strong>{{ formatAverageDuration(duration.average_duration_seconds) }}</strong></article>
           }
         </div>
-      }
+      </div>
     </section>
 
-    <section class="dashboard-section" aria-labelledby="durations-heading">
-      <app-section-heading headingId="durations-heading" title="Average successful job duration" description="Execution time sampled from successful jobs" />
-      <div class="jobs-grid">
-        @for (duration of data.job_durations; track duration.kind) {
-          <article class="metric-card"><span>{{ duration.kind }}</span><strong>{{ formatAverageDuration(duration.average_duration_seconds) }}</strong></article>
-        }
+    <section class="dashboard-section worker-overview" aria-labelledby="workers-heading">
+      <div class="dashboard-section__heading">
+        <app-section-heading headingId="workers-heading" title="Active workers" description="Workers that have checked in within the liveness window." />
+        <a tuiButton appearance="secondary" routerLink="/jobs">View jobs</a>
       </div>
+      @if (gridError()) { <app-state-message message="Worker rows could not be loaded. Use Refresh to retry." tone="error" /> }
+      <div class="worker-grid"><ag-grid-angular [theme]="gridTheme" [columnDefs]="columnDefs" [defaultColDef]="defaultColDef" [rowModelType]="'infinite'" [cacheBlockSize]="50" [pagination]="true" [paginationPageSize]="50" [paginationPageSizeSelector]="[25, 50, 100]" [rowHeight]="58" [maxBlocksInCache]="4" [getRowId]="getRowId" (gridReady)="onGridReady($event)" (rowClicked)="openJob($event)" /></div>
     </section>
   }
 </app-page-layout>

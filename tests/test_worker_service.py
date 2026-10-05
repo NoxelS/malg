@@ -452,3 +452,73 @@ def test_account_job_publishes_complete_company_person_opportunity_bundle(setup_
             assert progress[-1].payload["achieved_counts"] == publication.payload["target_counts"]
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("code", ["invalid_evidence_quote", "invalid_evidence_reference"])
+def test_account_invalid_evidence_checkpoints_finish_without_publication(
+    setup_worker, code
+) -> None:
+    """Committed rejected candidates are resumed and exhausted without failing the job."""
+
+    async def run() -> None:
+        campaign_id, icp_id = uuid4(), uuid4()
+        fixture = setup_worker(AccountResearchJobRequest(icp_id=icp_id))
+        fixture[2].add(
+            "malgCampaign", {"name": "Campaign", "objective": "Research"}, str(campaign_id)
+        )
+        fixture[2].add(
+            "malgIcp",
+            {
+                "name": "ICP",
+                "campaignId": str(campaign_id),
+                "sector": "Manufacturing",
+                "geography": "Germany",
+                "buyerRole": "Operations",
+                "workflow": "Research",
+            },
+            str(icp_id),
+        )
+        result = AccountResearchResult(
+            outcome="insufficient_evidence", qualification="needs_review", unknowns=[code]
+        )
+        workflow_id = await save_checkpoint(fixture, result)
+        with fixture[1].begin() as session:
+            job = session.get(ResearchJob, fixture[6].job_id)
+            job = claim_next_job(session, "checkpoint-worker", datetime.now(UTC), 60, 3)
+            workflow = session.get(ResearchWorkflow, workflow_id)
+            for index in range(3):
+                persist_stage_result(
+                    session,
+                    job_id=job.job_id,
+                    claim_token=job.claim_token,
+                    workflow_id=workflow_id,
+                    stage_key=f"account.candidate.{index}.research",
+                    input_hash=workflow.input_hash,
+                    outcome=result.outcome,
+                    payload=result.model_dump(mode="json"),
+                    now=datetime.now(UTC),
+                    unknowns=[code],
+                )
+            fail_job(session, job.job_id, job.claim_token, "checkpoint restart", datetime.now(UTC))
+            retry_failed_job(session, job.job_id, datetime.now(UTC))
+        assert await worker_for(fixture).run_once()
+        with fixture[1]() as session:
+            job = session.get(ResearchJob, fixture[6].job_id)
+            assert job.status == "succeeded"
+            assert job.result_outcome == "insufficient_evidence"
+            assert job.failure_detail is None
+            assert (
+                len(
+                    list(
+                        session.scalars(
+                            select(ResearchStageResult).where(
+                                ResearchStageResult.stage_key.like("account.candidate.%")
+                            )
+                        )
+                    )
+                )
+                == 3
+            )
+        assert not fixture[2].creates
+
+    asyncio.run(run())

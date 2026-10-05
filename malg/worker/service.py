@@ -28,7 +28,7 @@ from malg.core.agent_tracing import (
     record_active_event,
 )
 from malg.core.budget import BudgetExhausted, ResearchBudget, bind_budget
-from malg.core.claims import ClaimValidationError, validate_claim_proposal
+from malg.core.claims import ValidatedClaim, validate_research_evidence
 from malg.core.models.account import (
     AccountData,
     AccountIdentity,
@@ -61,7 +61,7 @@ from malg.database.research import (
 )
 from malg.database.session import make_engine, make_session_factory
 from malg.database.workers import record_worker_heartbeat
-from malg.worker.execution import ExecutionConfig, run_supervised
+from malg.worker.execution import ExecutionConfig, ResearchExecutionError, run_supervised
 
 
 def _aware(value: datetime) -> datetime:
@@ -274,27 +274,19 @@ async def _child_stage_async(
             for fetch in fetches
             for excerpt in fetch.excerpts
         }
-        claims = []
-        if isinstance(result, ResearchResult) and result.data is not None:
-            try:
-                for observation in result.observations:
-                    if observation.field not in type(result.data).model_fields:
-                        raise ValueError(
-                            "research observation references an unknown business field"
-                        )
-                    claims.append(validate_claim_proposal(observation, excerpts))
-                if result.outcome in {"complete", "partial"} and not claims:
-                    raise ClaimValidationError("missing_evidence_claim")
-            except ClaimValidationError as error:
-                if kind != "icp":
-                    raise
-                # A malformed ICP citation is not publishable, but must not discard
-                # earlier checkpoints or terminate the remaining candidate budget.
-                result = ResearchResult[ICPData](
-                    outcome="insufficient_evidence", unknowns=[error.code]
-                )
-                claims = []
-                trace.event("invalid_evidence", {"reason": error.code})
+        claims: list[ValidatedClaim] = []
+        if isinstance(result, ResearchResult):
+            result, claims = validate_research_evidence(result, excerpts)
+            if result.outcome == "insufficient_evidence" and any(
+                reason
+                in {
+                    "invalid_evidence_quote",
+                    "invalid_evidence_reference",
+                    "missing_evidence_claim",
+                }
+                for reason in result.unknowns
+            ):
+                trace.event("invalid_evidence", {"reason": result.unknowns[0]})
         with sessions.begin() as session:
             require_claim(session, job_id, claim_token, datetime.now(UTC))
             for fetch in fetches:
@@ -461,13 +453,14 @@ class ResearchWorker:
         except Exception as error:
             trace.finish_failure(error)
             with self.session_factory.begin() as session, suppress(ValueError):
-                fail_job(
+                failed = fail_job(
                     session,
                     job.job_id,
                     job.claim_token or "",
                     self._safe_failure(error),
                     datetime.now(UTC),
                 )
+                failed.failure_code = self._safe_failure(error)
         finally:
             if not execution.done():
                 execution.cancel()
@@ -483,7 +476,11 @@ class ResearchWorker:
     @staticmethod
     def _safe_failure(error: Exception) -> str:
         """Keep upstream or generated payloads and credentials out of public failures."""
+        if isinstance(error, ResearchExecutionError):
+            return error.code
         text = str(error)
+        if text == "LinkedIn URL is not an observed URL for this record kind":
+            return "invalid_linkedin_url"
         return (
             text
             if text

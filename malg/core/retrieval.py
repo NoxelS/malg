@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from http.client import HTTPMessage
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -95,6 +95,8 @@ class RetrievalService:
 
         Call with ``purpose="evidence"``. The FetchObservation result exposes outcome,
         text, final_url and excerpts; each excerpt is a dict with ``id`` and ``text``.
+        Failed fetches explain missing pages, DNS failures or blocked access in text.
+        These diagnostic messages are not evidence and have no excerpts.
         Only quote exact text from those excerpts. Empty excerpts mean no usable
         evidence. LinkedIn and its shortener are prohibited destinations; their
         identifiers must come from other public sources. Unsafe, blocked and
@@ -105,7 +107,12 @@ class RetrievalService:
         canonical = canonicalize_url(url)
         if canonical is None:
             return FetchObservation(
-                url, None, None, "unsafe_url", reason_code="invalid_or_disallowed_url"
+                url,
+                None,
+                None,
+                "unsafe_url",
+                text="Website access refused: the URL is invalid or disallowed.",
+                reason_code="invalid_or_disallowed_url",
             )
         cached = self._cache.get(canonical)
         if cached is not None:
@@ -151,13 +158,15 @@ def canonicalize_url(url: str) -> str | None:
             }
         ]
         return urlunsplit((parsed.scheme.lower(), host, path, urlencode(query), ""))
-    except ValueError:
+    except (ValueError, UnicodeError):
         return None
 
 
 def _public_host(host: str) -> bool:
     try:
         addresses = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        raise
     except OSError:
         return False
     return bool(addresses) and all(
@@ -195,11 +204,16 @@ class _PublicRedirectHandler(HTTPRedirectHandler):
 
 def _fetch_url(url: str) -> FetchObservation:
     parsed = urlsplit(url)
-    if not _public_host(parsed.hostname or ""):
-        return FetchObservation(
-            url, None, None, "unsafe_url", reason_code="private_or_unresolved_host"
-        )
     try:
+        if not _public_host(parsed.hostname or ""):
+            return FetchObservation(
+                url,
+                None,
+                None,
+                "unsafe_url",
+                text="Website access refused: the host is not a public destination.",
+                reason_code="private_host",
+            )
         request = Request(
             url, headers={"Accept-Encoding": "identity", "User-Agent": "malg-research/1"}
         )
@@ -217,7 +231,10 @@ def _fetch_url(url: str) -> FetchObservation:
             text = body.decode(response.headers.get_content_charset() or "utf-8", errors="replace")
             parser = _VisibleText()
             parser.feed(text)
-            visible = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()[:20_000]
+            # PostgreSQL cannot store NUL; normalize before both agent text and quote IDs.
+            visible = re.sub(r"\s+", " ", " ".join(parser.parts).replace("\x00", " ")).strip()[
+                :20_000
+            ]
             digest = hashlib.sha256(body).hexdigest()
             excerpts: tuple[dict[str, object], ...] = tuple(
                 {"id": f"{digest}:{offset}", "text": visible[offset : offset + 2000]}
@@ -234,11 +251,50 @@ def _fetch_url(url: str) -> FetchObservation:
                 excerpts,
             )
     except _UnsafeRedirect as error:
-        return FetchObservation(url, None, None, "unsafe_url", reason_code=str(error))
+        return FetchObservation(
+            url,
+            None,
+            None,
+            "unsafe_url",
+            text="Website access refused: the redirect destination is not permitted.",
+            reason_code=str(error),
+        )
     except HTTPError as error:
         outcome = "blocked" if error.code in {403, 408, 429, 999, 504, 524} else "unavailable"
+        missing = error.code in {404, 410}
         return FetchObservation(
-            url, error.geturl(), int(error.code), outcome, reason_code="http_error"
+            url,
+            error.geturl(),
+            int(error.code),
+            outcome,
+            text=(
+                f"Webpage does not exist at this URL (HTTP {error.code})."
+                if missing
+                else f"Webpage could not be retrieved (HTTP {error.code})."
+            ),
+            reason_code="page_not_found" if missing else "http_error",
+        )
+    except (socket.gaierror, URLError) as error:
+        reason = error.reason if isinstance(error, URLError) else error
+        missing = isinstance(reason, socket.gaierror) and reason.errno == socket.EAI_NONAME
+        return FetchObservation(
+            url,
+            None,
+            None,
+            "unavailable",
+            text=(
+                "Website does not exist at this hostname: DNS reports no such host."
+                if missing
+                else "Website could not be reached; it may be temporarily unavailable."
+            ),
+            reason_code="host_not_found" if missing else "connection_failed",
         )
     except (OSError, ValueError, UnicodeError) as error:
-        return FetchObservation(url, None, None, "unavailable", reason_code=type(error).__name__)
+        return FetchObservation(
+            url,
+            None,
+            None,
+            "unavailable",
+            text="Website could not be retrieved; its existence could not be determined.",
+            reason_code=type(error).__name__,
+        )

@@ -102,7 +102,7 @@ def _job_or_404(session: Session, job_id: str) -> ResearchJob:
     return job
 
 
-async def _admit(
+async def admit_job(
     payload: ResearchJobRequest, client: TwentyClient
 ) -> tuple[dict[str, object], dict[str, object]]:
     """Verify actual metadata and parent relationships before any local insert."""
@@ -140,7 +140,7 @@ async def create_job(
     payload: ResearchJobRequest, session: SessionDependency, client: CrmClientDependency
 ) -> ResearchJobRecord:
     """Reject unavailable or invalid remote scope before enqueue."""
-    contract, _ = await _admit(payload, client)
+    contract, _ = await admit_job(payload, client)
     job = enqueue_job(payload, session)
     _capture_contract(job, contract)
     session.commit()
@@ -254,7 +254,7 @@ async def retry_research_job(
         )
     except ValidationError as error:
         raise HTTPException(status_code=409, detail="crm_input_changed") from error
-    contract, inputs = await _admit(payload, client)
+    contract, inputs = await admit_job(payload, client)
     if (
         existing.contract_version != contract["contract_version"]
         or existing.contract_hash != contract["contract_hash"]

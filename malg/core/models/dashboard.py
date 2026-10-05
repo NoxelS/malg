@@ -59,3 +59,12 @@ class WorkerSummary(BaseModel):
     last_seen_at: datetime
     status: Literal["idle", "running"]
     job: WorkerJobSummary | None = None
+
+
+class WorkerOverviewPage(BaseModel):
+    """One bounded page of workers for the operational dashboard."""
+
+    items: list[WorkerSummary]
+    total: int
+    limit: int
+    offset: int
