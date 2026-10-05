@@ -301,7 +301,10 @@ def test_changed_or_deleted_parent_prevents_any_new_publication(setup_worker, ch
     asyncio.run(run())
 
 
-def test_account_job_publishes_complete_company_person_opportunity_bundle(setup_worker) -> None:
+@pytest.mark.parametrize("rejected_candidates", [0, 4])
+def test_account_job_publishes_complete_company_person_opportunity_bundle(
+    setup_worker, rejected_candidates
+) -> None:
     async def run() -> None:
         campaign_id, icp_id = uuid4(), uuid4()
         fixture = setup_worker(
@@ -412,13 +415,31 @@ def test_account_job_publishes_complete_company_person_opportunity_bundle(setup_
             workflow = create_workflow_for_job(
                 session, current, input_payload, datetime.now(UTC) + timedelta(minutes=20)
             )
+            for index in range(rejected_candidates):
+                rejected = AccountResearchResult(
+                    outcome="insufficient_evidence",
+                    qualification="needs_review",
+                    unknowns=["No qualifying invitation"],
+                )
+                persist_stage_result(
+                    session,
+                    job_id=current.job_id,
+                    claim_token=current.claim_token,
+                    workflow_id=workflow.workflow_id,
+                    stage_key=f"account.candidate.{index}.research",
+                    input_hash=workflow.input_hash,
+                    outcome=rejected.outcome,
+                    payload=rejected.model_dump(mode="json"),
+                    now=datetime.now(UTC),
+                )
+            prefix = f"account.candidate.{rejected_candidates}"
             for stage_key, result in (
-                ("account.candidate.0.research", account),
-                ("account.candidate.0.validation", validation),
-                ("account.candidate.0.person.0.research", first_person),
-                ("account.candidate.0.person.1.research", second_person),
-                ("account.candidate.0.opportunity.0.research", first_opportunity),
-                ("account.candidate.0.opportunity.1.research", second_opportunity),
+                (f"{prefix}.research", account),
+                (f"{prefix}.validation", validation),
+                (f"{prefix}.person.0.research", first_person),
+                (f"{prefix}.person.1.research", second_person),
+                (f"{prefix}.opportunity.0.research", first_opportunity),
+                (f"{prefix}.opportunity.1.research", second_opportunity),
             ):
                 persist_stage_result(
                     session,
@@ -461,6 +482,8 @@ def test_account_job_publishes_complete_company_person_opportunity_bundle(setup_
                 "opportunities": 2,
             }
             assert publication.payload["achieved_counts"] == publication.payload["target_counts"]
+            assert publication.payload["candidate_attempts"] == rejected_candidates + 1
+            assert publication.payload["reason_code"] is None
             progress = session.scalars(
                 select(ResearchStageResult)
                 .where(ResearchStageResult.stage_key == "account.progress")
@@ -471,8 +494,18 @@ def test_account_job_publishes_complete_company_person_opportunity_bundle(setup_
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("code", ["invalid_evidence_quote", "invalid_evidence_reference"])
-def test_account_invalid_evidence_checkpoints_finish_without_publication(
+@pytest.mark.parametrize(
+    "code",
+    [
+        "invalid_evidence_quote",
+        "invalid_evidence_reference",
+        "model_reported_budget_exhausted",
+        "model_budget_with_data",
+        "uncertain_invitation",
+        "search_workflow_limit",
+    ],
+)
+def test_account_rejected_and_budget_checkpoints_finish_without_publication(
     setup_worker, code
 ) -> None:
     """Committed rejected candidates are resumed and exhausted without failing the job."""
@@ -496,14 +529,38 @@ def test_account_invalid_evidence_checkpoints_finish_without_publication(
             str(icp_id),
         )
         result = AccountResearchResult(
-            outcome="insufficient_evidence", qualification="needs_review", unknowns=[code]
+            outcome="budget_exhausted"
+            if "budget" in code or code == "search_workflow_limit"
+            else "needs_review"
+            if code == "uncertain_invitation"
+            else "insufficient_evidence",
+            qualification="accepted" if code == "model_budget_with_data" else "needs_review",
+            unknowns=[code],
+            data=AccountData(name="Review company")
+            if code in {"uncertain_invitation", "model_budget_with_data"}
+            else None,
+            identity=AccountIdentity(
+                display_name="Review company", official_website="https://example.com"
+            )
+            if code in {"uncertain_invitation", "model_budget_with_data"}
+            else None,
         )
         workflow_id = await save_checkpoint(fixture, result)
         with fixture[1].begin() as session:
             job = session.get(ResearchJob, fixture[6].job_id)
             job = claim_next_job(session, "checkpoint-worker", datetime.now(UTC), 60, 3)
             workflow = session.get(ResearchWorkflow, workflow_id)
-            for index in range(3):
+            for index in range(
+                worker_for(fixture).research_config.max_account_candidates_per_company
+            ):
+                stage_payload = result.model_dump(mode="json")
+                if code == "search_workflow_limit":
+                    stage_payload["budget"] = {
+                        "reason_code": code,
+                        "kind": "search",
+                        "used": 9,
+                        "limit": 9,
+                    }
                 persist_stage_result(
                     session,
                     job_id=job.job_id,
@@ -512,7 +569,7 @@ def test_account_invalid_evidence_checkpoints_finish_without_publication(
                     stage_key=f"account.candidate.{index}.research",
                     input_hash=workflow.input_hash,
                     outcome=result.outcome,
-                    payload=result.model_dump(mode="json"),
+                    payload=stage_payload,
                     now=datetime.now(UTC),
                     unknowns=[code],
                 )
@@ -522,7 +579,34 @@ def test_account_invalid_evidence_checkpoints_finish_without_publication(
         with fixture[1]() as session:
             job = session.get(ResearchJob, fixture[6].job_id)
             assert job.status == "succeeded"
-            assert job.result_outcome == "insufficient_evidence"
+            assert job.result_outcome == (
+                "budget_exhausted"
+                if code == "search_workflow_limit"
+                else "needs_review"
+                if code in {"uncertain_invitation", "model_budget_with_data"}
+                else "insufficient_evidence"
+            )
+            publication = session.scalar(
+                select(ResearchStageResult).where(
+                    ResearchStageResult.stage_key == "account.publication",
+                )
+            )
+            assert publication.reason_code == (
+                code if code == "search_workflow_limit" else "candidate_limit_reached"
+            )
+            if code == "search_workflow_limit":
+                assert publication.payload["budget"]["used"] == 9
+                assert publication.payload["budget"]["limit"] == 9
+                assert publication.payload["budget"]["stage_key"] == "account.candidate.0.research"
+                assert publication.payload["candidate_attempts"] == 1
+            else:
+                assert publication.payload["candidate_attempts"] == 10
+                assert len(publication.payload["candidate_results"]) == 10
+                assert bool(publication.payload["review_candidates"]) == (
+                    code in {"uncertain_invitation", "model_budget_with_data"}
+                )
+                if code == "model_reported_budget_exhausted":
+                    assert publication.payload["candidate_results"][0]["reason_code"] == code
             assert job.failure_detail is None
             assert (
                 len(
@@ -534,7 +618,7 @@ def test_account_invalid_evidence_checkpoints_finish_without_publication(
                         )
                     )
                 )
-                == 3
+                == 10
             )
         assert not fixture[2].creates
 

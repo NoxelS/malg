@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from typing import Any, ClassVar, cast
 
 import pytest
@@ -114,3 +115,36 @@ def test_search_budget_counts_successful_attempts(monkeypatch) -> None:
     with pytest.raises(SearchRateLimitExceeded, match="budget"):
         asyncio.run(client.search("second"))
     assert client.request_count == 1
+
+
+def test_search_agent_denial_remains_visible_after_generated_code_catches_it(monkeypatch) -> None:
+    """The smaller search-client allowance must not become a model-reported false budget."""
+    from datetime import UTC, datetime, timedelta
+
+    from malg.core.budget import ResearchBudget, bind_budget
+
+    _FakeHTTPClient.calls = []
+    _FakeHTTPClient.payload = {"results": []}
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    client = SearxngSearchClient(_config(max_requests_per_run=1))
+    budget = ResearchBudget(datetime.now(UTC) + timedelta(minutes=5), limits={"search": 10})
+
+    async def run():
+        reset = bind_budget(budget)
+        try:
+            await client.search("first")
+            with suppress(SearchRateLimitExceeded):
+                await client.search("second")
+        finally:
+            reset()
+
+    asyncio.run(run())
+    assert budget.exhausted
+    assert budget.exhaustion.diagnostics() == {
+        "reason_code": "search_agent_limit",
+        "kind": "search",
+        "used": 1,
+        "limit": 1,
+    }
+    assert client.request_count == 1
+    assert len(_FakeHTTPClient.calls) == 1

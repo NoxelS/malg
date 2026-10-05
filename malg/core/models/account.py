@@ -387,3 +387,14 @@ class AccountValidationAssessment(BaseModel):
     rationale: str = Field(min_length=1)
     checks: list[ValidationCheck] = Field(min_length=1)
     validated_at: datetime
+
+
+class AccountResearchFeedback(BaseModel):
+    """Previous candidate disposition used to adapt discovery within one workflow."""
+
+    model_config = ConfigDict(extra="forbid")
+    stage_key: str = Field(max_length=100)
+    reason_code: str = Field(max_length=64)
+    candidate_name: str | None = Field(default=None, max_length=200)
+    candidate_website: str | None = Field(default=None, max_length=2048)
+    unknowns: list[str] = Field(default_factory=list, max_length=10)

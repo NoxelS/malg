@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import cast
 from uuid import uuid4
 
 from pydantic import BaseModel
 
 from malg.core.models.account import AccountResearchResult, AccountValidationOutcome
-from malg.core.models.research import ClaimProposal, ResearchResult
+from malg.core.models.research import (
+    ClaimProposal,
+    EvidenceCorrections,
+    EvidenceIssue,
+    EvidenceRepairRequest,
+    ResearchResult,
+)
 
 
 @dataclass(frozen=True)
@@ -20,6 +28,10 @@ class ValidatedClaim:
     text: str
     excerpt_ids: tuple[str, ...]
     quote: str
+
+
+class EvidenceRepairUnavailable(RuntimeError):
+    """The bounded reasoning adapter could not produce a valid citation repair."""
 
 
 class ClaimValidationError(ValueError):
@@ -75,6 +87,7 @@ def validate_research_evidence[T: BaseModel](
             "data": None,
             "observations": [],
             "unknowns": [error.code],
+            "reason_code": error.code,
         }
         if isinstance(result, AccountResearchResult):
             updates.update(
@@ -85,3 +98,86 @@ def validate_research_evidence[T: BaseModel](
             )
         return result.model_copy(update=updates), []
     return result, claims
+
+
+async def validate_account_evidence(
+    result: AccountResearchResult,
+    excerpts: dict[str, str],
+    repair: Callable[[EvidenceRepairRequest], Awaitable[EvidenceCorrections]],
+    *,
+    recorder: Callable[[str, object], None] | None = None,
+) -> tuple[AccountResearchResult, list[ValidatedClaim]]:
+    """Validate an account and attempt one citation-only repair before rejecting it.
+
+    Repair receives host excerpts as untrusted data and can replace citations only
+    at rejected observation positions. Identity, qualification, claim text and fields
+    remain unchanged. Every resulting observation is revalidated. Missing claims or
+    missing source text cannot be repaired. Adapter failures, cancellation and real
+    budget exhaustion propagate to the supervised stage. A bounded repair that
+    cannot complete leaves the original candidate unpublished.
+    """
+    validated, claims = validate_research_evidence(result, excerpts)
+    if (
+        result.data is None
+        or validated.data is not None
+        or not excerpts
+        or not result.observations
+        or (result.engagement_signal is not None and not result.signal_observations)
+    ):
+        return cast(AccountResearchResult, validated), claims
+    issues: list[EvidenceIssue] = []
+    for group in ("observations", "signal_observations"):
+        for index, observation in enumerate(getattr(result, group)):
+            try:
+                validate_claim_proposal(observation, excerpts)
+            except ClaimValidationError as error:
+                issues.append(
+                    EvidenceIssue.model_validate(
+                        {
+                            "group": group,
+                            "index": index,
+                            "observation": observation,
+                            "reason_code": error.code,
+                        }
+                    )
+                )
+    if not issues:
+        return cast(AccountResearchResult, validated), claims
+    if recorder:
+        recorder("evidence_repair_started", {"issues": [item.model_dump() for item in issues]})
+    try:
+        repaired = await repair(EvidenceRepairRequest(issues=issues, excerpts=excerpts))
+    except EvidenceRepairUnavailable:
+        if recorder:
+            recorder("evidence_repair_rejected", {"reason": "evidence_repair_unavailable"})
+        return cast(AccountResearchResult, validated), claims
+    positions = {(issue.group, issue.index) for issue in issues}
+    corrections = repaired.corrections
+    supplied = {(item.group, item.index) for item in corrections}
+    if len(supplied) != len(corrections) or supplied != positions:
+        if recorder:
+            recorder("evidence_repair_rejected", {"reason": "invalid_repair_positions"})
+        return cast(AccountResearchResult, validated), claims
+    observations = list(result.observations)
+    signal_observations = list(result.signal_observations)
+    for correction in corrections:
+        target = observations if correction.group == "observations" else signal_observations
+        target[correction.index] = target[correction.index].model_copy(
+            update={
+                "excerpt_ids": correction.excerpt_ids,
+                "quote": correction.quote,
+            }
+        )
+    candidate = result.model_copy(
+        update={
+            "observations": observations,
+            "signal_observations": signal_observations,
+        }
+    )
+    final, claims = validate_research_evidence(candidate, excerpts)
+    if recorder:
+        recorder(
+            "evidence_repair_completed",
+            {"accepted": final.data is not None, "reason": final.reason_code},
+        )
+    return cast(AccountResearchResult, final), claims

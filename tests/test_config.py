@@ -229,3 +229,26 @@ def test_eurostat_config_reads_request_settings(tmp_path: Path) -> None:
     assert config.proxy == "http://proxy.example:8080"
     assert config.verify == "/tmp/ca.pem"
     assert config.cert == "/tmp/client.pem"
+
+
+@pytest.mark.parametrize("attempts", [1, 6, 20])
+def test_account_candidate_allowance_can_be_configured(tmp_path: Path, attempts) -> None:
+    from malg.config import get_research_config
+
+    configuration = tmp_path / "research.toml"
+    configuration.write_text(
+        f"[default.research]\nmax_account_candidates_per_company = {attempts}\n"
+    )
+    config = get_research_config(load_settings(settings_files=(configuration,), load_dotenv=False))
+    assert config.max_account_candidates_per_company == attempts
+
+
+@pytest.mark.parametrize("attempts", [0, -1, True])
+def test_account_candidate_allowance_rejects_invalid_limits(tmp_path: Path, attempts) -> None:
+    from malg.config import get_research_config
+
+    configuration = tmp_path / "research.toml"
+    value = str(attempts).lower()
+    configuration.write_text(f"[default.research]\nmax_account_candidates_per_company = {value}\n")
+    with pytest.raises(ValueError, match="max_account_candidates_per_company"):
+        get_research_config(load_settings(settings_files=(configuration,), load_dotenv=False))
