@@ -68,3 +68,4 @@ max_llm_attempts_per_stage = 256
 max_llm_attempts_per_workflow = 512
 max_search_requests = 1000
 max_fetch_requests = 2000
+max_account_candidates_per_company = 10

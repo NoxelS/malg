@@ -19,6 +19,15 @@ class ExecutionConfig:
     cleanup_reserve_seconds: float = 5
 
 
+class ResearchDeadlineExceeded(TimeoutError):
+    """A supervisor-enforced timeout with a safe cause independent of model output."""
+
+    def __init__(self, message: str, reason_code: str) -> None:
+        """Retain whether initialization or stage execution reached its deadline."""
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
 class ResearchExecutionError(RuntimeError):
     """A child failure carrying only a host-allowlisted public reason code."""
 
@@ -80,7 +89,9 @@ async def run_supervised(
     if (
         deadline_at.astimezone(UTC) - datetime.now(UTC)
     ).total_seconds() <= limits.cleanup_reserve_seconds:
-        raise TimeoutError("research deadline already exhausted")
+        raise ResearchDeadlineExceeded(
+            "research deadline already exhausted", "stage_deadline_exhausted"
+        )
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(target=_child_entry, args=(entrypoint, sender), daemon=True)
@@ -115,9 +126,13 @@ async def run_supervised(
                 return
             remaining = (deadline_at.astimezone(UTC) - datetime.now(UTC)).total_seconds()
             if remaining <= limits.cleanup_reserve_seconds:
-                raise TimeoutError("research child exceeded its fenced deadline")
+                raise ResearchDeadlineExceeded(
+                    "research child exceeded its fenced deadline", "stage_deadline_exhausted"
+                )
             if not initialized and asyncio.get_running_loop().time() >= init_deadline:
-                raise TimeoutError("research child initialization timed out")
+                raise ResearchDeadlineExceeded(
+                    "research child initialization timed out", "initialization_timeout"
+                )
             await asyncio.sleep(min(0.05, remaining))
     finally:
         receiver.close()

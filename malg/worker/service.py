@@ -28,10 +28,16 @@ from malg.core.agent_tracing import (
     record_active_event,
 )
 from malg.core.budget import BudgetExhausted, ResearchBudget, bind_budget
-from malg.core.claims import ValidatedClaim, validate_research_evidence
+from malg.core.claims import (
+    EvidenceRepairUnavailable,
+    ValidatedClaim,
+    validate_account_evidence,
+    validate_research_evidence,
+)
 from malg.core.models.account import (
     AccountData,
     AccountIdentity,
+    AccountResearchFeedback,
     AccountResearchResult,
     AccountValidationAssessment,
 )
@@ -39,7 +45,12 @@ from malg.core.models.campaign import CampaignData
 from malg.core.models.icp import ICPData
 from malg.core.models.opportunity import OpportunityData, OpportunityResearchResult
 from malg.core.models.person import PersonData
-from malg.core.models.research import ResearchOutcome, ResearchResult
+from malg.core.models.research import (
+    EvidenceCorrections,
+    EvidenceRepairRequest,
+    ResearchOutcome,
+    ResearchResult,
+)
 from malg.crm.client import TwentyClient, TwentyError, TwentySchemaIncompatible
 from malg.crm.contracts import CRMRecord
 from malg.crm.identity import deterministic_id, normalize_domain, normalize_linkedin
@@ -61,7 +72,12 @@ from malg.database.research import (
 )
 from malg.database.session import make_engine, make_session_factory
 from malg.database.workers import record_worker_heartbeat
-from malg.worker.execution import ExecutionConfig, ResearchExecutionError, run_supervised
+from malg.worker.execution import (
+    ExecutionConfig,
+    ResearchDeadlineExceeded,
+    ResearchExecutionError,
+    run_supervised,
+)
 
 
 def _aware(value: datetime) -> datetime:
@@ -108,17 +124,29 @@ def _stage_budget(
             field = f"{kind}_attempts"
             count = getattr(workflow, field)
             if count >= limits[kind]:
-                raise BudgetExhausted(f"{kind} workflow budget exhausted")
+                raise BudgetExhausted(
+                    f"{kind} workflow budget exhausted",
+                    reason_code=f"{kind}_workflow_limit",
+                    kind=kind,
+                    used=count,
+                    limit=limits[kind],
+                )
             setattr(workflow, field, count + 1)
 
+    workflow_deadline = _aware(job.deadline_at)
+    deadline = min(
+        workflow_deadline, datetime.now(UTC) + timedelta(seconds=config.stage_timeout_seconds)
+    )
     return ResearchBudget(
-        min(
-            _aware(job.deadline_at),
-            datetime.now(UTC) + timedelta(seconds=config.stage_timeout_seconds),
-        ),
+        deadline,
         cleanup_reserve_seconds=config.cleanup_reserve_seconds,
         limits={**limits, "llm": config.max_llm_attempts_per_stage},
         reserve=reserve,
+        deadline_reason=(
+            "workflow_deadline_exhausted"
+            if deadline == workflow_deadline
+            else "stage_deadline_exhausted"
+        ),
     )
 
 
@@ -133,6 +161,26 @@ def _workflow_units(job: ResearchJob) -> int:
         opportunities = max(1, int(request.get("opportunities_per_company", 1)))
         return companies * (1 + people + opportunities)
     return 1
+
+
+def _normalize_model_budget(result: Any) -> Any:
+    """Keep model-reported effort exhaustion distinct from an actual host denial."""
+    if getattr(result, "outcome", None) != "budget_exhausted":
+        return result
+    updates = {
+        "outcome": "needs_review" if result.data is not None else "insufficient_evidence",
+        "reason_code": "model_reported_budget_exhausted",
+    }
+    if isinstance(result, AccountResearchResult):
+        updates["qualification"] = "needs_review"
+    return type(result).model_validate({**result.model_dump(), **updates})
+
+
+def _budget_diagnostics(error: BudgetExhausted | TimeoutError) -> dict[str, Any]:
+    """Expose host limit metadata without including raw adapter exception text."""
+    if isinstance(error, BudgetExhausted):
+        return error.diagnostics()
+    return {"reason_code": "stage_deadline_exhausted", "kind": "time"}
 
 
 def _child_stage(
@@ -162,6 +210,7 @@ async def _child_stage_async(
     initialized: Connection,
 ) -> None:
     from nooa.config import CodeActConfig
+    from nooa.errors import GenerationError
     from nooa.strategies import CodeActStrategy, set_default_strategy
 
     from malg.core.account_probes import AccountProbeService
@@ -233,7 +282,13 @@ async def _child_stage_async(
             probes = await AccountProbeService().probe_candidate(candidate)
             with sessions.begin() as session:
                 require_claim(session, job_id, claim_token, datetime.now(UTC))
-            result = await agent.validate_account(campaign, icp, candidate, probes)
+            result = await agent.validate_account(
+                campaign,
+                icp,
+                candidate,
+                probes,
+                as_of=datetime.now(UTC).date(),
+            )
         elif kind == "opportunity":
             result = await agent.pitch_one(
                 campaign,
@@ -256,6 +311,11 @@ async def _child_stage_async(
                 campaign,
                 icp,
                 [AccountIdentity.model_validate(item) for item in payload.get("exclusions", [])],
+                feedback=[
+                    AccountResearchFeedback.model_validate(item)
+                    for item in payload.get("feedback", [])
+                ],
+                as_of=datetime.now(UTC).date(),
             )
         else:
             company = scopes["account"]
@@ -268,6 +328,9 @@ async def _child_stage_async(
                 ],
             )
         result = _stage_model(kind, stage_key).model_validate(result)
+        if budget.exhaustion is not None:
+            raise budget.exhaustion
+        result = _normalize_model_budget(result)
         fetches = [] if kind == "opportunity" else agent.retrieval.observations
         excerpts = {
             str(excerpt["id"]): str(excerpt["text"])
@@ -275,8 +338,35 @@ async def _child_stage_async(
             for excerpt in fetch.excerpts
         }
         claims: list[ValidatedClaim] = []
+        if isinstance(result, AccountResearchResult):
+
+            async def repair_citations(request: EvidenceRepairRequest) -> EvidenceCorrections:
+                """Use four repair turns while retaining the same host request/deadline fence."""
+                set_default_strategy(
+                    CodeActStrategy(
+                        config=CodeActConfig(
+                            max_iterations=min(4, research_config.max_iterations),
+                        )
+                    )
+                )
+                try:
+                    return EvidenceCorrections.model_validate(await agent.repair_evidence(request))
+                except GenerationError as error:
+                    if budget and budget.exhaustion is not None:
+                        raise budget.exhaustion from error
+                    raise EvidenceRepairUnavailable("bounded citation repair failed") from error
+
+            result, claims = await validate_account_evidence(
+                result,
+                excerpts,
+                repair_citations,
+                recorder=record_active_event,
+            )
+            if budget.exhaustion is not None:
+                raise budget.exhaustion
         if isinstance(result, ResearchResult):
-            result, claims = validate_research_evidence(result, excerpts)
+            if not isinstance(result, AccountResearchResult):
+                result, claims = validate_research_evidence(result, excerpts)
             if result.outcome == "insufficient_evidence" and any(
                 reason
                 in {
@@ -350,6 +440,7 @@ async def _child_stage_async(
                 now=datetime.now(UTC),
                 unknowns=getattr(result, "unknowns", []),
                 source_refs=[claim.claim_id for claim in claims],
+                reason_code=getattr(result, "reason_code", None),
             )
         trace.finish_success(result)
     except asyncio.CancelledError as error:
@@ -361,6 +452,12 @@ async def _child_stage_async(
             if trace:
                 trace.finish_failure(error)
             raise
+        denial = (
+            error if isinstance(error, BudgetExhausted) else budget.exhaustion if budget else None
+        )
+        assert denial is not None
+        diagnostics = denial.diagnostics()
+        diagnostics["stage_key"] = stage_key
         with sessions.begin() as session:
             persist_stage_result(
                 session,
@@ -370,12 +467,18 @@ async def _child_stage_async(
                 stage_key=stage_key,
                 input_hash=input_hash,
                 outcome="budget_exhausted",
-                payload={"outcome": "budget_exhausted", "unknowns": ["research budget exhausted"]},
+                payload={
+                    "outcome": "budget_exhausted",
+                    "reason_code": denial.reason_code,
+                    "unknowns": [denial.reason_code],
+                    "budget": diagnostics,
+                },
                 now=datetime.now(UTC),
-                unknowns=["research budget exhausted"],
+                reason_code=denial.reason_code,
+                unknowns=[denial.reason_code],
             )
         if trace:
-            trace.finish_success({"outcome": "budget_exhausted"})
+            trace.finish_success({"outcome": "budget_exhausted", "budget": diagnostics})
     finally:
         loop.remove_signal_handler(signal.SIGTERM)
         if reset_budget is not None:
@@ -446,10 +549,19 @@ class ResearchWorker:
             if current_task is not None and current_task.cancelling():
                 raise
             trace.event("claim_lost", {"job_id": job.job_id})
-        except (BudgetExhausted, TimeoutError):
+        except (BudgetExhausted, TimeoutError) as error:
+            diagnostics = _budget_diagnostics(error)
             with suppress(ValueError):
-                self._complete(job, "budget_exhausted", {"unknowns": ["research budget exhausted"]})
-            trace.finish_success({"outcome": "budget_exhausted"})
+                self._complete(
+                    job,
+                    "budget_exhausted",
+                    {
+                        "reason_code": diagnostics["reason_code"],
+                        "unknowns": [diagnostics["reason_code"]],
+                        "budget": diagnostics,
+                    },
+                )
+            trace.finish_success({"outcome": "budget_exhausted", "budget": diagnostics})
         except Exception as error:
             trace.finish_failure(error)
             with self.session_factory.begin() as session, suppress(ValueError):
@@ -602,14 +714,60 @@ class ResearchWorker:
                 _aware(job.deadline_at),
                 datetime.now(UTC) + timedelta(seconds=self.research_config.stage_timeout_seconds),
             )
-            await run_supervised(
-                partial(_child_stage, url, job.job_id, job.claim_token or "", stage_key, payload),
-                deadline_at=deadline,
-                config=ExecutionConfig(
-                    self.research_config.initialization_timeout_seconds,
-                    self.research_config.cleanup_reserve_seconds,
-                ),
-            )
+            stage_started = datetime.now(UTC)
+            try:
+                await run_supervised(
+                    partial(
+                        _child_stage, url, job.job_id, job.claim_token or "", stage_key, payload
+                    ),
+                    deadline_at=deadline,
+                    config=ExecutionConfig(
+                        self.research_config.initialization_timeout_seconds,
+                        self.research_config.cleanup_reserve_seconds,
+                    ),
+                )
+            except ResearchDeadlineExceeded as error:
+                reason = error.reason_code
+                if reason != "initialization_timeout" and deadline == _aware(job.deadline_at):
+                    reason = "workflow_deadline_exhausted"
+                limit = (
+                    self.research_config.initialization_timeout_seconds
+                    if reason == "initialization_timeout"
+                    else max(
+                        0.0,
+                        (deadline - stage_started).total_seconds()
+                        - self.research_config.cleanup_reserve_seconds,
+                    )
+                )
+                denial = BudgetExhausted(
+                    "supervisor time limit exhausted",
+                    reason_code=reason,
+                    kind="time",
+                    used=(datetime.now(UTC) - stage_started).total_seconds(),
+                    limit=limit,
+                    stage_key=stage_key,
+                )
+                diagnostics = {**denial.diagnostics(), "stage_key": stage_key}
+                with self.session_factory.begin() as session:
+                    persist_stage_result(
+                        session,
+                        job_id=job.job_id,
+                        claim_token=job.claim_token or "",
+                        workflow_id=job.workflow_id or "",
+                        stage_key=stage_key,
+                        input_hash=canonical_input_hash(payload),
+                        outcome="budget_exhausted",
+                        payload={
+                            "outcome": "budget_exhausted",
+                            "reason_code": reason,
+                            "unknowns": [reason],
+                            "budget": diagnostics,
+                        },
+                        reason_code=reason,
+                        unknowns=[reason],
+                        now=datetime.now(UTC),
+                    )
+                raise denial from error
             self._fence(job)
             with self.session_factory() as session:
                 saved = session.scalar(
@@ -624,8 +782,21 @@ class ResearchWorker:
             if saved is None:
                 raise ValueError("research child exited without a committed checkpoint")
         if saved.outcome == "budget_exhausted":
-            raise BudgetExhausted("research stage budget exhausted")
-        return _stage_model(stage_kind, stage_key).model_validate(saved.payload)
+            saved_budget = saved.payload.get("budget")
+            if saved_budget is not None or saved.unknowns == ["research budget exhausted"]:
+                saved_budget = saved_budget or {}
+                raise BudgetExhausted(
+                    "research stage budget exhausted",
+                    reason_code=saved_budget.get("reason_code", "research_budget_exhausted"),
+                    kind=saved_budget.get("kind"),
+                    used=saved_budget.get("used"),
+                    limit=saved_budget.get("limit"),
+                    stage_key=saved_budget.get("stage_key", stage_key),
+                )
+        result_payload = {key: value for key, value in saved.payload.items() if key != "budget"}
+        return _normalize_model_budget(
+            _stage_model(stage_kind, stage_key).model_validate(result_payload)
+        )
 
     async def _icp_pipeline(
         self, job: ResearchJob, payload: dict[str, Any], records: dict[str, CRMRecord[Any]]
@@ -709,14 +880,19 @@ class ResearchWorker:
         refs: list[dict[str, str]] = []
         budget_limited = False
         attempts = 0
+        feedback: list[AccountResearchFeedback] = []
+        review_candidates: list[dict[str, Any]] = []
+        budget_details: dict[str, Any] | None = None
+        candidate_limit = company_target * self.research_config.max_account_candidates_per_company
 
-        for candidate_index in range(company_target * 3):
+        for candidate_index in range(candidate_limit):
             if len(bundles) >= company_target:
                 break
             attempts += 1
             account_payload = {
                 **payload,
                 "exclusions": [item.model_dump(mode="json") for item in account_exclusions],
+                "feedback": [item.model_dump(mode="json") for item in feedback[-10:]],
             }
             try:
                 account_result = await self._research(
@@ -725,11 +901,26 @@ class ResearchWorker:
                     account_payload,
                     stage_kind="account",
                 )
-            except (BudgetExhausted, TimeoutError):
+            except (BudgetExhausted, TimeoutError) as error:
                 budget_limited = True
+                budget_details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
                 break
-            if account_result.identity is not None:
-                account_exclusions.append(account_result.identity)
+            identity = account_result.identity
+            feedback.append(
+                AccountResearchFeedback(
+                    stage_key=f"account.candidate.{candidate_index}.research",
+                    reason_code=account_result.reason_code or account_result.outcome,
+                    candidate_name=identity.display_name if identity else None,
+                    candidate_website=str(identity.official_website)
+                    if identity and identity.official_website
+                    else None,
+                    unknowns=account_result.unknowns,
+                )
+            )
+            if identity is not None:
+                account_exclusions.append(identity)
+                if account_result.qualification.value == "needs_review":
+                    review_candidates.append(feedback[-1].model_dump(mode="json"))
             if (
                 account_result.data is None
                 or account_result.identity is None
@@ -744,20 +935,33 @@ class ResearchWorker:
                     {**account_payload, "research": account_result.model_dump(mode="json")},
                     stage_kind="account",
                 )
-            except (BudgetExhausted, TimeoutError):
+            except (BudgetExhausted, TimeoutError) as error:
                 budget_limited = True
+                budget_details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
                 break
             if not isinstance(validation, AccountValidationAssessment):
                 raise ValueError("account_validation_missing")
             if validation.outcome.value != "accepted":
+                feedback[-1] = feedback[-1].model_copy(
+                    update={
+                        "reason_code": f"validation_{validation.outcome.value}",
+                        "unknowns": [validation.rationale[:500]],
+                    }
+                )
+                if validation.outcome.value == "needs_review":
+                    review_candidates.append(feedback[-1].model_dump(mode="json"))
                 continue
             company_id, reason = await self.crm_publisher.match_company(
                 job.job_id, account_result, claim_token=job.claim_token or ""
             )
             if reason:
+                feedback[-1] = feedback[-1].model_copy(update={"reason_code": reason})
                 continue
             domain = _account_domain(account_result)
             if domain is None:
+                feedback[-1] = feedback[-1].model_copy(
+                    update={"reason_code": "missing_account_domain"}
+                )
                 continue
             company_id = company_id or str(
                 deterministic_id(self.crm_publisher.workspace_id, "company", domain)
@@ -771,10 +975,14 @@ class ResearchWorker:
                     candidate_index,
                     people_target,
                 )
-            except (BudgetExhausted, TimeoutError):
+            except (BudgetExhausted, TimeoutError) as error:
                 budget_limited = True
+                budget_details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
                 break
             if len(people) < people_target:
+                feedback[-1] = feedback[-1].model_copy(
+                    update={"reason_code": "insufficient_people"}
+                )
                 continue
             try:
                 opportunities = await self._research_opportunities(
@@ -786,10 +994,14 @@ class ResearchWorker:
                     candidate_index,
                     opportunity_target,
                 )
-            except (BudgetExhausted, TimeoutError):
+            except (BudgetExhausted, TimeoutError) as error:
                 budget_limited = True
+                budget_details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
                 break
             if len(opportunities) < opportunity_target:
+                feedback[-1] = feedback[-1].model_copy(
+                    update={"reason_code": "insufficient_opportunities"}
+                )
                 continue
 
             await self._verify_scope(payload)
@@ -888,6 +1100,8 @@ class ResearchWorker:
             if achieved_companies
             else "budget_exhausted"
             if budget_limited
+            else "needs_review"
+            if review_candidates
             else "insufficient_evidence"
         )
         self._complete(
@@ -905,6 +1119,17 @@ class ResearchWorker:
                     "opportunities": achieved_opportunities,
                 },
                 "candidate_attempts": attempts,
+                "candidate_limit": candidate_limit,
+                "reason_code": (
+                    budget_details["reason_code"]
+                    if budget_details
+                    else "candidate_limit_reached"
+                    if achieved_companies < company_target
+                    else None
+                ),
+                "budget": budget_details,
+                "candidate_results": [item.model_dump(mode="json") for item in feedback],
+                "review_candidates": review_candidates,
                 "bundles": bundles,
                 "result_refs": refs,
             },
@@ -1114,6 +1339,7 @@ class ResearchWorker:
                 payload=payload,
                 now=datetime.now(UTC),
                 unknowns=payload.get("unknowns", []),
+                reason_code=payload.get("reason_code"),
             )
             complete_job(
                 session,

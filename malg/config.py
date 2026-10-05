@@ -159,6 +159,7 @@ class ResearchConfig:
     max_llm_attempts_per_workflow: int = 512
     max_search_requests: int = 1000
     max_fetch_requests: int = 2000
+    max_account_candidates_per_company: int = 10
 
 
 def get_research_config(settings: Dynaconf) -> ResearchConfig:
@@ -179,6 +180,7 @@ def get_research_config(settings: Dynaconf) -> ResearchConfig:
         "max_llm_attempts_per_workflow",
         "max_search_requests",
         "max_fetch_requests",
+        "max_account_candidates_per_company",
     )
     for field in integer_fields:
         value = research.get(field, getattr(defaults, field))

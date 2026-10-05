@@ -12,11 +12,12 @@ from urllib.parse import urlparse
 import httpx
 
 from malg.config import SearchConfig
+from malg.core.budget import BudgetExhausted, deny_external_attempt, reserve_external_attempt
 
 _MAX_QUERY_LENGTH = 300
 
 
-class SearchRateLimitExceeded(RuntimeError):
+class SearchRateLimitExceeded(BudgetExhausted):
     """Raised when a research run has exhausted its configured discovery budget."""
 
 
@@ -104,14 +105,20 @@ class SearxngSearchClient:
     async def _wait_for_request_slot(self) -> None:
         async with self._request_lock:
             if self._request_count >= self._config.max_requests_per_run:
-                raise SearchRateLimitExceeded("Search request budget exhausted for this agent run.")
+                deny_external_attempt(
+                    SearchRateLimitExceeded(
+                        "Search request budget exhausted for this agent run.",
+                        reason_code="search_agent_limit",
+                        kind="search",
+                        used=self._request_count,
+                        limit=self._config.max_requests_per_run,
+                    )
+                )
             now = time.monotonic()
             if self._last_request_at is not None:
                 delay = self._config.min_interval_seconds - (now - self._last_request_at)
                 if delay > 0:
                     await asyncio.sleep(delay)
-            from malg.core.budget import reserve_external_attempt
-
             reserve_external_attempt("search")
             self._request_count += 1
             self._last_request_at = time.monotonic()

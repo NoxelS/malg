@@ -59,8 +59,13 @@ excerpts. HTTP 404/410 and DNS host-not-found explain that the page or hostname
 is missing; temporary DNS, connection failures and denied access do not assert
 nonexistence. Visible source text replaces null characters before creating
 excerpts, so generated quotes and PostgreSQL checkpoints use identical text.
-Malformed citations discard the candidate as `insufficient_evidence`, with a
-safe reason in `unknowns`, rather than terminating the workflow. Earlier
+Malformed account citations first receive one repair attempt limited to four reasoning
+iterations in the same supervised child and shared budget. The repair can replace only
+rejected excerpt IDs and exact quotes; company data, identity, claim fields/text and
+qualification stay unchanged. Every repaired claim is revalidated. Missing evidence and
+unsuccessful repairs (including a repair that cannot finish within its turn allowance)
+discard the candidate as `insufficient_evidence`, with a safe
+`reason_code` and `unknowns`, rather than terminating the workflow. Earlier
 checkpoints and CRM publications remain durable. Child failures expose only
 allowlisted public codes such as `llm_rate_limited` and `evidence_storage_failed`;
 full diagnostics remain in authenticated traces.
@@ -80,6 +85,41 @@ Configure it through `[default.search]` or `MALG_SEARCH__...`: `timeout_seconds`
 `max_requests_per_run`, `min_interval_seconds`, `languages`, and `categories`. Set
 `SEARXNG_SECRET` in the environment before starting tools outside local development. The service
 exposes JSON results only and has no public-instance features, image proxy, or autocomplete.
+
+## Account discovery and outcomes
+
+Account discovery prioritizes official freelancer pools, subcontractor applications and
+freelancer-open initiative applications. It searches invitation eligibility separately from
+company capabilities and ICP fit, instead of requiring every criterion in one query. A standing
+software freelancer application can qualify when separate company evidence establishes relevant
+capabilities; employee-only vacancies, public email addresses alone and client-facing sales
+pages remain insufficient. Undated standing applications require explicit eligibility and a
+current response route; dated projects require evidence of availability. Research and validation
+receive the host's current UTC date for deadline comparisons. Unknown optional
+firmographics remain null. Proven mismatches are rejected, while unresolved mandatory criteria
+or invitation status require review.
+
+Discovery aims for 4–8 focused searches and 3–6 page fetches, extending to 20 searches and 12
+pages when distinct routes or decisive missing facts warrant it. These prompt effort guidelines
+do not imply a host budget failure. Each requested company allows ten candidate attempts by
+default, configurable with `MALG_RESEARCH__MAX_ACCOUNT_CANDIDATES_PER_COMPANY`. Attempts receive
+the last ten candidate dispositions and uncertainties; replaying durable checkpoints rebuilds
+this feedback on retry. Exclusions prevent returning previously identified candidates.
+
+The final account publication checkpoint includes `candidate_results`, `review_candidates`,
+`candidate_limit`, and `reason_code`. Review entries link to retained research checkpoints for
+human assessment; they are never published as qualified companies. If none publish and review
+candidates exist, the job reports `needs_review`. Reaching the candidate allowance reports
+`candidate_limit_reached`, independently of the business outcome. Complete Company/Person/
+Opportunity bundles remain required for CRM publication.
+
+Only host-enforced denials produce `budget_exhausted`. Persisted `budget` diagnostics identify
+the resource, usage, limit and stage where available; timeouts distinguish initialization, stage
+and workflow deadlines. The search client's per-agent allowance is also a host denial
+(`search_agent_limit`), including when generated code catches its exception. A model-reported
+budget outcome without a host denial becomes
+`insufficient_evidence` (or `needs_review` for retained data) with
+`model_reported_budget_exhausted`. Historical host-denial checkpoints remain readable.
 
 ## Eurostat-enabled agents
 
