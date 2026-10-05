@@ -10,6 +10,9 @@
 .stat-toast span { color: var(--tui-text-secondary); overflow-wrap: anywhere; }
 .stat-toast strong { color: var(--tui-text-primary); font: var(--tui-font-heading-6); justify-self: end; text-align: end; }
 .worker-overview { padding-block-end: 1rem; }
+.controller-section__actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.controller-section__status { color: var(--tui-text-primary); font-weight: 700; margin: 1.25rem 0 .25rem; }
+.controller-section__configuration { color: var(--tui-text-secondary); margin: 0; overflow-wrap: anywhere; }
 .worker-grid { height: min(38rem, 65vh); min-height: 22rem; margin-block-start: 1.25rem; }
 .worker-grid > ag-grid-angular { display: block; height: 100%; width: 100%; }
 @media (max-width: 48rem) {

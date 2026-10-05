@@ -49,6 +49,7 @@ class AccountResearchJobRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     kind: Literal[ResearchJobKind.ACCOUNT] = ResearchJobKind.ACCOUNT
+    campaign_id: UUID | None = None
     icp_id: UUID
     company_count: int = Field(default=1, strict=True, ge=1, le=20)
     people_per_company: int = Field(default=1, strict=True, ge=1, le=5)

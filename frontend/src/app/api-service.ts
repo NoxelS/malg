@@ -84,7 +84,9 @@ export type ResearchOutcome = 'complete' | 'partial' | 'needs_review' | 'insuffi
 export type ResearchJobRequest =
   | {kind: 'campaign'}
   | {kind: 'icp'; campaign_id: string; icp_count: number}
-  | {kind: 'account'; icp_id: string; company_count: number; people_per_company: number; opportunities_per_company: number};
+  | {kind: 'account'; campaign_id?: string; icp_id: string; company_count: number; people_per_company: number; opportunities_per_company: number};
+export interface AccountResearchControllerConfiguration { readonly campaign_id: string; readonly icp_id: string; readonly company_count: number; readonly people_per_company: number; readonly opportunities_per_company: number; }
+export interface AccountResearchController { readonly enabled: boolean; readonly revision: number; readonly configuration: AccountResearchControllerConfiguration | null; readonly queued_matching_jobs: number; readonly running_matching_jobs: number; readonly last_checked_at: string | null; readonly last_enqueued_job_id: string | null; readonly last_error: string | null; readonly next_retry_at: string | null; }
 export interface ResultReference { readonly object_name: string; readonly record_id: string; readonly url: string | null; }
 export interface ResearchJob {
   readonly job_id: string;
@@ -271,6 +273,9 @@ export class ApiService {
     sessionStorage.removeItem(this.expiryKey);
   }
   listDashboard(): Observable<DashboardSummary> { return this.authorized('GET', '/api/v1/dashboard'); }
+  getAccountResearchController(): Observable<AccountResearchController> { return this.authorized('GET', '/api/v1/account-research-controller'); }
+  saveAccountResearchController(configuration: AccountResearchControllerConfiguration): Observable<AccountResearchController> { return this.authorized('PUT', '/api/v1/account-research-controller/configuration', {body: configuration}); }
+  setAccountResearchControllerState(enabled: boolean, revision: number): Observable<AccountResearchController> { return this.authorized('PATCH', '/api/v1/account-research-controller/state', {body: {enabled, revision}}); }
   listWorkers(): Observable<readonly WorkerSummary[]> { return this.authorized('GET', '/api/v1/workers'); }
   listWorkerOverview(params: HttpParams): Observable<WorkerOverviewPage> { return this.authorized('GET', '/api/v1/workers/overview', {params}); }
   getCrmStatus(): Observable<CrmStatus> { return this.authorized('GET', '/api/v1/crm/status'); }

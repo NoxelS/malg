@@ -179,6 +179,33 @@ class ResearchJob(Base):
     )
 
 
+class AccountResearchController(Base):
+    """Singleton durable policy for keeping one account-research job queued.
+
+    The row is deliberately independent from workers: API replicas coordinate
+    with the short-lived lease so a browser session never owns replenishment.
+    """
+
+    __tablename__ = "account_research_controller"
+
+    controller_id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    revision: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    configuration: Mapped[dict[str, Any] | None] = mapped_column(JSONPayload)
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_enqueued_job_id: Mapped[str | None] = mapped_column(String(36))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CrmWriteOperation(Base):
     """Fenced intent and confirmation journal for one remote CRM field write."""
 
