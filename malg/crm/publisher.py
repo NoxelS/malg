@@ -355,11 +355,14 @@ class CrmPublisher:
         icp_id: str,
         claim_token: str,
     ) -> tuple[str | None, str | None, str | None]:
-        """Publish only independently accepted Company and Membership; retain partial effects."""
+        """Publish only independently accepted accounts with a sourced open invitation."""
         if (
             result.qualification.value != "accepted"
             or validation.outcome.value != "accepted"
             or result.data is None
+            or result.engagement_signal is None
+            or result.engagement_signal.status.value != "open"
+            or not result.signal_observations
         ):
             return None, None, "account_not_qualified"
         await self._check(job_id, claim_token)

@@ -53,7 +53,12 @@ def test_claim_validation_exposes_safe_invalid_evidence_codes(
 @pytest.mark.parametrize("invalid", ["quote", "reference", "missing"])
 def test_unpublishable_account_discards_data_identity_and_all_claims(invalid) -> None:
     """Even one invalid observation cannot leave publishable account data behind."""
-    from malg.core.models.account import AccountData, AccountIdentity, AccountResearchResult
+    from malg.core.models.account import (
+        AccountData,
+        AccountEngagementSignal,
+        AccountIdentity,
+        AccountResearchResult,
+    )
     from malg.core.models.research import FieldObservation
 
     observations = [
@@ -81,6 +86,22 @@ def test_unpublishable_account_discards_data_identity_and_all_claims(invalid) ->
         identity=AccountIdentity(
             display_name="Observed company", official_website="https://example.com"
         ),
+        engagement_signal=AccountEngagementSignal(
+            signal_type="freelance_initiative_application",
+            title="Freelance Initiativbewerbung",
+            source_url="https://example.com/freelance",
+            invited_work="Freelance software delivery support.",
+            response_route="Use the freelance application form.",
+            status="open",
+        ),
+        signal_observations=[
+            FieldObservation(
+                field="response_route",
+                text="A freelance application route is available.",
+                quote="Exact source quote",
+                excerpt_ids=["excerpt-1"],
+            )
+        ],
         qualification="accepted",
         observations=observations,
     )
@@ -89,7 +110,9 @@ def test_unpublishable_account_discards_data_identity_and_all_claims(invalid) ->
     assert result.data is None
     assert result.identity is None
     assert result.qualification == "needs_review"
+    assert result.engagement_signal is None
     assert not result.observations
+    assert not result.signal_observations
     assert not claims
     assert result.unknowns == [
         {

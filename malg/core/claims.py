@@ -61,8 +61,14 @@ def validate_research_evidence[T: BaseModel](
         return result, []
     try:
         claims = [validate_claim_proposal(item, excerpts) for item in result.observations]
-        if result.outcome in {"complete", "partial"} and not claims:
+        if result.outcome in {"complete", "partial"} and not result.observations:
             raise ClaimValidationError("missing_evidence_claim")
+        if isinstance(result, AccountResearchResult):
+            if result.engagement_signal is not None and not result.signal_observations:
+                raise ClaimValidationError("missing_evidence_claim")
+            claims.extend(
+                validate_claim_proposal(item, excerpts) for item in result.signal_observations
+            )
     except ClaimValidationError as error:
         updates: dict[str, object] = {
             "outcome": "insufficient_evidence",
@@ -71,6 +77,11 @@ def validate_research_evidence[T: BaseModel](
             "unknowns": [error.code],
         }
         if isinstance(result, AccountResearchResult):
-            updates.update(identity=None, qualification=AccountValidationOutcome.NEEDS_REVIEW)
+            updates.update(
+                identity=None,
+                qualification=AccountValidationOutcome.NEEDS_REVIEW,
+                engagement_signal=None,
+                signal_observations=[],
+            )
         return result.model_copy(update=updates), []
     return result, claims
