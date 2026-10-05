@@ -2,6 +2,9 @@
 
 from malg.core.models.account import (
     AccountData,
+    AccountEngagementSignal,
+    AccountEngagementSignalStatus,
+    AccountEngagementSignalType,
     AccountIdentity,
     AccountProbeReport,
     AccountResearchResult,
@@ -20,6 +23,9 @@ from malg.core.models.research import ClaimProposal, FieldObservation, ResearchM
 
 __all__ = [
     "AccountData",
+    "AccountEngagementSignal",
+    "AccountEngagementSignalStatus",
+    "AccountEngagementSignalType",
     "AccountIdentity",
     "AccountProbeReport",
     "AccountResearchResult",

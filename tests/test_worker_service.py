@@ -13,6 +13,7 @@ from twenty_fake import publication_fixture
 from malg.config import WorkerConfig
 from malg.core.models.account import (
     AccountData,
+    AccountEngagementSignal,
     AccountIdentity,
     AccountResearchResult,
     AccountValidationAssessment,
@@ -29,7 +30,7 @@ from malg.core.models.jobs import (
 )
 from malg.core.models.opportunity import OpportunityData, OpportunityResearchResult
 from malg.core.models.person import PersonData
-from malg.core.models.research import ResearchResult
+from malg.core.models.research import FieldObservation, ResearchResult
 from malg.database.jobs import claim_next_job, enqueue_job, fail_job, retry_failed_job
 from malg.database.models import (
     ResearchJob,
@@ -335,6 +336,22 @@ def test_account_job_publishes_complete_company_person_opportunity_bundle(setup_
             identity=AccountIdentity(
                 display_name="Proof Company", official_website="https://proof.example"
             ),
+            engagement_signal=AccountEngagementSignal(
+                signal_type="subcontractor_request",
+                title="Freelance delivery support",
+                source_url="https://proof.example/partners",
+                invited_work="Support client software delivery projects.",
+                response_route="Apply through the published partner form.",
+                status="open",
+            ),
+            signal_observations=[
+                FieldObservation(
+                    field="response_route",
+                    text="The company publishes a partner application route.",
+                    excerpt_ids=["excerpt-1"],
+                    quote="Apply through our partner form",
+                )
+            ],
             qualification="accepted",
         )
         validation = AccountValidationAssessment(

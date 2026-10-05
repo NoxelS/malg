@@ -12,6 +12,8 @@ from twenty_fake import publication_fixture
 
 from malg.core.models.account import (
     AccountData,
+    AccountEngagementSignal,
+    AccountEngagementSignalStatus,
     AccountIdentity,
     AccountResearchResult,
     AccountValidationAssessment,
@@ -20,6 +22,7 @@ from malg.core.models.account import (
     ValidationCheck,
 )
 from malg.core.models.campaign import CampaignData
+from malg.core.models.research import FieldObservation
 from malg.crm.client import TwentyError, TwentyRecordMissing
 from malg.database.crm_writes import CrmWriteConflict, prepare_write
 from malg.database.jobs import cancel_job
@@ -42,6 +45,22 @@ def account_result() -> AccountResearchResult:
         identity=AccountIdentity(
             display_name="Proof Company", official_website="https://proof.example"
         ),
+        engagement_signal=AccountEngagementSignal(
+            signal_type="subcontractor_request",
+            title="Freelance delivery support",
+            source_url="https://proof.example/partners",
+            invited_work="Support client software delivery projects.",
+            response_route="Apply through the published partner form.",
+            status="open",
+        ),
+        signal_observations=[
+            FieldObservation(
+                field="response_route",
+                text="The company publishes a partner application route.",
+                excerpt_ids=["excerpt-1"],
+                quote="Apply through our partner form",
+            )
+        ],
         qualification="accepted",
         outcome="complete",
     )
@@ -213,6 +232,30 @@ def test_independent_rejection_and_conflicting_company_identity_publish_nothing(
             )
         )[2] == "account_not_qualified"
         assert remote.records == {}
+        open_signal = account_result().engagement_signal
+        assert open_signal is not None
+        for unqualified in (
+            account_result().model_copy(
+                update={"engagement_signal": None, "signal_observations": []}
+            ),
+            account_result().model_copy(
+                update={
+                    "engagement_signal": open_signal.model_copy(
+                        update={"status": AccountEngagementSignalStatus.CLOSED}
+                    )
+                }
+            ),
+        ):
+            assert (
+                await publisher.publish_account(
+                    job.job_id,
+                    unqualified,
+                    accepted_validation(),
+                    icp_id=str(uuid4()),
+                    claim_token=job.claim_token,
+                )
+            )[2] == "account_not_qualified"
+            assert remote.records == {}
         remote.add("company", {"name": "First", "domainName": {"primaryLinkUrl": "proof.example"}})
         remote.add("company", {"name": "Second", "domainName": {"primaryLinkUrl": "proof.example"}})
         _, _, reason = await publisher.publish_account(
