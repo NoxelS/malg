@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Generator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from importlib.metadata import version as distribution_version
 from typing import Annotated
 
@@ -11,8 +12,12 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
+from malg.account_research_controller import AccountResearchQueueController, controller_loop
 from malg.api.auth import AuthService, TokenResponse, token_endpoint
 from malg.api.dependencies import get_session
+from malg.api.routers.account_research_controller import (
+    router as account_research_controller_router,
+)
 from malg.api.routers.crm import router as crm_router
 from malg.api.routers.dashboard import dashboard_router
 from malg.api.routers.jobs import router as jobs_router
@@ -60,9 +65,18 @@ def create_app(
             except ValueError:
                 client = None
         application.state.crm_client = client
+        controller_task = None
+        if client is not None:
+            controller_task = asyncio.create_task(
+                controller_loop(AccountResearchQueueController(sessions, client))
+            )
         try:
             yield
         finally:
+            if controller_task is not None:
+                controller_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await controller_task
             if client is not None and crm_client is None:
                 await client.aclose()
             application.state.crm_client = None
@@ -80,6 +94,7 @@ def create_app(
     auth_dependency = Depends(auth_service.require_authenticated)
     app.include_router(memory_router, dependencies=[auth_dependency])
     app.include_router(jobs_router, dependencies=[auth_dependency])
+    app.include_router(account_research_controller_router, dependencies=[auth_dependency])
     app.include_router(crm_router, dependencies=[auth_dependency])
     app.include_router(traces_router, dependencies=[auth_dependency])
     worker_config = get_worker_config(settings)
