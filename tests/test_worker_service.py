@@ -301,9 +301,12 @@ def test_changed_or_deleted_parent_prevents_any_new_publication(setup_worker, ch
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("rejected_candidates", [0, 4])
+@pytest.mark.parametrize(
+    ("rejected_candidates", "local_limit"),
+    [(0, None), (4, None), (1, "stage_deadline_exhausted"), (1, "search_stage_limit")],
+)
 def test_account_job_publishes_complete_company_person_opportunity_bundle(
-    setup_worker, rejected_candidates
+    setup_worker, rejected_candidates, local_limit
 ) -> None:
     async def run() -> None:
         campaign_id, icp_id = uuid4(), uuid4()
@@ -417,10 +420,18 @@ def test_account_job_publishes_complete_company_person_opportunity_bundle(
             )
             for index in range(rejected_candidates):
                 rejected = AccountResearchResult(
-                    outcome="insufficient_evidence",
+                    outcome="budget_exhausted" if local_limit else "insufficient_evidence",
                     qualification="needs_review",
-                    unknowns=["No qualifying invitation"],
+                    unknowns=[local_limit or "No qualifying invitation"],
                 )
+                rejected_payload = rejected.model_dump(mode="json")
+                if local_limit:
+                    rejected_payload["budget"] = {
+                        "reason_code": local_limit,
+                        "kind": "time" if local_limit == "stage_deadline_exhausted" else "search",
+                        "used": 20,
+                        "limit": 20,
+                    }
                 persist_stage_result(
                     session,
                     job_id=current.job_id,
@@ -429,7 +440,7 @@ def test_account_job_publishes_complete_company_person_opportunity_bundle(
                     stage_key=f"account.candidate.{index}.research",
                     input_hash=workflow.input_hash,
                     outcome=rejected.outcome,
-                    payload=rejected.model_dump(mode="json"),
+                    payload=rejected_payload,
                     now=datetime.now(UTC),
                 )
             prefix = f"account.candidate.{rejected_candidates}"
@@ -503,6 +514,12 @@ def test_account_job_publishes_complete_company_person_opportunity_bundle(
         "model_budget_with_data",
         "uncertain_invitation",
         "search_workflow_limit",
+        "stage_deadline_exhausted",
+        "search_agent_limit",
+        "fetch_stage_limit",
+        "reasoning_stage_limit",
+        "no_progress_stage_limit",
+        "context_stage_limit",
     ],
 )
 def test_account_rejected_and_budget_checkpoints_finish_without_publication(
@@ -530,7 +547,7 @@ def test_account_rejected_and_budget_checkpoints_finish_without_publication(
         )
         result = AccountResearchResult(
             outcome="budget_exhausted"
-            if "budget" in code or code == "search_workflow_limit"
+            if "budget" in code or code.endswith("_limit") or code == "stage_deadline_exhausted"
             else "needs_review"
             if code == "uncertain_invitation"
             else "insufficient_evidence",
@@ -554,7 +571,7 @@ def test_account_rejected_and_budget_checkpoints_finish_without_publication(
                 worker_for(fixture).research_config.max_account_candidates_per_company
             ):
                 stage_payload = result.model_dump(mode="json")
-                if code == "search_workflow_limit":
+                if code.endswith("_limit") or code == "stage_deadline_exhausted":
                     stage_payload["budget"] = {
                         "reason_code": code,
                         "kind": "search",
@@ -621,5 +638,47 @@ def test_account_rejected_and_budget_checkpoints_finish_without_publication(
                 == 10
             )
         assert not fixture[2].creates
+
+    asyncio.run(run())
+
+
+def test_provider_outage_pauses_claims_and_expired_cooldown_allows_resume(setup_worker) -> None:
+    """Queued jobs wait through an outage, then resume their existing durable work."""
+
+    async def run():
+        fixture = setup_worker()
+        result = ResearchResult[CampaignData](
+            outcome="complete",
+            data=CampaignData(name="Observed campaign", objective="Observed workflow"),
+        )
+        workflow_id = await save_checkpoint(fixture, result)
+        with fixture[1].begin() as session:
+            job = claim_next_job(session, "health-worker", datetime.now(UTC), 60, 3)
+            health = persist_stage_result(
+                session,
+                job_id=job.job_id,
+                claim_token=job.claim_token,
+                workflow_id=workflow_id,
+                stage_key="campaign.research.search_health",
+                input_hash="outage",
+                outcome="needs_review",
+                payload={"health": "unavailable"},
+                reason_code="search_unavailable",
+                now=datetime.now(UTC),
+            )
+            health_id = health.stage_result_id
+            fail_job(session, job.job_id, job.claim_token, "search_unavailable", datetime.now(UTC))
+            retry_failed_job(session, job.job_id, datetime.now(UTC))
+        worker = worker_for(fixture)
+        assert not await worker.run_once()
+        assert not fixture[2].creates
+        with fixture[1].begin() as session:
+            assert session.get(ResearchJob, fixture[6].job_id).status == "queued"
+            session.get(ResearchStageResult, health_id).created_at = datetime.now(UTC) - timedelta(
+                seconds=worker.research_config.search_unavailable_retry_seconds + 1
+            )
+        assert await worker.run_once()
+        with fixture[1]() as session:
+            assert session.get(ResearchJob, fixture[6].job_id).result_outcome == "complete"
 
     asyncio.run(run())

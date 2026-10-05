@@ -99,12 +99,38 @@ receive the host's current UTC date for deadline comparisons. Unknown optional
 firmographics remain null. Proven mismatches are rejected, while unresolved mandatory criteria
 or invitation status require review.
 
-Discovery aims for 4–8 focused searches and 3–6 page fetches, extending to 20 searches and 12
-pages when distinct routes or decisive missing facts warrant it. These prompt effort guidelines
-do not imply a host budget failure. Each requested company allows ten candidate attempts by
-default, configurable with `MALG_RESEARCH__MAX_ACCOUNT_CANDIDATES_PER_COMPANY`. Attempts receive
-the last ten candidate dispositions and uncertainties; replaying durable checkpoints rebuilds
-this feedback on retry. Exclusions prevent returning previously identified candidates.
+Account jobs use a tool-only NOOA strategy: `search`, `fetch`, `save_candidate`
+and `finish`. Model output is parsed as data; no generated Python, direct HTTP,
+browser calls or nested generation is executed. Fetches must use URLs observed in
+inputs, search results or fetched links. Campaign/ICP jobs retain their existing
+Eurostat and memory tools.
+
+Each account stage allows 20 minutes (including the 60-second cleanup reserve),
+20 search requests, 24 fetch requests (redirects also count), and 24 reasoning turns.
+The last turn offers only `finish`. Four turns without new results, evidence or a
+saved candidate end the local attempt; normalized repeats do not count as progress.
+Failed page fetches are cached. Agent-visible page evidence is limited to two complete
+2,000-character excerpts per fetch. `excerpt_start` selects another pair from the cached
+page without another network request; source validation uses the original host excerpts.
+Context inputs and tool history have a 96,000-character allowance. Limits are
+configurable through `[default.research]` / `MALG_RESEARCH__...`.
+
+`save_candidate` commits unverified names and observed official websites immediately
+under the active claim. These discovery checkpoints survive termination and are reused
+as leads on subsequent attempts. They are never proof of qualification or permission to
+publish. A locally exhausted lead yields to other candidates and stays in diagnostics.
+Each requested company still allows ten candidate attempts by default
+(`max_account_candidates_per_company`). Attempts receive
+the last ten dispositions and exclusions. Local stage limits advance to another
+attempt; workflow-wide limits and initialization failures stop the job.
+
+SearXNG engine errors are retained. Partial results are `degraded`; empty results
+with engine failures raise `search_unavailable`, while a healthy empty result remains
+a valid no-hit response. Search starts are paced across PostgreSQL workers using an
+advisory transaction lock and the configured minimum interval. Provider outages are
+persisted separately, fail the active job with a safe retriable code, and pause worker
+claiming for 300 seconds (`search_unavailable_retry_seconds`). Queued jobs wait through
+the cooldown; failed jobs can be explicitly retried through the existing job API.
 
 The final account publication checkpoint includes `candidate_results`, `review_candidates`,
 `candidate_limit`, and `reason_code`. Review entries link to retained research checkpoints for
@@ -163,7 +189,8 @@ deadlines, reasoning iterations and shared LLM/search/fetch allowances. The supe
 performs generation and persists fenced evidence; only the parent publishes to Twenty. Cancellation
 terminates the child, prevents new operations and preserves already-observed remote effects.
 
-The supplied defaults favor completing account bundles: each stage has a one-hour deadline, and
+Non-account stages retain a one-hour deadline; account stages use the shorter local
+attempt limits above. The supplied workflow defaults favor completing account bundles:
 each workflow unit has a two-hour deadline. They allow up to 512 reasoning iterations, 256 LLM
 attempts per stage, 512 per workflow unit, and 1,000 search / 2,000 fetch attempts per workflow
 unit. These are intentionally generous but still finite so cancellation, cleanup and worker

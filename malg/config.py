@@ -160,6 +160,13 @@ class ResearchConfig:
     max_search_requests: int = 1000
     max_fetch_requests: int = 2000
     max_account_candidates_per_company: int = 10
+    candidate_timeout_seconds: int = 1200
+    max_search_requests_per_stage: int = 20
+    max_fetch_requests_per_stage: int = 24
+    max_reasoning_turns: int = 24
+    max_no_progress_turns: int = 4
+    max_research_context_chars: int = 96000
+    search_unavailable_retry_seconds: int = 300
 
 
 def get_research_config(settings: Dynaconf) -> ResearchConfig:
@@ -181,6 +188,13 @@ def get_research_config(settings: Dynaconf) -> ResearchConfig:
         "max_search_requests",
         "max_fetch_requests",
         "max_account_candidates_per_company",
+        "candidate_timeout_seconds",
+        "max_search_requests_per_stage",
+        "max_fetch_requests_per_stage",
+        "max_reasoning_turns",
+        "max_no_progress_turns",
+        "max_research_context_chars",
+        "search_unavailable_retry_seconds",
     )
     for field in integer_fields:
         value = research.get(field, getattr(defaults, field))
@@ -191,6 +205,7 @@ def get_research_config(settings: Dynaconf) -> ResearchConfig:
     for field in (
         "workflow_timeout_seconds",
         "stage_timeout_seconds",
+        "candidate_timeout_seconds",
         "llm_attempt_timeout_seconds",
         "initialization_timeout_seconds",
     ):

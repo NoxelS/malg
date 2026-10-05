@@ -6,13 +6,14 @@ import asyncio
 import os
 import signal
 from contextlib import suppress
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from multiprocessing.connection import Connection
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -51,6 +52,8 @@ from malg.core.models.research import (
     ResearchOutcome,
     ResearchResult,
 )
+from malg.core.research_strategy import RetrievalStrategy
+from malg.core.web_search import SearchUnavailable
 from malg.crm.client import TwentyClient, TwentyError, TwentySchemaIncompatible
 from malg.crm.contracts import CRMRecord
 from malg.crm.identity import deterministic_id, normalize_domain, normalize_linkedin
@@ -68,6 +71,7 @@ from malg.database.models import (
 from malg.database.research import (
     canonical_input_hash,
     create_workflow_for_job,
+    persist_discovered_candidate,
     persist_stage_result,
 )
 from malg.database.session import make_engine, make_session_factory
@@ -135,12 +139,26 @@ def _stage_budget(
 
     workflow_deadline = _aware(job.deadline_at)
     deadline = min(
-        workflow_deadline, datetime.now(UTC) + timedelta(seconds=config.stage_timeout_seconds)
+        workflow_deadline,
+        datetime.now(UTC)
+        + timedelta(
+            seconds=min(config.stage_timeout_seconds, config.candidate_timeout_seconds)
+            if job.kind == "account"
+            else config.stage_timeout_seconds
+        ),
     )
     return ResearchBudget(
         deadline,
         cleanup_reserve_seconds=config.cleanup_reserve_seconds,
-        limits={**limits, "llm": config.max_llm_attempts_per_stage},
+        limits={
+            "llm": config.max_llm_attempts_per_stage,
+            "search": config.max_search_requests_per_stage
+            if job.kind == "account"
+            else limits["search"],
+            "fetch": config.max_fetch_requests_per_stage
+            if job.kind == "account"
+            else limits["fetch"],
+        },
         reserve=reserve,
         deadline_reason=(
             "workflow_deadline_exhausted"
@@ -181,6 +199,20 @@ def _budget_diagnostics(error: BudgetExhausted | TimeoutError) -> dict[str, Any]
     if isinstance(error, BudgetExhausted):
         return error.diagnostics()
     return {"reason_code": "stage_deadline_exhausted", "kind": "time"}
+
+
+def _local_attempt_limit(reason: str) -> bool:
+    """Distinguish recoverable candidate work from workflow-wide exhaustion."""
+    return reason in {
+        "stage_deadline_exhausted",
+        "search_stage_limit",
+        "fetch_stage_limit",
+        "llm_stage_limit",
+        "search_agent_limit",
+        "reasoning_stage_limit",
+        "context_stage_limit",
+        "no_progress_stage_limit",
+    }
 
 
 def _child_stage(
@@ -248,9 +280,7 @@ async def _child_stage_async(
         research_config = get_research_config(load_settings())
         budget = _stage_budget(sessions, job, research_config)
         reset_budget = bind_budget(budget)
-        set_default_strategy(
-            CodeActStrategy(config=CodeActConfig(max_iterations=research_config.max_iterations))
-        )
+
         scopes = payload["crm_inputs"]
         campaign = (
             CampaignData.model_validate(scopes["campaign"]["data"])
@@ -259,18 +289,90 @@ async def _child_stage_async(
         )
         icp = ICPData.model_validate(scopes["icp"]["data"]) if "icp" in scopes else None
         if stage_key.endswith(".validation"):
-            agent = AccountValidationAgent(recorder=record_active_event)
+            agent = AccountValidationAgent(
+                recorder=record_active_event, retrieval_only=job.kind == "account"
+            )
             method = "validate_account"
         elif kind == "opportunity":
             agent, method = OpportunityAgent(), "pitch_one"
         elif kind == "campaign":
-            agent, method = CampaignResearchAgent(recorder=record_active_event), "find_campaign"
+            agent, method = (
+                CampaignResearchAgent(
+                    recorder=record_active_event, retrieval_only=job.kind == "account"
+                ),
+                "find_campaign",
+            )
         elif kind == "icp":
-            agent, method = ICPResearchAgent(recorder=record_active_event), "research_one"
+            agent, method = (
+                ICPResearchAgent(
+                    recorder=record_active_event, retrieval_only=job.kind == "account"
+                ),
+                "research_one",
+            )
         elif kind == "account":
-            agent, method = AccountResearchAgent(recorder=record_active_event), "research_one"
+            agent, method = (
+                AccountResearchAgent(
+                    recorder=record_active_event, retrieval_only=job.kind == "account"
+                ),
+                "research_one",
+            )
         else:
-            agent, method = PersonResearchAgent(recorder=record_active_event), "research_one"
+            agent, method = (
+                PersonResearchAgent(
+                    recorder=record_active_event, retrieval_only=job.kind == "account"
+                ),
+                "research_one",
+            )
+
+        async def shared_search_slot() -> None:
+            """Serialize search starts across workers sharing PostgreSQL, without a migration."""
+            interval = agent.web_search.min_interval_seconds
+
+            def wait() -> None:
+                with sessions.begin() as session:
+                    if session.get_bind().dialect.name != "postgresql":
+                        return
+                    timeout_ms = max(1, int(budget.timeout_seconds(60) * 1000))
+                    session.execute(
+                        text("SELECT set_config('statement_timeout', :timeout, true)"),
+                        {"timeout": str(timeout_ms)},
+                    )
+                    session.execute(text("SELECT pg_advisory_xact_lock(194871, 1)"))
+                    session.execute(text("SELECT pg_sleep(:interval)"), {"interval": interval})
+                    # Wait without holding the job row, so lease renewal is never blocked.
+                    require_claim(session, job_id, claim_token, datetime.now(UTC))
+
+            await asyncio.to_thread(wait)
+
+        def checkpoint_candidate(identity: AccountIdentity) -> None:
+            """Persist an unverified discovery under the active claim before acknowledging it."""
+            with sessions.begin() as session:
+                persist_discovered_candidate(
+                    session,
+                    job_id=job_id,
+                    claim_token=claim_token,
+                    workflow_id=workflow_id,
+                    stage_key=stage_key,
+                    identity=identity,
+                    now=datetime.now(UTC),
+                )
+
+        if hasattr(agent, "web_search"):
+            agent.web_search.request_slot = shared_search_slot
+        if job.kind == "account":
+            set_default_strategy(
+                RetrievalStrategy(
+                    research_config,
+                    retrieval=getattr(agent, "retrieval", None),
+                    checkpoint=checkpoint_candidate
+                    if kind == "account" and not stage_key.endswith(".validation")
+                    else None,
+                )
+            )
+        else:
+            set_default_strategy(
+                CodeActStrategy(config=CodeActConfig(max_iterations=research_config.max_iterations))
+            )
         trace = AgentTraceRecorder.start_run(sessions, job_id, "agent", agent, method)
         trace.attach(agent)
         reset = trace.bind()
@@ -316,6 +418,7 @@ async def _child_stage_async(
                     for item in payload.get("feedback", [])
                 ],
                 as_of=datetime.now(UTC).date(),
+                discovered_candidates=payload.get("discovered_candidates", []),
             )
         else:
             company = scopes["account"]
@@ -343,9 +446,10 @@ async def _child_stage_async(
             async def repair_citations(request: EvidenceRepairRequest) -> EvidenceCorrections:
                 """Use four repair turns while retaining the same host request/deadline fence."""
                 set_default_strategy(
-                    CodeActStrategy(
-                        config=CodeActConfig(
-                            max_iterations=min(4, research_config.max_iterations),
+                    RetrievalStrategy(
+                        replace(
+                            research_config,
+                            max_reasoning_turns=min(4, research_config.max_reasoning_turns),
                         )
                     )
                 )
@@ -448,6 +552,31 @@ async def _child_stage_async(
             trace.finish_failure(error)
         raise
     except Exception as error:
+        if isinstance(error, SearchUnavailable):
+            health = {
+                "health": "unavailable",
+                "engine_errors": agent.web_search.engine_errors
+                if agent is not None and hasattr(agent, "web_search")
+                else [],
+            }
+            with sessions.begin() as session:
+                persist_stage_result(
+                    session,
+                    job_id=job_id,
+                    claim_token=claim_token,
+                    workflow_id=workflow_id,
+                    stage_key=f"{stage_key}.search_health",
+                    input_hash=canonical_input_hash(
+                        {**health, "observed_at": datetime.now(UTC).isoformat()}
+                    ),
+                    outcome="needs_review",
+                    payload=health,
+                    now=datetime.now(UTC),
+                    reason_code="search_unavailable",
+                )
+            if trace:
+                trace.finish_failure(error)
+            raise
         if not isinstance(error, BudgetExhausted) and not (budget and budget.exhausted):
             if trace:
                 trace.finish_failure(error)
@@ -520,6 +649,20 @@ class ResearchWorker:
     async def run_once(self) -> bool:
         """Claim one job and cancel its active supervisor as soon as ownership is lost."""
         with self.session_factory.begin() as session:
+            outage = session.scalar(
+                select(ResearchStageResult)
+                .where(
+                    ResearchStageResult.reason_code == "search_unavailable",
+                )
+                .order_by(ResearchStageResult.created_at.desc())
+                .limit(1)
+            )
+            if (
+                outage is not None
+                and (datetime.now(UTC) - _aware(outage.created_at)).total_seconds()
+                < self.research_config.search_unavailable_retry_seconds
+            ):
+                return False
             job = claim_next_job(
                 session,
                 self.worker_token,
@@ -689,6 +832,55 @@ class ResearchWorker:
             await self._account_pipeline(job, payload, records)
             return
         raise ValueError("unsupported research job kind")
+
+    def _candidate_limit_feedback(
+        self,
+        job: ResearchJob,
+        candidate_index: int,
+        payload: dict[str, Any],
+        details: dict[str, Any],
+        exclusions: list[AccountIdentity],
+    ) -> AccountResearchFeedback | None:
+        """Retain a local denial and advance past its first unresolved discovery lead."""
+        if not _local_attempt_limit(details["reason_code"]):
+            return None
+        leads = payload["discovered_candidates"] or self._discovery_leads(
+            job,
+            f"account.candidate.{candidate_index}.research.discovery.",
+        )
+        identity = AccountIdentity.model_validate(leads[0]) if leads else None
+        if identity is not None:
+            exclusions.append(identity)
+        return AccountResearchFeedback(
+            stage_key=str(details.get("stage_key", f"account.candidate.{candidate_index}")),
+            reason_code=str(details["reason_code"]),
+            candidate_name=identity.display_name if identity else None,
+            candidate_website=str(identity.official_website) if identity else None,
+            unknowns=["Local attempt ended; discoveries remain in durable checkpoints."],
+        )
+
+    def _discovery_leads(self, job: ResearchJob, prefix: str | None = None) -> list[dict[str, str]]:
+        """Read durable unverified leads without treating them as accepted accounts."""
+        with self.session_factory() as session:
+            discoveries = list(
+                session.scalars(
+                    select(ResearchStageResult)
+                    .where(
+                        ResearchStageResult.workflow_id == job.workflow_id,
+                        ResearchStageResult.reason_code == "discovered_unverified",
+                    )
+                    .order_by(ResearchStageResult.created_at)
+                )
+            )
+        unique: dict[str, dict[str, str]] = {}
+        for item in discoveries:
+            if prefix is not None and not item.stage_key.startswith(prefix):
+                continue
+            identity = item.payload["identity"]
+            domain = normalize_domain(identity["official_website"])
+            if domain:
+                unique.setdefault(domain, identity)
+        return list(unique.values())
 
     async def _research(
         self, job: ResearchJob, stage_key: str, payload: dict[str, Any], *, stage_kind: str
@@ -889,8 +1081,20 @@ class ResearchWorker:
             if len(bundles) >= company_target:
                 break
             attempts += 1
+            leads = self._discovery_leads(job)
+            excluded_domains = {
+                normalize_domain(str(item.official_website))
+                for item in account_exclusions
+                if item.official_website
+            }
+            leads = [
+                item
+                for item in leads
+                if normalize_domain(item["official_website"]) not in excluded_domains
+            ]
             account_payload = {
                 **payload,
+                "discovered_candidates": leads[:10],
                 "exclusions": [item.model_dump(mode="json") for item in account_exclusions],
                 "feedback": [item.model_dump(mode="json") for item in feedback[-10:]],
             }
@@ -902,8 +1106,15 @@ class ResearchWorker:
                     stage_kind="account",
                 )
             except (BudgetExhausted, TimeoutError) as error:
+                details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
+                local_feedback = self._candidate_limit_feedback(
+                    job, candidate_index, account_payload, details, account_exclusions
+                )
+                if local_feedback is not None:
+                    feedback.append(local_feedback)
+                    continue
                 budget_limited = True
-                budget_details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
+                budget_details = details
                 break
             identity = account_result.identity
             feedback.append(
@@ -936,8 +1147,15 @@ class ResearchWorker:
                     stage_kind="account",
                 )
             except (BudgetExhausted, TimeoutError) as error:
+                details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
+                local_feedback = self._candidate_limit_feedback(
+                    job, candidate_index, account_payload, details, account_exclusions
+                )
+                if local_feedback is not None:
+                    feedback.append(local_feedback)
+                    continue
                 budget_limited = True
-                budget_details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
+                budget_details = details
                 break
             if not isinstance(validation, AccountValidationAssessment):
                 raise ValueError("account_validation_missing")
@@ -976,8 +1194,15 @@ class ResearchWorker:
                     people_target,
                 )
             except (BudgetExhausted, TimeoutError) as error:
+                details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
+                local_feedback = self._candidate_limit_feedback(
+                    job, candidate_index, account_payload, details, account_exclusions
+                )
+                if local_feedback is not None:
+                    feedback.append(local_feedback)
+                    continue
                 budget_limited = True
-                budget_details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
+                budget_details = details
                 break
             if len(people) < people_target:
                 feedback[-1] = feedback[-1].model_copy(
@@ -995,8 +1220,15 @@ class ResearchWorker:
                     opportunity_target,
                 )
             except (BudgetExhausted, TimeoutError) as error:
+                details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
+                local_feedback = self._candidate_limit_feedback(
+                    job, candidate_index, account_payload, details, account_exclusions
+                )
+                if local_feedback is not None:
+                    feedback.append(local_feedback)
+                    continue
                 budget_limited = True
-                budget_details = {**_budget_diagnostics(error), "candidate_index": candidate_index}
+                budget_details = details
                 break
             if len(opportunities) < opportunity_target:
                 feedback[-1] = feedback[-1].model_copy(
@@ -1120,6 +1352,7 @@ class ResearchWorker:
                 },
                 "candidate_attempts": attempts,
                 "candidate_limit": candidate_limit,
+                "discovered_candidates": self._discovery_leads(job),
                 "reason_code": (
                     budget_details["reason_code"]
                     if budget_details

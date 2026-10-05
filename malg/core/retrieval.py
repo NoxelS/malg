@@ -12,7 +12,7 @@ from html.parser import HTMLParser
 from http.client import HTTPMessage
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from malg.core.budget import reserve_external_attempt
@@ -32,6 +32,7 @@ class FetchObservation:
     text: str = ""
     excerpts: tuple[dict[str, object], ...] = ()
     reason_code: str | None = None
+    links: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -48,9 +49,12 @@ class _VisibleText(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.parts: list[str] = []
+        self.links: list[str] = []
         self._hidden = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "a":
+            self.links.extend(value for key, value in attrs if key == "href" and value)
         if tag in {"script", "style", "form", "nav", "noscript"}:
             self._hidden += 1
 
@@ -86,7 +90,11 @@ class RetrievalService:
             response = SearchResponse((), health="unavailable")
         else:
             results = tuple(await self.search_client.search(query, language=language))
-            response = SearchResponse(results, health="unknown")
+            response = SearchResponse(
+                results,
+                engine_errors=self.search_client.engine_errors,
+                health=self.search_client.health,
+            )
         self._query_cache[key] = response
         return response
 
@@ -249,6 +257,13 @@ def _fetch_url(url: str) -> FetchObservation:
                 digest,
                 visible,
                 excerpts,
+                links=tuple(
+                    dict.fromkeys(
+                        canonical
+                        for href in parser.links
+                        if (canonical := canonicalize_url(urljoin(final, href)))
+                    )
+                )[:40],
             )
     except _UnsafeRedirect as error:
         return FetchObservation(

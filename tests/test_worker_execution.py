@@ -68,6 +68,10 @@ class GenerationError(Exception):
 
 def _failed_stage(connection, error_type: str) -> None:
     connection.send_bytes(b"initialized")
+    if error_type == "search":
+        from malg.core.web_search import SearchUnavailable
+
+        raise SearchUnavailable("private upstream payload")
     if error_type == "rate_limit":
         raise GenerationError("RateLimitError: private upstream payload")
     raise RuntimeError("private upstream payload")
@@ -75,7 +79,11 @@ def _failed_stage(connection, error_type: str) -> None:
 
 @pytest.mark.parametrize(
     ("error_type", "code"),
-    [("rate_limit", "llm_rate_limited"), ("other", "research_execution_failed")],
+    [
+        ("rate_limit", "llm_rate_limited"),
+        ("other", "research_execution_failed"),
+        ("search", "search_unavailable"),
+    ],
 )
 def test_child_failure_exposes_only_safe_public_code(error_type, code) -> None:
     with pytest.raises(ResearchExecutionError) as failure:

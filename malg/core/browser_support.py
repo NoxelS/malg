@@ -192,8 +192,19 @@ class BrowserSupport(Agent):
     web_search: SearxngSearchClient
     retrieval: RetrievalService
 
-    def __init__(self, *args: Any, recorder: Any = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, recorder: Any = None, retrieval_only: bool = False, **kwargs: Any
+    ) -> None:
+        """Initialize host retrieval; retrieval-only worker agents allocate no browser.
+
+        Legacy CLI adapters retain browser support. The worker's tool-only strategy
+        exposes neither object methods nor transports to generated code.
+        """
         super().__init__(*args, **kwargs)
+        self.web_search = SearxngSearchClient(get_search_config(load_settings()))
+        self.retrieval = RetrievalService(self.web_search)
+        if retrieval_only:
+            return
         config = get_browser_config(load_settings())
         if not config.enabled:
             raise RuntimeError("Browser support is disabled by configuration.")
@@ -201,5 +212,3 @@ class BrowserSupport(Agent):
             self.browser = create_browser_tool(config)
         else:
             self.browser = create_browser_tool(config, recorder=recorder)
-        self.web_search = SearxngSearchClient(get_search_config(load_settings()))
-        self.retrieval = RetrievalService(self.web_search)
