@@ -33,6 +33,13 @@ export interface DashboardSummary {
   readonly jobs: DashboardJobCounts;
   readonly outcomes: DashboardOutcomeCounts;
   readonly job_durations: readonly DashboardJobDuration[];
+  readonly search: {
+    readonly status: 'unknown' | 'paused' | 'retry_ready';
+    readonly reason_code: string | null;
+    readonly observed_at: string | null;
+    readonly next_retry_at: string | null;
+    readonly job_id: string | null;
+  };
 }
 export interface WorkerJobSummary {
   readonly job_id: string;

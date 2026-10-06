@@ -642,7 +642,20 @@ def test_account_rejected_and_budget_checkpoints_finish_without_publication(
     asyncio.run(run())
 
 
-def test_provider_outage_pauses_claims_and_expired_cooldown_allows_resume(setup_worker) -> None:
+@pytest.mark.parametrize(
+    ("reason_code", "stage_key", "pauses"),
+    [
+        ("search_unavailable", "campaign.research.search_health", True),
+        ("search_captcha", "campaign.research.search_health", True),
+        ("search_rate_limited", "campaign.research.search_health", True),
+        ("search_stage_limit", "campaign.limit", False),
+        ("search_agent_limit", "campaign.limit", False),
+        ("search_workflow_limit", "campaign.limit", False),
+    ],
+)
+def test_provider_outage_pauses_claims_and_expired_cooldown_allows_resume(
+    setup_worker, reason_code, stage_key, pauses
+) -> None:
     """Queued jobs wait through an outage, then resume their existing durable work."""
 
     async def run():
@@ -659,17 +672,22 @@ def test_provider_outage_pauses_claims_and_expired_cooldown_allows_resume(setup_
                 job_id=job.job_id,
                 claim_token=job.claim_token,
                 workflow_id=workflow_id,
-                stage_key="campaign.research.search_health",
+                stage_key=stage_key,
                 input_hash="outage",
-                outcome="needs_review",
-                payload={"health": "unavailable"},
-                reason_code="search_unavailable",
+                outcome="needs_review" if pauses else "budget_exhausted",
+                payload={"health": "unavailable"} if pauses else {"reason_code": reason_code},
+                reason_code=reason_code,
                 now=datetime.now(UTC),
             )
             health_id = health.stage_result_id
             fail_job(session, job.job_id, job.claim_token, "search_unavailable", datetime.now(UTC))
             retry_failed_job(session, job.job_id, datetime.now(UTC))
         worker = worker_for(fixture)
+        if not pauses:
+            assert await worker.run_once()
+            with fixture[1]() as session:
+                assert session.get(ResearchJob, fixture[6].job_id).status == "succeeded"
+            return
         assert not await worker.run_once()
         assert not fixture[2].creates
         with fixture[1].begin() as session:
