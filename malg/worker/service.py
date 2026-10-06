@@ -555,6 +555,7 @@ async def _child_stage_async(
         if isinstance(error, SearchUnavailable):
             health = {
                 "health": "unavailable",
+                "reason_code": error.reason_code,
                 "engine_errors": agent.web_search.engine_errors
                 if agent is not None and hasattr(agent, "web_search")
                 else [],
@@ -572,7 +573,7 @@ async def _child_stage_async(
                     outcome="needs_review",
                     payload=health,
                     now=datetime.now(UTC),
-                    reason_code="search_unavailable",
+                    reason_code=error.reason_code,
                 )
             if trace:
                 trace.finish_failure(error)
@@ -652,7 +653,7 @@ class ResearchWorker:
             outage = session.scalar(
                 select(ResearchStageResult)
                 .where(
-                    ResearchStageResult.reason_code == "search_unavailable",
+                    ResearchStageResult.reason_code.like("search_%"),
                 )
                 .order_by(ResearchStageResult.created_at.desc())
                 .limit(1)

@@ -117,6 +117,35 @@ def test_search_budget_counts_successful_attempts(monkeypatch) -> None:
     assert client.request_count == 1
 
 
+@pytest.mark.parametrize(
+    ("diagnostic", "reason_code"),
+    [("CAPTCHA required", "search_captcha"), ("429 rate limit", "search_rate_limited")],
+)
+def test_provider_failures_are_classified_without_becoming_empty_success(
+    monkeypatch, diagnostic, reason_code
+) -> None:
+    _FakeHTTPClient.payload = {"results": [], "unresponsive_engines": [["engine", diagnostic]]}
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    client = SearxngSearchClient(_config())
+
+    with pytest.raises(SearchUnavailable) as error:
+        asyncio.run(client.search("AI services"))
+
+    assert client.health == "unavailable"
+    assert client.failure_reason_code == reason_code
+    assert error.value.reason_code == reason_code
+
+
+def test_healthy_empty_search_remains_distinct_from_provider_failure(monkeypatch) -> None:
+    _FakeHTTPClient.payload = {"results": [], "unresponsive_engines": []}
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    client = SearxngSearchClient(_config())
+
+    assert asyncio.run(client.search("nothing found")) == []
+    assert client.health == "healthy"
+    assert client.failure_reason_code is None
+
+
 def test_search_agent_denial_remains_visible_after_generated_code_catches_it(monkeypatch) -> None:
     """The smaller search-client allowance must not become a model-reported false budget."""
     from datetime import UTC, datetime, timedelta

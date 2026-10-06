@@ -24,6 +24,10 @@ class SearchRateLimitExceeded(BudgetExhausted):
 class SearchUnavailable(RuntimeError):
     """Raised when private search is disabled or SearXNG cannot return usable results."""
 
+    def __init__(self, message: str, *, reason_code: str = "search_unavailable") -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+
 
 @dataclass(frozen=True)
 class SearchResult:
@@ -52,6 +56,7 @@ class SearxngSearchClient:
         self.request_slot = request_slot
         self.engine_errors: tuple[dict[str, str], ...] = ()
         self.health = "unknown"
+        self.failure_reason_code: str | None = None
         self._request_count = 0
         self._last_request_at: float | None = None
         self._request_lock = asyncio.Lock()
@@ -86,6 +91,7 @@ class SearxngSearchClient:
         await self._wait_for_request_slot()
         self.engine_errors = ()
         self.health = "unavailable"
+        self.failure_reason_code = None
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._config.timeout_seconds, connect=5.0)
@@ -102,9 +108,34 @@ class SearxngSearchClient:
                 )
                 response.raise_for_status()
                 payload: object = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise SearchUnavailable("Private search request failed.") from exc
-        results = self._normalize_results(payload)
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            reason_code = (
+                "search_rate_limited"
+                if status == 429
+                else "search_provider_blocked"
+                if status in {401, 403}
+                else "search_http_error"
+            )
+            self.failure_reason_code = reason_code
+            raise SearchUnavailable(
+                "Private search returned an HTTP error.", reason_code=reason_code
+            ) from exc
+        except httpx.HTTPError as exc:
+            self.failure_reason_code = "search_transport_error"
+            raise SearchUnavailable(
+                "Private search request failed.", reason_code=self.failure_reason_code
+            ) from exc
+        except ValueError as exc:
+            self.failure_reason_code = "search_parser_failure"
+            raise SearchUnavailable(
+                "Private search returned invalid JSON.", reason_code=self.failure_reason_code
+            ) from exc
+        try:
+            results = self._normalize_results(payload)
+        except SearchUnavailable as exc:
+            self.failure_reason_code = exc.reason_code
+            raise
         errors = payload.get("unresponsive_engines", []) if isinstance(payload, Mapping) else []
         self.engine_errors = (
             tuple(
@@ -118,7 +149,11 @@ class SearxngSearchClient:
         self.health = "degraded" if self.engine_errors else "healthy"
         if not results and self.engine_errors:
             self.health = "unavailable"
-            raise SearchUnavailable("Search returned no usable hits while engines failed.")
+            reason_code = _engine_failure_reason(self.engine_errors)
+            self.failure_reason_code = reason_code
+            raise SearchUnavailable(
+                "Search returned no usable hits while engines failed.", reason_code=reason_code
+            )
         return results
 
     def _validate_query(self, query: str) -> None:
@@ -154,10 +189,15 @@ class SearxngSearchClient:
 
     def _normalize_results(self, payload: object) -> list[SearchResult]:
         if not isinstance(payload, Mapping):
-            raise SearchUnavailable("Private search returned an invalid response.")
+            raise SearchUnavailable(
+                "Private search returned an invalid response.", reason_code="search_parser_failure"
+            )
         raw_results = payload.get("results")
         if not isinstance(raw_results, list):
-            raise SearchUnavailable("Private search response did not contain results.")
+            raise SearchUnavailable(
+                "Private search response did not contain results.",
+                reason_code="search_parser_failure",
+            )
 
         results: list[SearchResult] = []
         seen_urls: set[str] = set()
@@ -193,3 +233,13 @@ class SearxngSearchClient:
             else (),
             category=category if isinstance(category, str) else None,
         )
+
+
+def _engine_failure_reason(errors: tuple[dict[str, str], ...]) -> str:
+    """Classify provider diagnostics without exposing their raw text as a public error."""
+    diagnostics = " ".join(item.get("reason", "") for item in errors).casefold()
+    if "captcha" in diagnostics or "bot" in diagnostics:
+        return "search_captcha"
+    if "rate" in diagnostics or "429" in diagnostics or "too many" in diagnostics:
+        return "search_rate_limited"
+    return "search_provider_failure"
