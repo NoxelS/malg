@@ -26,6 +26,27 @@ class Base(DeclarativeBase):
     """Base class for MALG's SQLAlchemy mappings."""
 
 
+class SearchCacheEntry(Base):
+    """Durable search response, refresh lease, and shared usage counters.
+
+    Expired responses remain stored until a successful refresh replaces them.
+    Lease tokens fence crashed or superseded workers from publishing stale results.
+    """
+
+    __tablename__ = "search_cache"
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # JSON text retains untrusted NUL escapes that PostgreSQL JSONB cannot represent.
+    request: Mapped[str] = mapped_column(Text, nullable=False)
+    response: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    upstream_requests: Mapped[int] = mapped_column(default=0, server_default="0")
+    cache_hits: Mapped[int] = mapped_column(default=0, server_default="0")
+    coalesced_requests: Mapped[int] = mapped_column(default=0, server_default="0")
+
+
 class ResearchWorkflow(Base):
     """Persisted workflow input, shared deadline, counters, and lifecycle."""
 

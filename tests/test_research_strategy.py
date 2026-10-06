@@ -95,7 +95,7 @@ def test_strategy_rejects_code_and_guessed_urls_before_network(monkeypatch):
     assert {tool.name for tool in runtime.requests[0]["tools"]} == {"search", "fetch", "finish"}
 
 
-def test_saved_candidate_survives_later_attempt_limit(monkeypatch):
+def test_saved_candidate_survives_later_attempt_limit(monkeypatch, search_cache):
     monkeypatch.setattr("malg.core.web_search.httpx.AsyncClient", _FakeHTTPClient)
     _FakeHTTPClient.calls = []
     _FakeHTTPClient.payload = {
@@ -118,7 +118,7 @@ def test_saved_candidate_survives_later_attempt_limit(monkeypatch):
     )
     strategy = RetrievalStrategy(
         replace(ResearchConfig(), max_no_progress_turns=2),
-        retrieval=RetrievalService(SearxngSearchClient(_config())),
+        retrieval=RetrievalService(SearxngSearchClient(_config(), cache=search_cache)),
         checkpoint=discoveries.append,
     )
     with pytest.raises(BudgetExhausted) as error:
@@ -150,26 +150,29 @@ def test_strategy_follows_observed_links_without_guessing(monkeypatch):
 @pytest.mark.parametrize(
     ("errors", "expected"), [([], "healthy"), ([["brave", "CAPTCHA"]], "degraded")]
 )
-def test_search_health_preserves_partial_results(monkeypatch, errors, expected):
+def test_search_health_preserves_partial_results(monkeypatch, errors, expected, search_cache):
     monkeypatch.setattr("malg.core.web_search.httpx.AsyncClient", _FakeHTTPClient)
     _FakeHTTPClient.payload = {
         "results": [{"url": "https://observed.example/"}],
         "unresponsive_engines": errors,
     }
-    response = asyncio.run(RetrievalService(SearxngSearchClient(_config())).search("software"))
+    response = asyncio.run(
+        RetrievalService(SearxngSearchClient(_config(), cache=search_cache)).search("software")
+    )
     assert response.results
     assert response.health == expected
     assert bool(response.engine_errors) == bool(errors)
 
 
-def test_empty_search_with_engine_failures_stops_before_more_model_calls(monkeypatch):
+def test_empty_search_with_engine_failures_stops_before_more_model_calls(monkeypatch, search_cache):
     monkeypatch.setattr("malg.core.web_search.httpx.AsyncClient", _FakeHTTPClient)
     _FakeHTTPClient.payload = {"results": [], "unresponsive_engines": [["duckduckgo", "CAPTCHA"]]}
     runtime = _Runtime([("search", {"query": "software"}), _finish()])
     with pytest.raises(SearchUnavailable):
         asyncio.run(
             RetrievalStrategy(
-                ResearchConfig(), retrieval=RetrievalService(SearxngSearchClient(_config()))
+                ResearchConfig(),
+                retrieval=RetrievalService(SearxngSearchClient(_config(), cache=search_cache)),
             ).execute(runtime, _call())
         )
     assert len(runtime.requests) == 1

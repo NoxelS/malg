@@ -1,10 +1,15 @@
 """Shared deterministic external CRM metadata fixtures."""
 
+from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 import pytest
+from sqlalchemy import create_engine
 
 from malg.crm.schema import MANAGED_DESCRIPTION, load_manifest
+from malg.database.models import SearchCacheEntry
+from malg.database.search_cache import SearchCache
+from malg.database.session import make_session_factory
 
 
 @pytest.fixture
@@ -85,3 +90,18 @@ def twenty_metadata():
             }
         }
     }
+
+
+@pytest.fixture
+def search_cache_sessions(tmp_path: Path):
+    """Provide connection-scoped cache transactions in a temporary database."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'search-cache.db'}")
+    SearchCacheEntry.__table__.create(engine)
+    yield make_session_factory(engine)
+    engine.dispose()
+
+
+@pytest.fixture
+def search_cache(search_cache_sessions):
+    """Inject the production cache store without contacting a configured database."""
+    return SearchCache(search_cache_sessions)
