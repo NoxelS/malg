@@ -85,6 +85,8 @@ Configure it through `[default.search]` or `MALG_SEARCH__...`: `timeout_seconds`
 `max_requests_per_run`, `min_interval_seconds`, `languages`, and `categories`. Set
 `SEARXNG_SECRET` in the environment before starting tools outside local development. The service
 exposes JSON results only and has no public-instance features, image proxy, or autocomplete.
+The opt-in direct versus Tor-backed comparison procedure and query corpus are in
+[search-comparison.md](search-comparison.md).
 
 ## Account discovery and outcomes
 
