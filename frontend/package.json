@@ -25,6 +25,8 @@
     "@taiga-ui/kit": "^5.23.0",
     "ag-grid-angular": "^36.2.0",
     "ag-grid-community": "^36.2.0",
+    "echarts": "6.1.0",
+    "ngx-echarts": "21.0.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

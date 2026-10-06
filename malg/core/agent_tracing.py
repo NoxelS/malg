@@ -30,13 +30,35 @@ def record_active_event(event_type: str, payload: Any) -> None:
         recorder.event(event_type, payload)
 
 
+def record_active_tool_request(stat: Any) -> None:
+    """Persist a terminal tool measurement using the recorder bound to this task."""
+    recorder = _active_recorder.get()
+    if recorder is None:
+        return
+    from malg.database.stats import record_tool_request
+
+    try:
+        stat = stat.model_copy(
+            update={
+                "job_id": recorder.job_id,
+                "run_id": recorder.run_id,
+                "worker_token": recorder.worker_token,
+            }
+        )
+        with recorder.session_factory.begin() as session:
+            record_tool_request(session, stat)
+    except Exception:
+        logging.getLogger(__name__).exception("tool statistics persistence failed")
+
+
 class AgentTraceRecorder:
     """Persist one execution scope without making telemetry load-bearing."""
 
-    def __init__(self, session_factory: Any, run_id: str) -> None:
+    def __init__(self, session_factory: Any, run_id: str, worker_token: str | None = None) -> None:
         self.session_factory = session_factory
         self.run_id = run_id
         self.job_id: str | None = None
+        self.worker_token = worker_token
         self._pending: deque[tuple[str, int, str, str]] = deque()
         self._turn_ids: dict[tuple[str, int], int] = {}
         self._unsubscribe: list[Callable[[], None]] = []
@@ -64,7 +86,7 @@ class AgentTraceRecorder:
                 worker_token,
                 run_id,
             )
-        recorder = cls(session_factory, run_id)
+        recorder = cls(session_factory, run_id, worker_token)
         recorder.job_id = job_id
         return recorder
 

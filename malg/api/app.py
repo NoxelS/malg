@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime, timedelta
 from importlib.metadata import version as distribution_version
 from typing import Annotated
 
@@ -22,6 +24,7 @@ from malg.api.routers.crm import router as crm_router
 from malg.api.routers.dashboard import dashboard_router
 from malg.api.routers.jobs import router as jobs_router
 from malg.api.routers.memory import router as memory_router
+from malg.api.routers.stats import stats_router
 from malg.api.routers.traces import router as traces_router
 from malg.config import (
     AuthConfig,
@@ -33,6 +36,7 @@ from malg.config import (
 )
 from malg.crm.client import TwentyClient
 from malg.database.session import make_engine, make_session_factory, session_dependency
+from malg.database.stats import prune_tool_requests
 
 
 def create_app(
@@ -56,6 +60,31 @@ def create_app(
     settings = load_settings()
     auth_service = AuthService(auth_config or get_auth_config(settings))
 
+    async def stats_retention_loop() -> None:
+        """Prune old tool telemetry in bounded DB transactions."""
+        while True:
+            cutoff = datetime.now(UTC) - timedelta(days=90)
+            try:
+                while True:
+
+                    def prune_batch(cutoff_at: datetime = cutoff) -> int:
+                        with sessions.begin() as session:
+                            return prune_tool_requests(session, before=cutoff_at, limit=5000)
+
+                    batch_task = asyncio.create_task(asyncio.to_thread(prune_batch))
+                    try:
+                        deleted = await asyncio.shield(batch_task)
+                    except asyncio.CancelledError:
+                        with suppress(Exception):
+                            await batch_task
+                        raise
+                    if deleted < 5000:
+                        break
+                    await asyncio.sleep(0)
+            except Exception:
+                logging.getLogger(__name__).exception("stats retention pass failed")
+            await asyncio.sleep(3600)
+
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         """Own runtime transport without making local history depend on CRM."""
@@ -66,6 +95,7 @@ def create_app(
             except ValueError:
                 client = None
         application.state.crm_client = client
+        retention_task = asyncio.create_task(stats_retention_loop())
         controller_task = None
         if client is not None:
             controller_task = asyncio.create_task(
@@ -74,6 +104,9 @@ def create_app(
         try:
             yield
         finally:
+            retention_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await retention_task
             if controller_task is not None:
                 controller_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -104,6 +137,10 @@ def create_app(
             worker_config.heartbeat_timeout_seconds,
             get_research_config(settings).search_unavailable_retry_seconds,
         ),
+        dependencies=[auth_dependency],
+    )
+    app.include_router(
+        stats_router(worker_config.heartbeat_timeout_seconds),
         dependencies=[auth_dependency],
     )
 

@@ -248,6 +248,7 @@ export class SidebarNavigationComponent {
   readonly navigation: readonly NavigationItem[] = [
     {path: '/dashboard', name: 'Dashboard', description: 'Live activity, jobs, and worker health.', icon: '◌'},
     {path: '/jobs', name: 'Jobs', description: 'Queued work and recent outcomes.', icon: '◍'},
+    {path: '/stats', name: 'Stats', description: 'Recorded search, fetch, and worker history.', icon: '▥'},
     {path: '/memory', name: 'Memory', description: 'Durable agent findings and recall history.', icon: '◆'},
   ];
 

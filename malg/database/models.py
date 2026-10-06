@@ -8,9 +8,13 @@ from typing import Any
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -19,11 +23,75 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-JSONPayload = JSON().with_variant(JSONB, "postgresql")
-
 
 class Base(DeclarativeBase):
     """Base class for MALG's SQLAlchemy mappings."""
+
+
+class ToolRequestStat(Base):
+    """Terminal record for one logical external-tool request."""
+
+    __table_args__ = (CheckConstraint("duration_ms >= 0"),)
+
+    __tablename__ = "tool_request_stats"
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    job_id: Mapped[str | None] = mapped_column(String(80))
+    run_id: Mapped[str | None] = mapped_column(String(80))
+    worker_token: Mapped[str | None] = mapped_column(String(80))
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    operation: Mapped[str] = mapped_column(String(80), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    coalesced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    outbound_attempted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    http_status: Mapped[int | None] = mapped_column(Integer)
+    reason_code: Mapped[str | None] = mapped_column(String(80))
+    result_count: Mapped[int | None] = mapped_column(Integer)
+
+
+class ToolRequestIssue(Base):
+    """Sanitized terminal issue associated with a tool request."""
+
+    __tablename__ = "tool_request_issues"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[str] = mapped_column(
+        ForeignKey("tool_request_stats.request_id", ondelete="CASCADE"), nullable=False
+    )
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    engine: Mapped[str | None] = mapped_column(String(80))
+    category: Mapped[str] = mapped_column(String(10), nullable=False)
+    message: Mapped[str] = mapped_column(String(200), nullable=False)
+
+
+Index("ix_tool_request_source_finished", ToolRequestStat.source, ToolRequestStat.finished_at)
+Index(
+    "uq_tool_issue_dedup",
+    ToolRequestIssue.request_id,
+    ToolRequestIssue.source,
+    func.coalesce(ToolRequestIssue.engine, ""),
+    ToolRequestIssue.message,
+    unique=True,
+)
+
+
+class StatsState(Base):
+    """Singleton holding the start of truthful tool-telemetry coverage."""
+
+    __tablename__ = "stats_state"
+    __table_args__ = (CheckConstraint("id = 1"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    collection_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+JSONPayload = JSON().with_variant(JSONB, "postgresql")
 
 
 class SearchCacheEntry(Base):
@@ -272,7 +340,11 @@ class AgentRun(Base):
     """One authenticated worker or generated-agent execution scope."""
 
     __tablename__ = "agent_runs"
-    __table_args__ = (Index("ix_agent_runs_job_started_at", "job_id", "started_at"),)
+    __table_args__ = (
+        Index("ix_agent_runs_job_started_at", "job_id", "started_at"),
+        Index("ix_agent_runs_scope_started_at", "scope", "started_at"),
+        Index("ix_agent_runs_scope_finished_at", "scope", "finished_at"),
+    )
     run_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     job_id: Mapped[str] = mapped_column(
         ForeignKey("research_jobs.job_id", ondelete="CASCADE"), nullable=False

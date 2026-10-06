@@ -370,6 +370,14 @@ The dashboard worker table reads `GET /api/v1/workers/overview` with `limit` (1â
 `direction` (`asc` or `desc`). It returns a bounded page and the total number of workers inside the
 configured liveness window. The original `GET /api/v1/workers` list remains available.
 
+
+The authenticated Stats page reads `/api/v1/stats` and `/api/v1/stats/executions`. Its `hours`
+parameter accepts 1â€“2160; an optional timezone-aware `to` anchors related pages to one snapshot.
+Tool request detail is retained for 90 days and collection coverage begins at the migration-seeded
+timestamp. Stats are best-effort logical invocation measurements, not billing, packet, or complete
+historical audit data. Worker intervals are derived from recorded AgentRun attempts; only
+currently verified claims are extended, while stale unfinished attempts have unknown duration.
+
 The API does not apply migrations at runtime; it waits read-only until the sole Alembic version
 row equals the migration head bundled in that image. Start ordinary services only after the separately reviewed migration has established
 that head:

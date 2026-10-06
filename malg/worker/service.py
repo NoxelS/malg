@@ -273,6 +273,7 @@ async def _child_stage_async(
         with sessions.begin() as session:
             job = require_claim(session, job_id, claim_token, datetime.now(UTC))
             workflow = session.get(ResearchWorkflow, job.workflow_id)
+            worker_token = job.owner_worker_token
             if workflow is None:
                 raise ValueError("missing research workflow")
             workflow_id = workflow.workflow_id
@@ -374,7 +375,7 @@ async def _child_stage_async(
             set_default_strategy(
                 CodeActStrategy(config=CodeActConfig(max_iterations=research_config.max_iterations))
             )
-        trace = AgentTraceRecorder.start_run(sessions, job_id, "agent", agent, method)
+        trace = AgentTraceRecorder.start_run(sessions, job_id, "agent", agent, method, worker_token)
         trace.attach(agent)
         reset = trace.bind()
         with sessions.begin() as session:

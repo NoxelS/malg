@@ -3,19 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import ipaddress
 import re
 import socket
+import threading
+import time
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from http.client import HTTPMessage
-from typing import Any
+from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from malg.core.budget import reserve_external_attempt
+from malg.core.budget import BudgetExhausted, reserve_external_attempt
+from malg.core.models.stats import ToolOutcome, ToolRequestRecord
+from malg.core.stats import begin_tool_request, finish_tool_request
 from malg.core.web_search import SearchResult, SearxngSearchClient
 
 
@@ -33,6 +41,10 @@ class FetchObservation:
     excerpts: tuple[dict[str, object], ...] = ()
     reason_code: str | None = None
     links: tuple[str, ...] = ()
+
+
+_pending_fetch_tasks: set[asyncio.Task[FetchObservation]] = set()
+_pending_fetch_tasks_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -105,24 +117,136 @@ class RetrievalService:
         unavailable pages return typed observations; an exhausted request budget
         raises BudgetExhausted.
         """
+
         del purpose
-        canonical = canonicalize_url(url)
-        if canonical is None:
-            return FetchObservation(
-                url,
-                None,
-                None,
-                "unsafe_url",
-                text="Website access refused: the URL is invalid or disallowed.",
-                reason_code="invalid_or_disallowed_url",
+        request_id, started_at, started_ns = begin_tool_request()
+        cache_hit = False
+        attempt_started = threading.Event()
+        http_status: int | None = None
+        result_count = 0
+        recorded = False
+
+        def record(outcome: ToolOutcome, reason: str | None = None) -> None:
+            nonlocal recorded
+            if recorded:
+                return
+            finish_tool_request(
+                request_id=request_id,
+                started_at=started_at,
+                started_ns=started_ns,
+                source="fetch",
+                operation="fetch",
+                outcome=outcome,
+                cache_hit=cache_hit,
+                outbound_attempted=attempt_started.is_set(),
+                http_status=http_status,
+                reason_code=reason,
+                result_count=result_count,
             )
-        cached = self._cache.get(canonical)
-        if cached is not None:
-            return cached
-        reserve_external_attempt("fetch")
-        observation = await asyncio.to_thread(_fetch_url, canonical)
-        self._cache[canonical] = observation
-        return observation
+            recorded = True
+
+        def record_observation(observation: FetchObservation) -> None:
+            nonlocal http_status, result_count
+            http_status = observation.status_code
+            result_count = int(observation.outcome == "available")
+            reason = observation.reason_code
+            if reason is None and observation.outcome in {"unsupported_content", "too_large"}:
+                reason = observation.outcome
+            outcome = cast(
+                ToolOutcome,
+                {
+                    "available": "success",
+                    "blocked": "blocked",
+                    "unsafe_url": "rejected",
+                    "unavailable": "error",
+                    "unsupported_content": "error",
+                    "too_large": "error",
+                }.get(observation.outcome, "error"),
+            )
+            record(outcome, reason)
+
+        try:
+            canonical = canonicalize_url(url)
+            if canonical is None:
+                observation = FetchObservation(
+                    url,
+                    None,
+                    None,
+                    "unsafe_url",
+                    text="Website access refused: the URL is invalid or disallowed.",
+                    reason_code="invalid_or_disallowed_url",
+                )
+                record_observation(observation)
+                return observation
+            cached = self._cache.get(canonical)
+            if cached is not None:
+                cache_hit = True
+                record_observation(cached)
+                return cached
+
+            reserve_external_attempt("fetch")
+            callback_context = contextvars.copy_context()
+            worker_task = asyncio.create_task(
+                asyncio.to_thread(_fetch_url, canonical, on_attempt=attempt_started.set)
+            )
+            try:
+                observation = await asyncio.shield(worker_task)
+            except asyncio.CancelledError:
+                cancelled_at = datetime.now(UTC)
+                cancelled_duration_ms = max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
+
+                def finish_cancelled(done: asyncio.Task[FetchObservation]) -> None:
+                    late_observation: FetchObservation | None = None
+                    try:
+                        with suppress(BaseException):
+                            late_observation = done.result()
+                        from malg.core.agent_tracing import record_active_tool_request
+
+                        record_active_tool_request(
+                            ToolRequestRecord(
+                                request_id=request_id,
+                                started_at=started_at,
+                                finished_at=cancelled_at,
+                                duration_ms=cancelled_duration_ms,
+                                source="fetch",
+                                operation="fetch",
+                                outcome="cancelled",
+                                outbound_attempted=attempt_started.is_set(),
+                                http_status=(
+                                    late_observation.status_code
+                                    if late_observation is not None
+                                    else None
+                                ),
+                                reason_code="cancelled",
+                                result_count=(
+                                    int(late_observation.outcome == "available")
+                                    if late_observation is not None
+                                    else None
+                                ),
+                            )
+                        )
+                    finally:
+                        with _pending_fetch_tasks_lock:
+                            _pending_fetch_tasks.discard(done)
+
+                recorded = True
+                with _pending_fetch_tasks_lock:
+                    _pending_fetch_tasks.add(worker_task)
+                worker_task.add_done_callback(finish_cancelled, context=callback_context)
+                raise
+
+            self._cache[canonical] = observation
+            record_observation(observation)
+            return observation
+        except asyncio.CancelledError:
+            record("cancelled", "cancelled")
+            raise
+        except BudgetExhausted:
+            record("rejected", "budget_exhausted")
+            raise
+        except Exception:
+            record("error", "tool_error")
+            raise
 
     @property
     def observations(self) -> tuple[FetchObservation, ...]:
@@ -204,7 +328,7 @@ class _PublicRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, canonical)
 
 
-def _fetch_url(url: str) -> FetchObservation:
+def _fetch_url(url: str, *, on_attempt: Callable[[], None] | None = None) -> FetchObservation:
     parsed = urlsplit(url)
     try:
         if not _public_host(parsed.hostname or ""):
@@ -219,6 +343,8 @@ def _fetch_url(url: str) -> FetchObservation:
         request = Request(
             url, headers={"Accept-Encoding": "identity", "User-Agent": "malg-research/1"}
         )
+        if on_attempt is not None:
+            on_attempt()
         with build_opener(_PublicRedirectHandler()).open(request, timeout=25) as response:
             status = int(response.status)
             final = canonicalize_url(response.geturl()) or response.geturl()

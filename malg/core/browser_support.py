@@ -18,6 +18,7 @@ from nooa.mcp.tool import MCPTool, MCPToolSpec, _make_dynamic_class
 from malg.config import BrowserConfig, get_browser_config, get_search_config, load_settings
 from malg.core.budget import reserve_external_attempt
 from malg.core.retrieval import RetrievalService
+from malg.core.stats import begin_tool_request, finish_tool_request
 from malg.core.web_search import SearxngSearchClient
 from malg.utils.console_progress import ConsoleProgress
 
@@ -39,9 +40,31 @@ class LoggedMCPTool(MCPTool):
         self._recorder = recorder
 
     async def _call_tool(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Any:
-        """Call MCP while reporting safe progress and raw trace boundaries."""
-        reserve_external_attempt("fetch")
+        """Record a bounded terminal measurement around one dispatched MCP call."""
+        request_id, started_at, started_ns = begin_tool_request()
+        operation = (
+            tool_name
+            if tool_name
+            and len(tool_name) <= 80
+            and tool_name.replace("_", "").replace("-", "").isalnum()
+            else "unknown_tool"
+        )
+        outbound = False
         clean_arguments = arguments or {}
+        try:
+            reserve_external_attempt("fetch")
+        except Exception:
+            finish_tool_request(
+                request_id=request_id,
+                started_at=started_at,
+                started_ns=started_ns,
+                source="browser_mcp",
+                operation=operation,
+                outcome="rejected",
+                reason_code="budget_exhausted",
+                recorder=None,
+            )
+            raise
         if self._recorder:
             self._recorder(
                 "mcp_call_started",
@@ -53,8 +76,33 @@ class LoggedMCPTool(MCPTool):
             )
         call_id = self._progress.mcp_started(self._server_name, tool_name, clean_arguments)
         try:
+            outbound = True
             result = await super()._call_tool(tool_name, clean_arguments)
+        except asyncio.CancelledError:
+            finish_tool_request(
+                request_id=request_id,
+                started_at=started_at,
+                started_ns=started_ns,
+                source="browser_mcp",
+                operation=operation,
+                outcome="cancelled",
+                reason_code="cancelled",
+                outbound_attempted=outbound,
+                recorder=None,
+            )
+            raise
         except Exception as exc:
+            finish_tool_request(
+                request_id=request_id,
+                started_at=started_at,
+                started_ns=started_ns,
+                source="browser_mcp",
+                operation=operation,
+                outcome="error",
+                reason_code="tool_error",
+                outbound_attempted=outbound,
+                recorder=None,
+            )
             self._progress.mcp_failed(call_id, self._server_name, tool_name, exc)
             if self._recorder:
                 self._recorder(
@@ -69,6 +117,16 @@ class LoggedMCPTool(MCPTool):
                     },
                 )
             raise
+        finish_tool_request(
+            request_id=request_id,
+            started_at=started_at,
+            started_ns=started_ns,
+            source="browser_mcp",
+            operation=operation,
+            outcome="success",
+            outbound_attempted=outbound,
+            recorder=None,
+        )
         self._progress.mcp_finished(call_id, self._server_name, tool_name, result)
         if self._recorder:
             self._recorder(
