@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -45,11 +45,21 @@ class SearxngSearchClient:
     search engines.
     """
 
-    def __init__(self, config: SearchConfig) -> None:
+    def __init__(
+        self, config: SearchConfig, *, request_slot: Callable[[], Awaitable[None]] | None = None
+    ) -> None:
         self._config = config
+        self.request_slot = request_slot
+        self.engine_errors: tuple[dict[str, str], ...] = ()
+        self.health = "unknown"
         self._request_count = 0
         self._last_request_at: float | None = None
         self._request_lock = asyncio.Lock()
+
+    @property
+    def min_interval_seconds(self) -> float:
+        """Return the configured spacing used by shared worker pacing."""
+        return self._config.min_interval_seconds
 
     @property
     def request_count(self) -> int:
@@ -74,6 +84,8 @@ class SearxngSearchClient:
             raise SearchUnavailable("Web search is disabled by configuration.")
 
         await self._wait_for_request_slot()
+        self.engine_errors = ()
+        self.health = "unavailable"
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._config.timeout_seconds, connect=5.0)
@@ -90,9 +102,24 @@ class SearxngSearchClient:
                 )
                 response.raise_for_status()
                 payload: object = response.json()
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, ValueError) as exc:
             raise SearchUnavailable("Private search request failed.") from exc
-        return self._normalize_results(payload)
+        results = self._normalize_results(payload)
+        errors = payload.get("unresponsive_engines", []) if isinstance(payload, Mapping) else []
+        self.engine_errors = (
+            tuple(
+                {"engine": str(item[0])[:80], "reason": str(item[1])[:200]}
+                for item in errors[:20]
+                if isinstance(item, (list, tuple)) and len(item) >= 2
+            )
+            if isinstance(errors, list)
+            else ()
+        )
+        self.health = "degraded" if self.engine_errors else "healthy"
+        if not results and self.engine_errors:
+            self.health = "unavailable"
+            raise SearchUnavailable("Search returned no usable hits while engines failed.")
+        return results
 
     def _validate_query(self, query: str) -> None:
         if not isinstance(query, str) or not query.strip() or len(query) > _MAX_QUERY_LENGTH:
@@ -114,6 +141,8 @@ class SearxngSearchClient:
                         limit=self._config.max_requests_per_run,
                     )
                 )
+            if self.request_slot is not None:
+                await self.request_slot()
             now = time.monotonic()
             if self._last_request_at is not None:
                 delay = self._config.min_interval_seconds - (now - self._last_request_at)
@@ -145,16 +174,20 @@ class SearxngSearchClient:
     @staticmethod
     def _normalize_result(raw_result: Mapping[str, Any]) -> SearchResult | None:
         url = raw_result.get("url")
-        if not isinstance(url, str) or urlparse(url).scheme not in {"http", "https"}:
+        if (
+            not isinstance(url, str)
+            or len(url) > 2000
+            or urlparse(url).scheme not in {"http", "https"}
+        ):
             return None
         title = raw_result.get("title")
         snippet = raw_result.get("content")
         engines = raw_result.get("engines")
         category = raw_result.get("category")
         return SearchResult(
-            title=title.strip() if isinstance(title, str) else "",
+            title=title.strip()[:200] if isinstance(title, str) else "",
             url=url,
-            snippet=snippet.strip() if isinstance(snippet, str) else "",
+            snippet=snippet.strip()[:600] if isinstance(snippet, str) else "",
             engines=tuple(engine for engine in engines if isinstance(engine, str))
             if isinstance(engines, list)
             else (),

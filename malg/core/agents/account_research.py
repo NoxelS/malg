@@ -23,6 +23,7 @@ class AccountResearchAgent(BrowserSupport):
         exclusions: list[AccountIdentity],
         feedback: list[AccountResearchFeedback] | None = None,
         as_of: date | None = None,
+        discovered_candidates: list[dict[str, str]] | None = None,
     ) -> AccountResearchResult:
         """Find one sourced ICP-matching company explicitly welcoming freelance work.
 
@@ -34,6 +35,15 @@ class AccountResearchAgent(BrowserSupport):
         purpose="evidence") produces citable evidence. page.excerpts holds dicts
         with id/text. Read page.text diagnostics when excerpts are empty. Missing,
         blocked or thin pages are not proof that a company does not exist.
+
+        First inspect discovered_candidates: these are durable, unverified leads.
+        Select an unexcluded lead before broad discovery; verify all decisive facts
+        using fetched evidence. During discovery, call save_candidate with the
+        observed company name and official website before deeper qualification.
+        Save a shortlist of distinct named companies as you encounter them. These
+        checkpoints survive timeouts and do not establish qualification or identity.
+        Research one company at a time; finish with needs_review or insufficient_evidence
+        if it cannot be resolved, so the host can advance to another candidate.
 
         Start by planning several independent discovery routes from the actual ICP.
         For agency ICPs, prioritize official freelancer-pool applications, explicit

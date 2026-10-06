@@ -31,7 +31,14 @@ class ResearchDeadlineExceeded(TimeoutError):
 class ResearchExecutionError(RuntimeError):
     """A child failure carrying only a host-allowlisted public reason code."""
 
-    codes = frozenset({"llm_rate_limited", "evidence_storage_failed", "research_execution_failed"})
+    codes = frozenset(
+        {
+            "llm_rate_limited",
+            "evidence_storage_failed",
+            "research_execution_failed",
+            "search_unavailable",
+        }
+    )
 
     def __init__(self, code: str) -> None:
         """Replace unknown codes with the generic failure; never expose child payloads."""
@@ -47,6 +54,8 @@ def _child_entry(entrypoint: Callable[[Connection], None], initialized: Connecti
         code = "research_execution_failed"
         if type(error).__name__ == "GenerationError" and "RateLimitError" in str(error):
             code = "llm_rate_limited"
+        elif type(error).__name__ == "SearchUnavailable":
+            code = "search_unavailable"
         elif type(error).__name__ == "DataError":
             code = "evidence_storage_failed"
         with suppress(OSError):

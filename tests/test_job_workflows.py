@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from malg.core.models.jobs import CampaignResearchJobRequest
 from malg.database.crm_writes import prepare_write, reconcile_write
@@ -92,3 +92,56 @@ def test_worker_does_not_claim_historical_job_kinds() -> None:
         claimed = claim_next_job(session, "worker", datetime.now(UTC), 60, 3)
         assert claimed is not None
         assert claimed.job_id == current_job_id
+
+
+def test_discovery_checkpoint_survives_job_failure_and_rejects_stale_claim() -> None:
+    """Discovery is durable but unverified, and revoked workers cannot save leads."""
+    import pytest
+    from sqlalchemy import select
+
+    from malg.core.models.account import AccountIdentity
+    from malg.database.jobs import fail_job
+    from malg.database.models import ResearchStageResult
+    from malg.database.research import persist_discovered_candidate
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime.now(UTC)
+    identity = AccountIdentity(
+        display_name="Observed company", official_website="https://observed.example/"
+    )
+    with Session(engine) as session:
+        job = enqueue_job(CampaignResearchJobRequest(), session)
+        session.commit()
+        job = claim_next_job(session, "worker", now, 60, 3)
+        workflow = create_workflow_for_job(session, job, {}, now + timedelta(minutes=20))
+        job_id, claim_token, workflow_id = job.job_id, job.claim_token, workflow.workflow_id
+        session.commit()
+        persist_discovered_candidate(
+            session,
+            job_id=job_id,
+            claim_token=claim_token,
+            workflow_id=workflow_id,
+            stage_key="account.candidate.0.research",
+            identity=identity,
+            now=now,
+        )
+        session.commit()
+        fail_job(session, job_id, claim_token, "interrupted", now)
+        session.commit()
+    with Session(engine) as session:
+        saved = session.scalar(select(ResearchStageResult))
+        assert saved.payload["identity"]["display_name"] == "Observed company"
+        assert saved.payload["qualification"] == "unverified"
+        assert saved.outcome == "needs_review"
+        with pytest.raises(ValueError, match="claim is no longer current"):
+            persist_discovered_candidate(
+                session,
+                job_id=job_id,
+                claim_token=claim_token,
+                workflow_id=workflow_id,
+                stage_key="account.candidate.1.research",
+                identity=identity,
+                now=now,
+            )
+    engine.dispose()
