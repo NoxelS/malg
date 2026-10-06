@@ -39,6 +39,8 @@ timeout_seconds = 20
 max_results = 20
 max_requests_per_run = 50
 min_interval_seconds = 2.0
+cache_ttl_seconds = 300
+cache_max_entries = 1024
 languages = ["en", "de"]
 categories = ["general"]
 

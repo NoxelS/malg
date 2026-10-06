@@ -38,6 +38,7 @@ class _FakeHTTPClient:
 
     async def get(self, url: str, *, params: dict[str, object]) -> _FakeResponse:
         self.calls.append({"url": url, "params": params})
+        await asyncio.sleep(0.01)
         return _FakeResponse(self.payload)
 
 
@@ -57,6 +58,7 @@ def _config(**overrides: object) -> SearchConfig:
 
 
 def test_search_normalizes_results_and_bounds_request_parameters(monkeypatch) -> None:
+    web_search.clear_search_cache()
     _FakeHTTPClient.calls = []
     _FakeHTTPClient.payload = {
         "results": [
@@ -96,6 +98,7 @@ def test_search_normalizes_results_and_bounds_request_parameters(monkeypatch) ->
 
 
 def test_search_rejects_redirect_syntax_and_unconfigured_language() -> None:
+    web_search.clear_search_cache()
     client = SearxngSearchClient(_config())
 
     with pytest.raises(SearchUnavailable, match="redirects"):
@@ -105,6 +108,7 @@ def test_search_rejects_redirect_syntax_and_unconfigured_language() -> None:
 
 
 def test_search_budget_counts_successful_attempts(monkeypatch) -> None:
+    web_search.clear_search_cache()
     _FakeHTTPClient.calls = []
     _FakeHTTPClient.payload = {"results": []}
     monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
@@ -114,3 +118,39 @@ def test_search_budget_counts_successful_attempts(monkeypatch) -> None:
     with pytest.raises(SearchRateLimitExceeded, match="budget"):
         asyncio.run(client.search("second"))
     assert client.request_count == 1
+
+
+def test_search_cache_is_shared_and_keeps_query_dimensions_distinct(monkeypatch) -> None:
+    web_search.clear_search_cache()
+    _FakeHTTPClient.calls = []
+    _FakeHTTPClient.payload = {"results": [{"url": "https://example.test/a"}]}
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    first = SearxngSearchClient(_config())
+    second = SearxngSearchClient(_config())
+
+    asyncio.run(first.search("  AI   services ", language="en"))
+    asyncio.run(second.search("ai services", language="en"))
+    asyncio.run(second.search("ai services", language="de"))
+
+    assert len(_FakeHTTPClient.calls) == 2
+    assert first.request_count == 1
+    assert second.request_count == 1
+    assert web_search.get_search_metrics().upstream_requests == 2
+    assert web_search.get_search_metrics().cache_hits == 1
+
+
+def test_concurrent_equivalent_searches_are_coalesced(monkeypatch) -> None:
+    web_search.clear_search_cache()
+    _FakeHTTPClient.calls = []
+    _FakeHTTPClient.payload = {"results": [{"url": "https://example.test/a"}]}
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    client_a = SearxngSearchClient(_config())
+    client_b = SearxngSearchClient(_config())
+
+    async def run_both() -> tuple[list, list]:
+        return await asyncio.gather(client_a.search("same query"), client_b.search("same query"))
+
+    first, second = asyncio.run(run_both())
+    assert first == second
+    assert len(_FakeHTTPClient.calls) == 1
+    assert web_search.get_search_metrics().coalesced_requests == 1

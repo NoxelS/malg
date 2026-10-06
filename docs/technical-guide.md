@@ -77,9 +77,16 @@ construction. `MALG_BROWSER__TIMEOUT_SECONDS` controls each MCP request timeout.
 
 SearXNG is private to the Compose network at `http://searxng:8080`; it has no published host port.
 Configure it through `[default.search]` or `MALG_SEARCH__...`: `timeout_seconds`, `max_results`,
-`max_requests_per_run`, `min_interval_seconds`, `languages`, and `categories`. Set
+`max_requests_per_run`, `min_interval_seconds`, `cache_ttl_seconds`, `cache_max_entries`,
+`languages`, and `categories`. Equivalent normalized searches share an in-process bounded cache
+across research clients; concurrent identical misses share one upstream request. The cache key
+preserves endpoint, language, categories, safe-search, and result depth. `get_search_metrics()`
+reports process-local upstream attempts, cache hits, and coalesced searches. Metrics and cached
+results are process-local, so separate worker processes maintain separate caches. Set
 `SEARXNG_SECRET` in the environment before starting tools outside local development. The service
 exposes JSON results only and has no public-instance features, image proxy, or autocomplete.
+
+Set
 
 ## Eurostat-enabled agents
 

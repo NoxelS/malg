@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
+from threading import RLock
 from typing import Any
 from urllib.parse import urlparse
 
@@ -14,6 +16,37 @@ import httpx
 from malg.config import SearchConfig
 
 _MAX_QUERY_LENGTH = 300
+_SEARCH_CACHE: OrderedDict[tuple[object, ...], tuple[float, tuple[SearchResult, ...]]] = (
+    OrderedDict()
+)
+_SEARCH_INFLIGHT: dict[tuple[object, ...], asyncio.Future[tuple[SearchResult, ...]]] = {}
+_SEARCH_CACHE_LOCK = RLock()
+_UPSTREAM_REQUESTS = 0
+_CACHE_HITS = 0
+_COALESCED_REQUESTS = 0
+
+
+@dataclass(frozen=True)
+class SearchMetrics:
+    """Process-local counters for upstream search requests and result reuse."""
+
+    upstream_requests: int
+    cache_hits: int
+    coalesced_requests: int
+
+
+def get_search_metrics() -> SearchMetrics:
+    """Return process-local upstream request and cache-reuse counters."""
+    with _SEARCH_CACHE_LOCK:
+        return SearchMetrics(_UPSTREAM_REQUESTS, _CACHE_HITS, _COALESCED_REQUESTS)
+
+
+def clear_search_cache() -> None:
+    """Clear cached results and process-local metrics, primarily for controlled operations."""
+    global _UPSTREAM_REQUESTS, _CACHE_HITS, _COALESCED_REQUESTS
+    with _SEARCH_CACHE_LOCK:
+        _SEARCH_CACHE.clear()
+        _UPSTREAM_REQUESTS = _CACHE_HITS = _COALESCED_REQUESTS = 0
 
 
 class SearchRateLimitExceeded(RuntimeError):
@@ -36,7 +69,7 @@ class SearchResult:
 
 
 class SearxngSearchClient:
-    """Search SearXNG with per-agent request budgets and serialized pacing.
+    """Search SearXNG with shared result reuse and per-agent request budgets.
 
     Queries are sent only to the configured private SearXNG endpoint. Returned titles and
     snippets are untrusted discovery hints, not evidence; callers must verify claims by visiting
@@ -72,15 +105,45 @@ class SearxngSearchClient:
         if not self._config.enabled:
             raise SearchUnavailable("Web search is disabled by configuration.")
 
-        await self._wait_for_request_slot()
+        normalized_query = " ".join(query.split())
+        key = (
+            self._config.url,
+            normalized_query.casefold(),
+            language,
+            self._config.categories,
+            2,
+            self._config.max_results,
+        )
+        now = time.monotonic()
+        global _CACHE_HITS, _COALESCED_REQUESTS
+        owner = False
+        with _SEARCH_CACHE_LOCK:
+            cached = _SEARCH_CACHE.get(key)
+            if cached is not None and now - cached[0] < self._config.cache_ttl_seconds:
+                _SEARCH_CACHE.move_to_end(key)
+                _CACHE_HITS += 1
+                return list(cached[1])
+            if cached is not None:
+                del _SEARCH_CACHE[key]
+            pending = _SEARCH_INFLIGHT.get(key)
+            if pending is not None:
+                _COALESCED_REQUESTS += 1
+            else:
+                pending = asyncio.get_running_loop().create_future()
+                _SEARCH_INFLIGHT[key] = pending
+                owner = True
+        if not owner:
+            return list(await asyncio.shield(pending))
+
         try:
+            await self._wait_for_request_slot()
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._config.timeout_seconds, connect=5.0)
             ) as client:
                 response = await client.get(
                     f"{self._config.url}/search",
                     params={
-                        "q": query,
+                        "q": normalized_query,
                         "format": "json",
                         "language": language,
                         "categories": ",".join(self._config.categories),
@@ -89,9 +152,25 @@ class SearxngSearchClient:
                 )
                 response.raise_for_status()
                 payload: object = response.json()
-        except httpx.HTTPError as exc:
-            raise SearchUnavailable("Private search request failed.") from exc
-        return self._normalize_results(payload)
+            results = tuple(self._normalize_results(payload))
+        except BaseException as exc:
+            with _SEARCH_CACHE_LOCK:
+                _SEARCH_INFLIGHT.pop(key, None)
+                if not pending.done():
+                    pending.set_exception(exc)
+                    pending.exception()
+            if isinstance(exc, httpx.HTTPError):
+                raise SearchUnavailable("Private search request failed.") from exc
+            raise
+        with _SEARCH_CACHE_LOCK:
+            _SEARCH_CACHE[key] = (time.monotonic(), results)
+            _SEARCH_CACHE.move_to_end(key)
+            while len(_SEARCH_CACHE) > self._config.cache_max_entries:
+                _SEARCH_CACHE.popitem(last=False)
+            _SEARCH_INFLIGHT.pop(key, None)
+            if not pending.done():
+                pending.set_result(results)
+        return list(results)
 
     def _validate_query(self, query: str) -> None:
         if not isinstance(query, str) or not query.strip() or len(query) > _MAX_QUERY_LENGTH:
@@ -115,6 +194,9 @@ class SearxngSearchClient:
             reserve_external_attempt("search")
             self._request_count += 1
             self._last_request_at = time.monotonic()
+            global _UPSTREAM_REQUESTS
+            with _SEARCH_CACHE_LOCK:
+                _UPSTREAM_REQUESTS += 1
 
     def _normalize_results(self, payload: object) -> list[SearchResult]:
         if not isinstance(payload, Mapping):
