@@ -243,6 +243,8 @@ def validate_batch_transition(
     if (
         current.checkpoint_sequence < previous.checkpoint_sequence
         or current.counts.observed_companies < previous.counts.observed_companies
+        or current.counts.new_companies < previous.counts.new_companies
+        or current.counts.known_companies < previous.counts.known_companies
     ):
         raise ValueError("progress cannot regress")
     if any(

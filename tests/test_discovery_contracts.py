@@ -165,10 +165,18 @@ def test_transition_progress_is_monotonic_and_terminals_are_immutable():
     validate_batch_transition(running, progress)
     validate_batch_transition(progress, terminal)
     validate_batch_transition(terminal, terminal.model_copy(deep=True))
+    reclassified = DiscoveryBatchResult(
+        batch_id=batch_id,
+        status="running",
+        retrieval=progress.retrieval,
+        counts=DiscoveryCounts(observed_companies=5, new_companies=1, known_companies=4),
+        checkpoint_sequence=2,
+    )
     for before, after in (
         (terminal, progress),
         (queued, running.model_copy(update={"batch_id": uuid4()})),
         (progress, running),
+        (progress, reclassified),
         (running, progress.model_copy(update={"checkpoint_sequence": 0})),
     ):
         with pytest.raises(ValueError, match=r"terminal|identity|progress|counts"):
