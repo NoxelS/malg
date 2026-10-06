@@ -86,6 +86,16 @@ Configure it through `[default.search]` or `MALG_SEARCH__...`: `timeout_seconds`
 `SEARXNG_SECRET` in the environment before starting tools outside local development. The service
 exposes JSON results only and has no public-instance features, image proxy, or autocomplete.
 
+MALG builds a patched SearXNG image from `docker/searxng/Dockerfile`. The pinned upstream
+DuckDuckGo parser crashes when a result block lacks a destination link; the patch skips
+those blocks and preserves valid results in the same response. Offline parser regression
+checks run during the image build, including preservation of CAPTCHA errors. Run
+`docker build -t malg-searxng:local docker/searxng` to validate it independently.
+Review the patch against upstream when upgrading the base image. This fixes malformed-result
+parsing, not provider CAPTCHA or rate-limit blocks. CI publishes the patched image as
+`ghcr.io/noxels/malg-searxng` with release and commit tags; production must explicitly
+adopt that image in its deployment configuration to receive the fix.
+
 ## Account discovery and outcomes
 
 Account discovery prioritizes official freelancer pools, subcontractor applications and
