@@ -207,6 +207,65 @@ attempts per stage, 512 per workflow unit, and 1,000 search / 2,000 fetch attemp
 unit. These are intentionally generous but still finite so cancellation, cleanup and worker
 recovery remain dependable. Deployments may override them with `MALG_RESEARCH__...`.
 
+## Bounded discovery contracts
+
+The versioned contracts in `malg.core.models.discovery` describe bounded company collection
+independently of saved-ICP assessment and CRM publication. They are contracts only, not API
+submission types or an active collector. Empty seed lists and scopes without ICPs are valid.
+Finite limits are required host ceilings; they do not promise a yield or imply that crawling,
+page/byte accounting, source eligibility, scope persistence, assessment execution, or API activation
+has been implemented. Source URLs remain proposals subject to host provenance, network, and privacy
+validation.
+
+|Previous|Next|Meaning / required boundary|
+|---|---|---|
+|queued|running|Existing host claim acquired; scope snapshot fixed|
+|queued|cancelled|Cancel before dispatch; no work claimed as complete|
+|running|running|Same attempt progresses; company counts reflect committed checkpoints only|
+|running|succeeded / work_completed|Usable observation completed bounded selected work; zero or duplicate-only yield is normal|
+|running|succeeded / budget_exhausted|Host resource ceiling reached; keep committed progress and actual retrieval health|
+|running|succeeded / no_eligible_work|No eligible work dispatched; not a healthy zero-match claim|
+|running|succeeded / source_access_deferred|Bounded work deferred for source access; all-blocked means unavailable|
+|running|cancelled|Stop new work; retain committed progress|
+|running|failed / operational_failure|Retrieval/model/tool/storage failure, independent of retained progress|
+|terminal|identical terminal|Idempotent replay only|
+
+All other transitions are invalid. Claim expiry, reclaim, and retry remain the existing job-attempt
+mechanism. The pure transition validator is not a database ownership check: stale workers cannot
+write after claim loss or append a failure after `ClaimLost`. Host checkpoint transactions use
+`persist_stage_result` with `require_claim`; commit, not flush or child exit, establishes durability.
+Store payloads with `model_dump(mode="json", round_trip=True)` and load via
+`DiscoveryBatchResult.model_validate`; derived retrieval `health` appears in presentation JSON but
+is recomputed on load and excluded from canonical storage. The payload owns discovery
+`schema_version=1`; workflow/stage envelope schema version remains 2.
+
+For integration, progress keys are `discovery.batch.checkpoint.<sequence>` and the terminal key is
+`discovery.batch.terminal`, all using the immutable batch-input hash. Distinct sequence keys prevent
+same-input deduplication from swallowing progress. On replay, load the committed payload rather than
+trusting a newly supplied candidate. Failed boundary writes roll back and cannot advance acknowledged
+counts or sequence; earlier commits survive. If storage recovers, the current owner may persist a
+`storage_failed` terminal using acknowledged progress. If it remains unavailable, propagate the error
+and let existing lease recovery own durable status.
+
+Every checkpoint that changes company counts or retrieval counters advances the sequence, including
+retrieval-only progress when no companies were found. `observed_companies` counts distinct identities
+seen by the batch. `new_companies` is the once-only global first-discovery credit allocated to that
+batch; `known_companies` is the remaining observed identities, including a company credited to a
+concurrent batch. This keeps each batch's observed total partitioned while ensuring concurrent
+observations cannot each claim the same globally new company.
+
+`DiscoveryCompanyState`, version-keyed `CompanyICPAssessment`, and `CompanyPublicationState` are
+independent records. No assessment means unassessed, not mismatch; a revised ICP can be assessed
+against unchanged company evidence. Identity resolution is not qualification, and assessment does
+not authorize publication. Publication does not imply people, opportunities, invitations, or outreach.
+
+All contracts are direct imports, not API inputs. `ResearchJobKind`, `ResearchJobRequest`, account
+controller configuration, dispatch, API/CLI/frontend types, migrations, and legacy outcomes remain
+unchanged. Existing campaign/ICP/account clients and retries retain their schema and meaning.
+Historical `kind="discovery"` rows remain display-only and unclaimable; missing version is not
+silently treated as version 1. Old `succeeded`, `complete`, `partial`, and `insufficient_evidence`
+values do not map to discovery yield, retrieval health, or ICP matches. Scope revision, discovery
+payload version, envelope version, and CRM contract version/hash are distinct namespaces.
 ## Persistent campaign-research memory
 
 Campaign research has explicit, durable NOOA memory backed by PostgreSQL. The agent can recall,
