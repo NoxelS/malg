@@ -2,7 +2,7 @@
 .dashboard-section { background: var(--tui-background-base); border: 1px solid var(--tui-border-normal); border-radius: var(--tui-radius-l); box-shadow: var(--tui-shadow-small); margin-block-start: 1.5rem; padding: 1.5rem; }
 .dashboard-section__heading { align-items: start; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; }
 .dashboard-section__heading app-section-heading { flex: 1 1 28rem; }
-.dashboard-section__heading > a, .dashboard-section__heading > button { flex: 0 0 auto; }
+.dashboard-section__heading > a, .dashboard-section__heading > button, .dashboard-section__heading > app-auto-refresh-indicator { flex: 0 0 auto; }
 .stat-group { margin-block-start: 1.5rem; }
 .stat-group h3 { color: var(--tui-text-secondary); font: var(--tui-font-text-s); font-weight: 700; margin: 0 0 .75rem; }
 .stat-grid { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); }
@@ -18,7 +18,7 @@
 @media (max-width: 48rem) {
   .dashboard-section { padding: 1rem; }
   .dashboard-section__heading { align-items: stretch; }
-  .dashboard-section__heading > a, .dashboard-section__heading > button { align-self: start; }
+  .dashboard-section__heading > a, .dashboard-section__heading > button, .dashboard-section__heading > app-auto-refresh-indicator { align-self: start; }
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .worker-grid { height: min(34rem, 70vh); }
 }

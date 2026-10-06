@@ -3,9 +3,10 @@
 
   @if (loading()) {
     <app-state-message message="Loading dashboard…" />
-  } @else if (error()) {
-    <app-state-message message="Dashboard data could not be loaded right now. Refresh to retry." tone="error" />
+  } @else if (error() && !summary()) {
+    <app-state-message message="Dashboard data could not be loaded right now. Automatic refresh will retry." tone="error" />
   } @else if (summary(); as data) {
+    @if (error()) { <app-state-message message="Dashboard refresh failed. Automatic refresh will retry." tone="error" /> }
     <section class="dashboard-section controller-section" aria-labelledby="continuous-research-heading">
       <div class="dashboard-section__heading">
         <app-section-heading headingId="continuous-research-heading" title="Continuous account research" description="Keeps at least one matching account-research job queued. Turning this off lets existing jobs finish." />
@@ -18,7 +19,7 @@
     <section class="dashboard-section dashboard-statistics" aria-labelledby="snapshot-heading">
       <div class="dashboard-section__heading">
         <app-section-heading headingId="snapshot-heading" title="Operational snapshot" description="Current jobs, research outcomes, worker availability, and average successful run duration." />
-        <button tuiButton type="button" appearance="secondary" [disabled]="refreshing()" (click)="refresh()">{{ refreshing() ? 'Refreshing…' : 'Refresh' }}</button>
+        <app-auto-refresh-indicator [refreshing]="refreshing() || controllerLoading() || gridLoading() > 0" />
       </div>
 
       <div class="stat-group" aria-label="Job counts">
@@ -59,7 +60,7 @@
         <app-section-heading headingId="workers-heading" title="Active workers" description="Workers that have checked in within the liveness window." />
         <a tuiButton appearance="secondary" routerLink="/jobs">View jobs</a>
       </div>
-      @if (gridError()) { <app-state-message message="Worker rows could not be loaded. Use Refresh to retry." tone="error" /> }
+      @if (gridError()) { <app-state-message message="Worker rows could not be loaded. Automatic refresh will retry." tone="error" /> }
       <div class="worker-grid"><ag-grid-angular [theme]="gridTheme" [columnDefs]="columnDefs" [defaultColDef]="defaultColDef" [rowModelType]="'infinite'" [cacheBlockSize]="50" [pagination]="true" [paginationPageSize]="50" [paginationPageSizeSelector]="[25, 50, 100]" [rowHeight]="58" [maxBlocksInCache]="4" [getRowId]="getRowId" (gridReady)="onGridReady($event)" (rowClicked)="openJob($event)" /></div>
     </section>
   }

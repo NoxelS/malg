@@ -64,6 +64,7 @@
   .job-launcher__actions { align-items: stretch; flex-direction: column; }
   .job-launcher__header > *,
   .job-launcher__actions > * { width: 100%; }
+  .job-launcher__header > app-auto-refresh-indicator { align-self: flex-start; width: auto; }
   .job-launcher__actions .job-launcher__hint { width: auto; }
 }
 

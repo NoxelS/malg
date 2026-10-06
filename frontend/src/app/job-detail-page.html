@@ -1,7 +1,7 @@
 <app-page-layout>
   <app-page-header eyebrow="Operations" title="Job details" description="Complete lifecycle metadata and worker trace history.">
     <a page-header-actions tuiButton appearance="secondary" routerLink="/jobs">Back to jobs</a>
-    <button page-header-actions tuiButton type="button" appearance="secondary" [disabled]="refreshing()" (click)="refresh()">{{ refreshing() ? 'Refreshing…' : 'Refresh' }}</button>
+    <app-auto-refresh-indicator page-header-actions [refreshing]="autoRefreshing()" />
   </app-page-header>
 
   @if (loading()) {
@@ -12,7 +12,7 @@
     <app-state-message message="Job details could not be loaded right now. Try again." tone="error" />
     <button tuiButton type="button" appearance="secondary" (click)="refresh()">Retry</button>
   } @else if (job(); as currentJob) {
-    @if (error()) { <p role="alert">Refresh failed; showing the previously loaded execution history.</p> }
+    @if (error()) { <p role="alert">Automatic refresh failed; showing the previously loaded execution history.</p> }
     @if (jobActionError()) { <p role="alert">The requested action was rejected or unavailable. Existing results have been preserved.</p> }
     <section class="detail-section" aria-labelledby="job-metadata-heading">
       <h2 id="job-metadata-heading">Job metadata</h2>
@@ -35,7 +35,7 @@
       </dl>
       @if (canRetry(currentJob)) {
         <button tuiButton type="button" appearance="primary" [disabled]="retryingJob() || !canPublish()" (click)="retryJob()">{{ retryingJob() ? 'Retrying…' : 'Retry job' }}</button>
-        @if (!canPublish()) { <p>Retry requires current compatible CRM. Refresh to check again.</p> }
+        @if (!canPublish()) { <p>CRM compatibility is checked automatically.</p> }
       }
       @if (currentJob.status === 'queued' || currentJob.status === 'running') {
         <button tuiButton type="button" appearance="secondary" [disabled]="cancellingJob()" (click)="cancelJob()">{{ cancellingJob() ? 'Cancelling…' : 'Cancel job' }}</button>
