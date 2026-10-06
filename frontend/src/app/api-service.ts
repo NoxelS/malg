@@ -252,6 +252,101 @@ export interface AgentTraceEventPage {
   readonly next_after_event_id: number | null;
   readonly limit: number;
 }
+export type StatsToolSource = 'search' | 'fetch' | 'browser_mcp';
+export type StatsOutcome = 'success' | 'degraded' | 'blocked' | 'error' | 'rejected' | 'cancelled';
+export interface StatsWindow {
+  readonly from: string;
+  readonly to: string;
+  readonly bucket_seconds: number;
+  readonly generated_at: string;
+  readonly collection_started_at: string;
+  readonly tool_coverage_from: string;
+  readonly retention_days: number;
+}
+export interface StatsToolCounts {
+  readonly completed: number;
+  readonly success: number;
+  readonly degraded: number;
+  readonly blocked: number;
+  readonly error: number;
+  readonly rejected: number;
+  readonly cancelled: number;
+  readonly cache_hits: number;
+  readonly coalesced: number;
+  readonly outbound_attempts: number;
+}
+export interface StatsToolBucket extends StatsToolCounts {
+  readonly start: string;
+  readonly end: string;
+}
+export interface StatsToolSeries {
+  readonly source: StatsToolSource;
+  readonly totals: StatsToolCounts;
+  readonly buckets: readonly StatsToolBucket[];
+}
+export interface StatsIssue {
+  readonly source: string;
+  readonly engine: string | null;
+  readonly message: string;
+  readonly occurrences: number;
+  readonly affected_requests: number;
+  readonly last_seen: string;
+}
+export interface StatsIssueRanking {
+  readonly items: readonly StatsIssue[];
+  readonly other_occurrences: number;
+}
+export interface StatsJobBucket {
+  readonly start: string;
+  readonly end: string;
+  readonly attempts_started: number;
+  readonly attempts_succeeded: number;
+  readonly attempts_failed: number;
+}
+export interface StatsJobs {
+  readonly buckets: readonly StatsJobBucket[];
+  readonly incomplete_runs: number;
+}
+export interface StatsWorkerBucket {
+  readonly start: string;
+  readonly end: string;
+  readonly busy_seconds: number;
+  readonly incomplete_runs: number;
+}
+export interface StatsWorker {
+  readonly worker_token: string;
+  readonly buckets: readonly StatsWorkerBucket[];
+}
+export interface StatsWorkersPage {
+  readonly total: number;
+  readonly offset: number;
+  readonly limit: number;
+  readonly items: readonly StatsWorker[];
+}
+export interface StatsResponse {
+  readonly window: StatsWindow;
+  readonly tools: readonly StatsToolSeries[];
+  readonly block_reasons: StatsIssueRanking;
+  readonly searxng_errors: StatsIssueRanking;
+  readonly jobs: StatsJobs;
+  readonly workers: StatsWorkersPage;
+}
+export interface StatsExecution {
+  readonly run_id: string;
+  readonly job_id: string;
+  readonly worker_token: string | null;
+  readonly started_at: string;
+  readonly finished_at: string | null;
+  readonly status: 'running' | 'succeeded' | 'failed';
+  readonly duration_seconds: number | null;
+  readonly incomplete: boolean;
+}
+export interface StatsExecutionPage {
+  readonly total: number;
+  readonly offset: number;
+  readonly limit: number;
+  readonly items: readonly StatsExecution[];
+}
 
 @Injectable({providedIn: 'root'})
 export class ApiService {
@@ -280,6 +375,8 @@ export class ApiService {
     sessionStorage.removeItem(this.expiryKey);
   }
   listDashboard(): Observable<DashboardSummary> { return this.authorized('GET', '/api/v1/dashboard'); }
+  getStats(params: HttpParams): Observable<StatsResponse> { return this.authorized('GET', '/api/v1/stats', {params}); }
+  getStatsExecutions(params: HttpParams): Observable<StatsExecutionPage> { return this.authorized('GET', '/api/v1/stats/executions', {params}); }
   getAccountResearchController(): Observable<AccountResearchController> { return this.authorized('GET', '/api/v1/account-research-controller'); }
   saveAccountResearchController(configuration: AccountResearchControllerConfiguration): Observable<AccountResearchController> { return this.authorized('PUT', '/api/v1/account-research-controller/configuration', {body: configuration}); }
   setAccountResearchControllerState(enabled: boolean, revision: number): Observable<AccountResearchController> { return this.authorized('PATCH', '/api/v1/account-research-controller/state', {body: {enabled, revision}}); }

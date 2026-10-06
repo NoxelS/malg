@@ -2,6 +2,7 @@
 
 import asyncio
 import socket
+import threading
 from datetime import UTC, datetime, timedelta
 from email.message import Message
 from io import BytesIO
@@ -9,6 +10,7 @@ from urllib.response import addinfourl
 
 import pytest
 
+from malg.core import retrieval
 from malg.core.budget import BudgetExhausted, ResearchBudget, bind_budget
 from malg.core.retrieval import RetrievalService
 
@@ -62,6 +64,8 @@ def test_redirect_reserves_another_attempt_before_connecting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = redirect_transport(monkeypatch, "http://second.example/source")
+    records = []
+    monkeypatch.setattr(retrieval, "finish_tool_request", lambda **record: records.append(record))
     budget = ResearchBudget(datetime.now(UTC) + timedelta(minutes=1), limits={"fetch": 1})
     reset = bind_budget(budget)
     try:
@@ -71,6 +75,10 @@ def test_redirect_reserves_another_attempt_before_connecting(
             )
         assert budget.exhausted
         assert calls == ["http://public.example/source"]
+        assert len(records) == 1
+        assert records[0]["outcome"] == "rejected"
+        assert records[0]["reason_code"] == "budget_exhausted"
+        assert records[0]["outbound_attempted"] is True
     finally:
         reset()
 
@@ -160,9 +168,90 @@ def test_null_characters_are_normalized_before_agent_evidence(monkeypatch) -> No
 
 def test_invalid_idna_hostname_returns_an_observation_without_connecting(monkeypatch) -> None:
     calls = redirect_transport(monkeypatch, None)
+    records = []
+    monkeypatch.setattr(retrieval, "finish_tool_request", lambda **record: records.append(record))
     result = asyncio.run(
         RetrievalService().fetch(f"https://{'a' * 64}.example/", purpose="evidence")
     )
     assert result.outcome == "unsafe_url"
     assert not result.excerpts
     assert calls == []
+    assert len(records) == 1
+    assert records[0]["outcome"] == "rejected"
+    assert records[0]["outbound_attempted"] is False
+
+
+def test_fetch_stats_record_blocked_cache_replays_without_new_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = redirect_transport(monkeypatch, None, status=429)
+    records = []
+    monkeypatch.setattr(retrieval, "finish_tool_request", lambda **record: records.append(record))
+    service = RetrievalService()
+
+    first = asyncio.run(service.fetch("http://public.example/retry", purpose="evidence"))
+    replay = asyncio.run(service.fetch("http://public.example/retry", purpose="evidence"))
+
+    assert first.outcome == replay.outcome == "blocked"
+    assert len(calls) == 1
+    assert [record["outcome"] for record in records] == ["blocked", "blocked"]
+    assert records[0]["outbound_attempted"] is True
+    assert records[0]["cache_hit"] is False
+    assert records[0]["http_status"] == 429
+    assert records[1]["outbound_attempted"] is False
+    assert records[1]["cache_hit"] is True
+    assert records[1]["http_status"] == 429
+
+
+@pytest.mark.parametrize(("dispatches", "expected_outbound"), [(True, True), (False, False)])
+def test_cancelled_fetch_records_final_thread_attempt_without_waiting(
+    monkeypatch: pytest.MonkeyPatch, dispatches: bool, expected_outbound: bool
+) -> None:
+    from malg.core import agent_tracing
+
+    started = threading.Event()
+    release = threading.Event()
+    records = []
+
+    def blocked_fetch(url, *, on_attempt=None):
+        if dispatches and on_attempt is not None:
+            on_attempt()
+        started.set()
+        release.wait()
+        return retrieval.FetchObservation(
+            url,
+            url if dispatches else None,
+            200 if dispatches else None,
+            "available" if dispatches else "unsafe_url",
+        )
+
+    monkeypatch.setattr(retrieval, "_fetch_url", blocked_fetch)
+    monkeypatch.setattr(
+        agent_tracing, "record_active_tool_request", lambda record: records.append(record)
+    )
+
+    async def run() -> None:
+        service = RetrievalService()
+        fetch_task = asyncio.create_task(
+            service.fetch("http://public.example/cancelled", purpose="evidence")
+        )
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            fetch_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(fetch_task, timeout=0.5)
+            assert records == []
+        finally:
+            release.set()
+
+        for _ in range(100):
+            if records:
+                break
+            await asyncio.sleep(0.01)
+        assert len(records) == 1
+        assert records[0].outcome == "cancelled"
+        assert records[0].outbound_attempted is expected_outbound
+        assert records[0].http_status == (200 if dispatches else None)
+        assert service.observations == ()
+
+    asyncio.run(run())

@@ -1,0 +1,253 @@
+<app-page-layout>
+  <app-page-header eyebrow="Observability" title="Stats" description="Recorded browser, search, jobs, and worker history. No polling or inferred network totals.">
+    <div page-header-actions class="stats-actions">
+      <button type="button" class="button button--primary" (click)="refresh()" [disabled]="snapshotLoading()">
+        {{ snapshotLoading() ? 'Refreshing…' : 'Refresh' }}
+      </button>
+    </div>
+  </app-page-header>
+
+  <section class="range-panel" aria-label="Stats range">
+    <div class="range-panel__presets" role="group" aria-label="Range presets">
+      @for (preset of presets; track preset) {
+        <button type="button" class="button button--quiet" [class.button--selected]="hours() === preset" [attr.aria-pressed]="hours() === preset" (click)="selectHours(preset)">
+          @if (preset < 24) { {{ preset }} {{ preset === 1 ? 'hour' : 'hours' }} }
+          @else if (preset === 24) { 24 hours }
+          @else if (preset === 168) { 7 days }
+          @else if (preset === 720) { 30 days }
+          @else { 90 days }
+        </button>
+      }
+    </div>
+    <form class="custom-range" novalidate (submit)="$event.preventDefault(); applyCustomHours()">
+      <label for="custom-hours">Last X hours</label>
+      <span class="custom-range__input"><input id="custom-hours" type="number" min="1" max="2160" step="1" inputmode="numeric" [value]="customHours()" (input)="onCustomHoursInput($event)" aria-describedby="custom-hours-help" /><span>hours</span></span>
+      <button type="submit" class="button button--secondary">Apply</button>
+      <span id="custom-hours-help" class="visually-muted">Whole number from 1 to 2160.</span>
+    </form>
+    @if (rangeWarning()) { <p class="range-warning" role="alert">{{ rangeWarning() }}</p> }
+  </section>
+
+  @if (snapshotLoading() && !snapshot()) {
+    <app-state-message message="Loading Stats for the selected window…" />
+  } @else if (snapshotError() && !snapshot()) {
+    <div class="initial-error">
+      <app-state-message message="Stats could not be loaded. The authenticated Stats service may be unavailable." tone="error" />
+      <button type="button" class="button button--secondary" (click)="refresh()">Retry</button>
+    </div>
+  } @else if (snapshot(); as data) {
+    <div class="snapshot-meta" aria-label="Stats snapshot details">
+      <p><strong>Requested interval:</strong> {{ formatRange(data) }} · half-open · displayed in {{ timezone }}.</p>
+      <p><strong>Last successful refresh:</strong> {{ formatDate(lastSuccessfulRefresh()) }} · <strong>Collection began:</strong> {{ formatDate(data.window.collection_started_at) }}.</p>
+      @if (snapshotLoading()) { <p class="snapshot-meta__status" role="status">Refreshing this range; the last successful snapshot remains visible.</p> }
+      @if (snapshotError() && staleSnapshot()) { <app-state-message message="Refresh failed. The displayed snapshot and its pagination anchor are stale; retry to refresh." tone="error" /> }
+      @if (coverageState() === 'partial') { <app-state-message [message]="coverageNote()" /> }
+      @if (coverageState() === 'unavailable') { <app-state-message [message]="coverageNote()" /> }
+      @if (coverageState() === 'covered') { <p class="coverage-note">{{ coverageNote() }}</p> }
+    </div>
+
+    <section class="stats-section panel" aria-labelledby="tool-kpi-heading">
+      <app-section-heading headingId="tool-kpi-heading" title="Recorded tool-call totals" description="Completed logical invocations in the selected window. Counts are telemetry, not billing, audit, or network-packet totals." />
+      <div class="kpi-group" aria-label="Search and HTTP fetch totals">
+        <h3>Search and HTTP fetch</h3>
+        <div class="kpi-grid">
+          <article class="kpi-card"><span>Completed</span><strong>{{ displayedKpi(searchFetchTotals().completed) }}</strong></article>
+          <article class="kpi-card"><span>Successful</span><strong>{{ displayedKpi(searchFetchTotals().success) }}</strong><small>Success rate · {{ coverageState() === 'unavailable' ? 'Unavailable' : successRate() }}</small></article>
+          <article class="kpi-card"><span>Degraded</span><strong>{{ displayedKpi(searchFetchTotals().degraded) }}</strong><small>Success is reported separately.</small></article>
+          <article class="kpi-card"><span>Blocked</span><strong>{{ displayedKpi(searchFetchTotals().blocked) }}</strong></article>
+          <article class="kpi-card"><span>Errors, rejections &amp; cancellations</span><strong>{{ coverageState() === 'unavailable' ? 'Unavailable' : formatCount(searchFetchTotals().error + searchFetchTotals().rejected + searchFetchTotals().cancelled) }}</strong></article>
+          <article class="kpi-card"><span>Cache hits</span><strong>{{ displayedKpi(searchFetchTotals().cache_hits) }}</strong><small>Response cache-hit rate · {{ coverageState() === 'unavailable' ? 'Unavailable' : cacheHitRate() }}</small></article>
+          <article class="kpi-card"><span>Outbound attempts</span><strong>{{ displayedKpi(searchFetchTotals().outbound_attempts) }}</strong></article>
+          <article class="kpi-card"><span>Coalesced search callers</span><strong>{{ coverageState() === 'unavailable' ? 'Unavailable' : formatCount(searchTotals().coalesced) }}</strong><small>Not counted as cache hits by definition.</small></article>
+        </div>
+      </div>
+      <div class="kpi-group kpi-group--mcp" aria-label="Lightpanda MCP tool-call totals">
+        <h3>Lightpanda MCP tool calls</h3>
+        <p class="panel-note">Tool-call outcome only; this telemetry does not verify a page outcome, and page-block classification is unavailable. CAPTCHA-looking output is not classified as a block.</p>
+        <div class="kpi-grid kpi-grid--mcp">
+          <article class="kpi-card"><span>Completed calls</span><strong>{{ displayedKpi(mcpTotals().completed) }}</strong></article>
+          <article class="kpi-card"><span>Successful calls</span><strong>{{ displayedKpi(mcpTotals().success) }}</strong></article>
+          <article class="kpi-card"><span>Degraded calls</span><strong>{{ displayedKpi(mcpTotals().degraded) }}</strong></article>
+          <article class="kpi-card"><span>Blocked calls</span><strong>{{ displayedKpi(mcpTotals().blocked) }}</strong></article>
+          <article class="kpi-card"><span>Other error/rejected/cancelled calls</span><strong>{{ coverageState() === 'unavailable' ? 'Unavailable' : formatCount(mcpTotals().error + mcpTotals().rejected + mcpTotals().cancelled) }}</strong></article>
+          <article class="kpi-card"><span>Outbound attempts</span><strong>{{ displayedKpi(mcpTotals().outbound_attempts) }}</strong></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats-section panel" aria-labelledby="outcomes-heading">
+      <div class="section-heading-wrap">
+        <app-section-heading headingId="outcomes-heading" title="Tool-call outcomes over time" description="Stacked recorded terminal outcomes by bucket. Missing buckets are unknown, not zero activity." />
+        <label class="source-filter">Source
+          <select [value]="sourceFilter()" (change)="onSourceFilterChange($event)">
+            <option value="all">All sources</option>
+            <option value="search">Search</option>
+            <option value="fetch">HTTP fetch</option>
+            <option value="browser_mcp">Lightpanda MCP</option>
+          </select>
+        </label>
+      </div>
+      @if (coverageState() === 'unavailable') {
+        <app-state-message [message]="unavailableCoverageMessage()" />
+      } @else if (hasNoToolObservations()) {
+        <app-state-message message="No recorded tool observations in the covered portion of this window." />
+      }
+      <div class="chart-frame" role="img" aria-label="Stacked chart of tool-call outcomes; an accessible table is available below"><div echarts [options]="outcomesOption()" [autoResize]="true" class="chart chart--medium"></div></div>
+      <details class="data-table-details">
+        <summary>View outcome data table</summary>
+        <div class="table-scroll"><table>
+          <caption>Tool-call outcome counts by source and bucket</caption>
+          <thead><tr><th scope="col">Source</th><th scope="col">Bucket interval ({{ timezone }})</th><th scope="col">Coverage</th><th scope="col">Success</th><th scope="col">Degraded</th><th scope="col">Blocked</th><th scope="col">Error</th><th scope="col">Rejected</th><th scope="col">Cancelled</th></tr></thead>
+          <tbody>
+            @for (source of data.tools; track source.source) {
+              @for (bucket of data.jobs.buckets; track bucket.start) {
+                @let observed = toolBucket(source.source, bucket.start);
+                <tr><th scope="row">{{ source.source }}</th><td>{{ formatDate(bucket.start) }} – {{ formatDate(bucket.end) }}</td><td>{{ coverageBucketLabel(bucket) }}</td><td>{{ observed ? formatCount(observed.success) : 'Unavailable' }}</td><td>{{ observed ? formatCount(observed.degraded) : 'Unavailable' }}</td><td>{{ observed ? formatCount(observed.blocked) : 'Unavailable' }}</td><td>{{ observed ? formatCount(observed.error) : 'Unavailable' }}</td><td>{{ observed ? formatCount(observed.rejected) : 'Unavailable' }}</td><td>{{ observed ? formatCount(observed.cancelled) : 'Unavailable' }}</td></tr>
+              }
+            }
+          </tbody>
+        </table></div>
+      </details>
+    </section>
+
+    <section class="stats-section panel" aria-labelledby="cache-heading">
+      <app-section-heading headingId="cache-heading" title="Cache and coalescing" description="Shared search cache and local fetch cache hits are separate from coalesced search callers." />
+      <p class="panel-note">A cached blocked result contributes to both the cache-hit and blocked-outcome totals without creating a new outbound block operation.</p>
+      <div class="chart-frame" role="img" aria-label="Time chart of shared search-cache hits, local fetch-cache hits and coalesced search callers"><div echarts [options]="cacheOption()" [autoResize]="true" class="chart chart--medium"></div></div>
+      <details class="data-table-details">
+        <summary>View cache and coalescing data table</summary>
+        <div class="table-scroll"><table>
+          <caption>Cache hits and coalesced search callers by bucket</caption>
+          <thead><tr><th scope="col">Bucket interval ({{ timezone }})</th><th scope="col">Coverage</th><th scope="col">Search cache hits</th><th scope="col">Fetch cache hits</th><th scope="col">Coalesced search callers</th></tr></thead>
+          <tbody>
+            @for (bucket of data.jobs.buckets; track bucket.start) {
+              @let searchBucket = toolBucket('search', bucket.start);
+              @let fetchBucket = toolBucket('fetch', bucket.start);
+              <tr><th scope="row">{{ formatDate(bucket.start) }} – {{ formatDate(bucket.end) }}</th><td>{{ coverageBucketLabel(bucket) }}</td><td>{{ searchBucket ? formatCount(searchBucket.cache_hits) : 'Unavailable' }}</td><td>{{ fetchBucket ? formatCount(fetchBucket.cache_hits) : 'Unavailable' }}</td><td>{{ searchBucket ? formatCount(searchBucket.coalesced) : 'Unavailable' }}</td></tr>
+            }
+          </tbody>
+        </table></div>
+      </details>
+    </section>
+
+    <section class="stats-section panel" aria-labelledby="blocks-heading">
+      <app-section-heading headingId="blocks-heading" title="Top block messages" description="Normalized block issues ranked by occurrence count. The accessible table preserves the server ranking and details." />
+      @if (coverageState() === 'unavailable') {
+        <app-state-message [message]="'Block rankings unavailable: ' + unavailableCoverageMessage()" />
+      } @else {
+        <p class="panel-note">{{ formatCount(data.block_reasons.other_occurrences) }} additional block occurrences are outside the top ten.</p>
+        @if (data.block_reasons.items.length) {
+          <div class="chart-frame chart-frame--ranking" role="img" aria-label="Horizontal chart of the top normalized block messages"><div echarts [options]="blockReasonsOption()" [autoResize]="true" class="chart chart--ranking"></div></div>
+        } @else {
+          <app-state-message message="No block messages were recorded in this window." />
+        }
+      }
+      <div class="table-scroll"><table>
+        <caption>Top block issues, ordered by occurrence count</caption>
+        <thead><tr><th scope="col">Rank</th><th scope="col">Source</th><th scope="col">Engine</th><th scope="col">Normalized message</th><th scope="col">Occurrences</th><th scope="col">Affected outbound requests</th><th scope="col">Last seen ({{ timezone }})</th></tr></thead>
+        <tbody>
+          @for (issue of data.block_reasons.items; track issue.source + issue.engine + issue.message; let index = $index) {
+            <tr><th scope="row">{{ index + 1 }}</th><td>{{ issue.source }}</td><td>{{ issue.engine ?? '—' }}</td><td class="message-cell">{{ issue.message }}</td><td>{{ formatCount(issue.occurrences) }}</td><td>{{ formatCount(issue.affected_requests) }}</td><td>{{ formatDate(issue.last_seen) }}</td></tr>
+          } @empty {
+            <tr><td colspan="7">{{ coverageState() === 'unavailable' ? 'Block issues unavailable for this window.' : 'No block issues recorded.' }}</td></tr>
+          }
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="stats-section panel" aria-labelledby="searxng-heading">
+      <app-section-heading headingId="searxng-heading" title="SearXNG engine diagnostics" description="Search-provider issue occurrences by engine and normalized message, including blocked and non-blocking diagnostics." />
+      @if (coverageState() === 'unavailable') {
+        <app-state-message [message]="'SearXNG rankings unavailable: ' + unavailableCoverageMessage()" />
+      } @else {
+        <p class="panel-note">These are issue counts, not failed-request counts: one search request can have multiple engine diagnostics, and degraded successful searches can appear here. {{ formatCount(data.searxng_errors.other_occurrences) }} further occurrences are outside the top ten.</p>
+        @if (data.searxng_errors.items.length) {
+          <div class="chart-frame chart-frame--ranking" role="img" aria-label="Horizontal chart of SearXNG engine diagnostic occurrences"><div echarts [options]="searxngErrorsOption()" [autoResize]="true" class="chart chart--ranking"></div></div>
+        } @else {
+          <app-state-message message="No SearXNG engine diagnostics were recorded in this window." />
+        }
+      }
+      <div class="table-scroll"><table>
+        <caption>Top SearXNG issues, including block and error categories</caption>
+        <thead><tr><th scope="col">Rank</th><th scope="col">Engine</th><th scope="col">Normalized message</th><th scope="col">Occurrences</th><th scope="col">Affected outbound requests</th><th scope="col">Last seen ({{ timezone }})</th></tr></thead>
+        <tbody>
+          @for (issue of data.searxng_errors.items; track issue.source + issue.engine + issue.message; let index = $index) {
+            <tr><th scope="row">{{ index + 1 }}</th><td>{{ issue.engine ?? '—' }}</td><td class="message-cell">{{ issue.message }}</td><td>{{ formatCount(issue.occurrences) }}</td><td>{{ formatCount(issue.affected_requests) }}</td><td>{{ formatDate(issue.last_seen) }}</td></tr>
+          } @empty {
+            <tr><td colspan="6">{{ coverageState() === 'unavailable' ? 'Engine issues unavailable for this window.' : 'No engine issues recorded.' }}</td></tr>
+          }
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="stats-section panel" aria-labelledby="attempts-heading">
+      <app-section-heading headingId="attempts-heading" title="Worker attempts and executions" description="Each worker-scope run is one attempt. Retries appear as separate attempts; nested agent-scope runs are excluded." />
+      <p class="panel-note">Attempt starts use start time; succeeded and failed attempts use finish time. A successful execution is not proof of a complete business result. Incomplete runs in range: {{ formatCount(data.jobs.incomplete_runs) }}.</p>
+      <div class="chart-frame" role="img" aria-label="Chart of worker attempt starts and terminal outcomes by time bucket"><div echarts [options]="jobsOption()" [autoResize]="true" class="chart chart--medium"></div></div>
+      <details class="data-table-details">
+        <summary>View worker attempt data table</summary>
+        <div class="table-scroll"><table>
+          <caption>Worker attempt counts by time bucket</caption>
+          <thead><tr><th scope="col">Bucket interval ({{ timezone }})</th><th scope="col">Started</th><th scope="col">Succeeded</th><th scope="col">Failed</th></tr></thead>
+          <tbody>@for (bucket of data.jobs.buckets; track bucket.start) { <tr><th scope="row">{{ formatDate(bucket.start) }} – {{ formatDate(bucket.end) }}</th><td>{{ formatCount(bucket.attempts_started) }}</td><td>{{ formatCount(bucket.attempts_succeeded) }}</td><td>{{ formatCount(bucket.attempts_failed) }}</td></tr> }</tbody>
+        </table></div>
+      </details>
+      <div class="execution-list">
+        <div class="execution-list__heading"><h3>Execution history</h3><p>{{ executionPage() ? formatCount(executionPage()!.total) : '—' }} attempts · page anchored to {{ formatDate(anchor()) }}</p></div>
+        @if (executionError()) { <app-state-message message="The requested execution page could not be loaded. Any previously loaded page remains visible; the rest of Stats is unaffected." tone="error" /><button type="button" class="button button--secondary" [disabled]="snapshotLoading() || executionLoading()" (click)="retryExecutionPage()">Retry executions</button> }
+        @if (executionLoading() && !executionPage()) { <app-state-message message="Loading executions for this snapshot…" /> }
+        @if (executionPage(); as page) {
+          <div class="table-scroll"><table>
+            <caption>Worker-scope execution attempts</caption>
+            <thead><tr><th scope="col">Job</th><th scope="col">Worker</th><th scope="col">Started ({{ timezone }})</th><th scope="col">Finished ({{ timezone }})</th><th scope="col">Duration</th><th scope="col">Execution status</th><th scope="col">Completeness</th></tr></thead>
+            <tbody>
+              @for (run of page.items; track run.run_id) {
+                <tr><th scope="row"><a [routerLink]="['/jobs', run.job_id]">{{ run.job_id }}</a></th><td>{{ run.worker_token ?? 'Unknown worker' }}</td><td>{{ formatDate(run.started_at) }}</td><td>{{ run.finished_at ? formatDate(run.finished_at) : 'Unknown (unfinished)' }}</td><td>{{ formatDuration(run.duration_seconds) }}</td><td>{{ run.status }}</td><td>{{ run.incomplete ? 'Incomplete' : 'Finished' }}</td></tr>
+              } @empty {
+                <tr><td colspan="7">No worker-scope attempts in this window.</td></tr>
+              }
+            </tbody>
+          </table></div>
+          <div class="pagination" aria-label="Execution history pages">
+            <span>Showing {{ page.items.length ? page.offset + 1 : 0 }}–{{ page.offset + page.items.length }} of {{ formatCount(page.total) }}</span>
+            <button type="button" class="button button--secondary" [disabled]="snapshotLoading() || executionLoading() || page.offset === 0" (click)="changeExecutionPage(page.offset - page.limit)">Previous</button>
+            <button type="button" class="button button--secondary" [disabled]="snapshotLoading() || executionLoading() || page.offset + page.limit >= page.total" (click)="changeExecutionPage(page.offset + page.limit)">Next</button>
+            @if (executionLoading()) { <span role="status">Loading page…</span> }
+          </div>
+        }
+      </div>
+    </section>
+
+    <section class="stats-section panel" aria-labelledby="workers-heading">
+      <app-section-heading headingId="workers-heading" title="Worker activity heatmap" description="Union busy seconds divided by exact bucket duration. Historical worker rows can be offline; color does not represent current online status." />
+      <p class="panel-note">No recorded busy time is not proof of idle or offline. Busy fraction is not a historical online-utilization percentage. An exclamation mark (!) in a heatmap cell identifies one or more incomplete spans in that bucket.</p>
+      @if (workerError()) { <app-state-message message="The requested worker page could not be loaded. The previously loaded worker page remains visible; other Stats panels are unaffected." tone="error" /><button type="button" class="button button--secondary" [disabled]="snapshotLoading() || workerLoading()" (click)="retryWorkerPage()">Retry worker page</button> }
+      @if (workerLoading()) { <p class="subsection-loading" role="status">Loading worker page at the same snapshot anchor…</p> }
+      @if (data.workers.items.length) {
+        <div class="chart-frame chart-frame--heatmap" role="img" aria-label="Heatmap of recorded worker busy fractions by bucket with incomplete-run annotations"><div echarts [options]="workerHeatmapOption()" [autoResize]="true" class="chart chart--heatmap"></div></div>
+      } @else {
+        <app-state-message message="No worker identities were returned for this page. This is not evidence that no workers exist outside the selected page." />
+      }
+      <details class="data-table-details">
+        <summary>View worker interval data table</summary>
+        <div class="table-scroll"><table>
+          <caption>Worker busy time, exact bucket duration, busy fraction, and incomplete-run markers</caption>
+          <thead><tr><th scope="col">Worker</th><th scope="col">Bucket interval ({{ timezone }})</th><th scope="col">Busy seconds</th><th scope="col">Bucket duration (seconds)</th><th scope="col">Busy fraction</th><th scope="col">Incomplete runs</th></tr></thead>
+          <tbody>
+            @for (worker of data.workers.items; track worker.worker_token) {
+              @for (bucket of data.jobs.buckets; track bucket.start) {
+                @let workerBucket = workerBucketForTemplate(worker, bucket.start);
+                <tr><th scope="row">{{ worker.worker_token }}</th><td>{{ formatDate(bucket.start) }} – {{ formatDate(bucket.end) }}</td><td>{{ workerBucket ? workerBucket.busy_seconds.toFixed(1) : 'Unavailable' }}</td><td>{{ bucketDurationSeconds(bucket).toFixed(1) }}</td><td>{{ workerBucket ? formatPercent(workerBucket.busy_seconds, bucketDurationSeconds(bucket)) : 'Unavailable' }}</td><td>{{ workerBucket ? workerBucket.incomplete_runs : 'Unavailable' }}</td></tr>
+              }
+            }
+          </tbody>
+        </table></div>
+      </details>
+      <div class="pagination" aria-label="Worker history pages">
+        <span>{{ formatCount(data.workers.total) }} historical workers · page anchored to {{ formatDate(anchor()) }}</span>
+        <button type="button" class="button button--secondary" [disabled]="snapshotLoading() || workerLoading() || data.workers.offset === 0" (click)="changeWorkerPage(data.workers.offset - data.workers.limit)">Previous</button>
+        <button type="button" class="button button--secondary" [disabled]="snapshotLoading() || workerLoading() || data.workers.offset + data.workers.limit >= data.workers.total" (click)="changeWorkerPage(data.workers.offset + data.workers.limit)">Next</button>
+      </div>
+    </section>
+  }
+</app-page-layout>

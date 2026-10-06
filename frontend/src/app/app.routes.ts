@@ -13,6 +13,7 @@ export const routes: Routes = [
   {path: 'login', component: LoginPage, title: 'Login'},
   {path: '', pathMatch: 'full', redirectTo: 'dashboard'},
   {path: 'dashboard', title: 'Dashboard', loadComponent: () => import('./dashboard-page').then((module) => module.DashboardPage), canActivate: [requireAuth]},
+  {path: 'stats', title: 'Stats', loadComponent: () => import('./stats-page').then((module) => module.StatsPage), canActivate: [requireAuth]},
   {path: 'jobs', title: 'Jobs', loadComponent: () => import('./jobs-page').then((module) => module.JobsPage), canActivate: [requireAuth]},
   {path: 'jobs/:jobId', title: 'Job details', component: JobDetailPage, canActivate: [requireAuth]},
   {path: 'memory', title: 'Memory', loadComponent: () => import('./memory-page').then((module) => module.MemoryPage), canActivate: [requireAuth]},

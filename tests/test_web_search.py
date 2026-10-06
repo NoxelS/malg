@@ -19,8 +19,9 @@ from malg.database.session import make_session_factory
 
 
 class _FakeResponse:
-    def __init__(self, payload: object) -> None:
+    def __init__(self, payload: object, status_code: int = 200) -> None:
         self._payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self) -> None:
         return None
@@ -118,25 +119,137 @@ def test_search_normalizes_results_and_bounds_request_parameters(monkeypatch, se
     ]
 
 
-def test_search_rejects_redirect_syntax_and_unconfigured_language(search_cache) -> None:
+def test_search_stats_distinguish_upstream_and_cached_invocations(
+    monkeypatch, search_cache
+) -> None:
+    _FakeHTTPClient.calls = []
+    _FakeHTTPClient.payload = {"results": [{"url": "https://example.test/a"}]}
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    records = []
+    monkeypatch.setattr(web_search, "finish_tool_request", lambda **record: records.append(record))
+    client = SearxngSearchClient(_config(), cache=search_cache)
+
+    asyncio.run(client.search("cache telemetry"))
+    asyncio.run(client.search("cache telemetry"))
+
+    assert len(records) == 2
+    assert records[0]["outcome"] == records[1]["outcome"] == "success"
+    assert records[0]["outbound_attempted"] is True
+    assert records[0]["cache_hit"] is False
+    assert records[1]["outbound_attempted"] is False
+    assert records[1]["cache_hit"] is True
+    assert records[1]["http_status"] is None
+    assert records[0]["http_status"] == 200
+    assert records[0]["result_count"] == records[1]["result_count"] == 1
+
+
+def test_search_stats_keep_provider_status_and_safe_reason(monkeypatch, search_cache) -> None:
+    records = []
+    monkeypatch.setattr(web_search, "finish_tool_request", lambda **record: records.append(record))
+
+    class StatusClient(_FakeHTTPClient):
+        async def get(self, url, *, params):
+            request = web_search.httpx.Request("GET", url)
+            response = web_search.httpx.Response(429, request=request)
+            raise web_search.httpx.HTTPStatusError(
+                "HTTP 429 private query marker", request=request, response=response
+            )
+
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", StatusClient)
+    client = SearxngSearchClient(_config(), cache=search_cache)
+
+    with pytest.raises(SearchUnavailable):
+        asyncio.run(client.search("private query marker"))
+
+    assert len(records) == 1
+    assert records[0]["outcome"] == "blocked"
+    assert records[0]["http_status"] == 429
+    assert records[0]["reason_code"] == "search_rate_limited"
+    assert records[0]["outbound_attempted"] is True
+    assert records[0]["issues"] == ()
+    assert "private query marker" not in repr(records)
+
+
+def test_search_stats_sanitize_and_isolate_provider_diagnostics(monkeypatch, search_cache) -> None:
+    _FakeHTTPClient.calls = []
+    records = []
+    monkeypatch.setattr(web_search, "finish_tool_request", lambda **record: records.append(record))
+
+    class QueryDiagnosticsClient(_FakeHTTPClient):
+        async def get(self, url, *, params):
+            await asyncio.sleep(0.01)
+            diagnostic = (
+                "HTTP 429 Too many requests at https://private.invalid/path?token=SECRET_MARKER"
+                if params["q"] == "rate marker"
+                else "Timeout after 5 seconds"
+            )
+            return _FakeResponse(
+                {
+                    "results": [{"url": f"https://example.test/{params['q']}"}],
+                    "unresponsive_engines": [["duckduckgo", diagnostic]],
+                }
+            )
+
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", QueryDiagnosticsClient)
+    client = SearxngSearchClient(_config(), cache=search_cache)
+
+    async def run() -> None:
+        await asyncio.gather(
+            client.search("rate marker"),
+            client.search("timeout marker"),
+        )
+
+    asyncio.run(run())
+
+    issues_by_message = {record["issues"][0].message: record["issues"][0] for record in records}
+    assert set(issues_by_message) == {"HTTP 429 Too many requests", "Timeout after 5 seconds"}
+    assert issues_by_message["HTTP 429 Too many requests"].category == "block"
+    assert issues_by_message["Timeout after 5 seconds"].category == "error"
+    assert all(record["outcome"] == "degraded" for record in records)
+    assert all(record["outbound_attempted"] for record in records)
+    assert "SECRET_MARKER" not in repr(records)
+
+
+def test_search_rejects_redirect_syntax_and_unconfigured_language(
+    monkeypatch, search_cache
+) -> None:
+    records = []
+    monkeypatch.setattr(web_search, "finish_tool_request", lambda **record: records.append(record))
     client = SearxngSearchClient(_config(), cache=search_cache)
 
     with pytest.raises(SearchUnavailable, match="redirects"):
         asyncio.run(client.search("!! redirect"))
     with pytest.raises(SearchUnavailable, match="language"):
         asyncio.run(client.search("AI services", language="fr"))
+    with pytest.raises(SearchUnavailable, match="disabled"):
+        asyncio.run(SearxngSearchClient(_config(enabled=False), cache=search_cache).search("valid"))
+
+    assert [record["reason_code"] for record in records] == [
+        "invalid_input",
+        "unsupported_language",
+        "search_disabled",
+    ]
+    assert all(record["outcome"] == "rejected" for record in records)
+    assert all(not record["outbound_attempted"] for record in records)
 
 
 def test_search_budget_counts_successful_attempts(monkeypatch, search_cache) -> None:
     _FakeHTTPClient.calls = []
     _FakeHTTPClient.payload = {"results": []}
     monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    records = []
+    monkeypatch.setattr(web_search, "finish_tool_request", lambda **record: records.append(record))
     client = SearxngSearchClient(_config(max_requests_per_run=1), cache=search_cache)
 
     assert asyncio.run(client.search("first")) == []
     with pytest.raises(SearchRateLimitExceeded, match="budget"):
         asyncio.run(client.search("second"))
     assert client.request_count == 1
+    assert len(records) == 2
+    assert records[0]["outbound_attempted"] is True
+    assert records[1]["outbound_attempted"] is False
+    assert records[1]["outcome"] == "rejected"
+    assert records[1]["reason_code"] == "budget_exhausted"
 
 
 @pytest.mark.parametrize(
@@ -217,6 +330,8 @@ def test_concurrent_equivalent_searches_are_coalesced(
     _FakeHTTPClient.calls = []
     _FakeHTTPClient.payload = {"results": [{"url": "https://example.test/a"}]}
     monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    records = []
+    monkeypatch.setattr(web_search, "finish_tool_request", lambda **record: records.append(record))
     client_a = SearxngSearchClient(_config(), cache=search_cache)
     client_b = SearxngSearchClient(_config(), cache=search_cache)
 
@@ -226,6 +341,12 @@ def test_concurrent_equivalent_searches_are_coalesced(
     first, second = asyncio.run(run_both())
     assert first == second
     assert len(_FakeHTTPClient.calls) == 1
+    assert len(records) == 2
+    assert sum(record["outbound_attempted"] for record in records) == 1
+    assert sum(record["coalesced"] for record in records) == 1
+    follower = next(record for record in records if record["coalesced"])
+    assert follower["cache_hit"] is True
+    assert follower["outbound_attempted"] is False
     assert _metrics(search_cache_sessions) == (1, 1, 1)
 
 
