@@ -47,14 +47,22 @@ class _Runtime:
 
     async def generate(self, **kwargs):
         self.requests.append(kwargs)
-        name, args = next(self.actions)
-        arguments = args if isinstance(args, str) else json.dumps(args)
+        action = next(self.actions)
+        actions = action if isinstance(action, list) else [action]
+        tool_calls = [
+            ToolCall(
+                id=f"{len(self.requests)}-{index}",
+                name=name,
+                arguments=args if isinstance(args, str) else json.dumps(args),
+            )
+            for index, (name, args) in enumerate(actions)
+        ]
         return LLMResponse(
             content="",
             raw_response={},
             finish_reason="tool_calls",
             assistant_message={"role": "assistant", "content": ""},
-            tool_calls=[ToolCall(id=str(len(self.requests)), name=name, arguments=arguments)],
+            tool_calls=tool_calls,
         ), "response"
 
     async def execute_code(self, *args, **kwargs):
@@ -182,6 +190,34 @@ def test_search_outage_allows_fetching_urls_known_before_discovery(monkeypatch):
         )
     assert calls == [url]
     assert len(runtime.requests) == 3
+
+
+def test_outage_blocks_new_searches_in_same_response_and_later_turns(monkeypatch):
+    monkeypatch.setattr("malg.core.web_search.httpx.AsyncClient", _FakeHTTPClient)
+    _FakeHTTPClient.calls = []
+    _FakeHTTPClient.payload = {"results": [], "unresponsive_engines": [["engine", "CAPTCHA"]]}
+    calls = redirect_transport(monkeypatch, None, body=b"Known public evidence")
+    url = "http://public.example/"
+    runtime = _Runtime(
+        [
+            [("search", {"query": "first"}), ("search", {"query": "second"})],
+            ("search", {"query": "third"}),
+            ("fetch", {"url": url}),
+            _finish(),
+        ]
+    )
+    with pytest.raises(SearchUnavailable):
+        asyncio.run(
+            RetrievalStrategy(
+                replace(ResearchConfig(), max_no_progress_turns=5),
+                retrieval=RetrievalService(SearxngSearchClient(_config())),
+            ).execute(runtime, _call(website=url))
+        )
+    assert len(_FakeHTTPClient.calls) == 1
+    assert calls == [url]
+    assert all(
+        "search" not in {tool.name for tool in request["tools"]} for request in runtime.requests[1:]
+    )
 
 
 def test_context_limit_stops_before_request():

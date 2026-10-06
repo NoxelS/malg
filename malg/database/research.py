@@ -12,8 +12,26 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from malg.core.models.account import AccountIdentity
+from malg.core.web_search import SEARCH_OUTAGE_REASON_CODES
 from malg.database.jobs import require_claim
 from malg.database.models import ResearchStageResult, ResearchWorkflow
+
+
+def latest_search_outage(session: Session) -> ResearchStageResult | None:
+    """Read the latest provider outage checkpoint, excluding local budget denials.
+
+    Workers and the dashboard use the same provider-only predicate. This read
+    performs no health probe and cannot confirm recovery after the cooldown.
+    """
+    return session.scalar(
+        select(ResearchStageResult)
+        .where(
+            ResearchStageResult.stage_key.endswith(".search_health", autoescape=True),
+            ResearchStageResult.reason_code.in_(SEARCH_OUTAGE_REASON_CODES),
+        )
+        .order_by(ResearchStageResult.created_at.desc(), ResearchStageResult.stage_result_id.desc())
+        .limit(1)
+    )
 
 
 def canonical_input_hash(payload: Any) -> str:

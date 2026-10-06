@@ -26,6 +26,7 @@ from malg.api.routers.traces import router as traces_router
 from malg.config import (
     AuthConfig,
     get_auth_config,
+    get_research_config,
     get_twenty_config,
     get_worker_config,
     load_settings,
@@ -99,7 +100,10 @@ def create_app(
     app.include_router(traces_router, dependencies=[auth_dependency])
     worker_config = get_worker_config(settings)
     app.include_router(
-        dashboard_router(worker_config.heartbeat_timeout_seconds),
+        dashboard_router(
+            worker_config.heartbeat_timeout_seconds,
+            get_research_config(settings).search_unavailable_retry_seconds,
+        ),
         dependencies=[auth_dependency],
     )
 

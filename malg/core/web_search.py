@@ -15,6 +15,18 @@ from malg.config import SearchConfig
 from malg.core.budget import BudgetExhausted, deny_external_attempt, reserve_external_attempt
 
 _MAX_QUERY_LENGTH = 300
+SEARCH_OUTAGE_REASON_CODES = frozenset(
+    {
+        "search_unavailable",
+        "search_captcha",
+        "search_rate_limited",
+        "search_provider_blocked",
+        "search_provider_failure",
+        "search_http_error",
+        "search_transport_error",
+        "search_parser_failure",
+    }
+)
 
 
 class SearchRateLimitExceeded(BudgetExhausted):
@@ -25,6 +37,7 @@ class SearchUnavailable(RuntimeError):
     """Raised when private search is disabled or SearXNG cannot return usable results."""
 
     def __init__(self, message: str, *, reason_code: str = "search_unavailable") -> None:
+        """Carry a safe provider failure category for persisted outage diagnostics."""
         super().__init__(message)
         self.reason_code = reason_code
 
@@ -209,16 +222,23 @@ class SearxngSearchClient:
                 continue
             seen_urls.add(result.url)
             results.append(result)
+        if raw_results and not results:
+            raise SearchUnavailable(
+                "Private search returned results without any usable result entries.",
+                reason_code="search_parser_failure",
+            )
         return results
 
     @staticmethod
     def _normalize_result(raw_result: Mapping[str, Any]) -> SearchResult | None:
         url = raw_result.get("url")
-        if (
-            not isinstance(url, str)
-            or len(url) > 2000
-            or urlparse(url).scheme not in {"http", "https"}
-        ):
+        if not isinstance(url, str) or len(url) > 2000:
+            return None
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                return None
+        except ValueError:
             return None
         title = raw_result.get("title")
         snippet = raw_result.get("content")

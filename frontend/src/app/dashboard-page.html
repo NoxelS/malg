@@ -6,6 +6,22 @@
   } @else if (error()) {
     <app-state-message message="Dashboard data could not be loaded right now. Refresh to retry." tone="error" />
   } @else if (summary(); as data) {
+    <section class="dashboard-section" aria-labelledby="search-status-heading">
+      <app-section-heading headingId="search-status-heading" title="Search discovery" description="Provider outages and when workers may resume discovery." />
+      @if (data.search.status === 'paused') {
+        <p role="status">Discovery paused after {{ searchFailureLabel(data.search.reason_code) }}. Workers can claim jobs again from {{ formatSearchDate(data.search.next_retry_at) }}.</p>
+      } @else if (data.search.status === 'retry_ready') {
+        <p role="status">Search cooldown elapsed. Workers may retry discovery; provider recovery is not yet confirmed.</p>
+      } @else {
+        <p>No search outage recorded.</p>
+      }
+      @if (data.search.observed_at) {
+        <p>Last outage: {{ formatSearchDate(data.search.observed_at) }} · {{ searchFailureLabel(data.search.reason_code) }}.</p>
+      }
+      @if (data.search.job_id) {
+        <a tuiButton appearance="secondary" [routerLink]="['/jobs', data.search.job_id]">View affected job</a>
+      }
+    </section>
     <section class="dashboard-section controller-section" aria-labelledby="continuous-research-heading">
       <div class="dashboard-section__heading">
         <app-section-heading headingId="continuous-research-heading" title="Continuous account research" description="Keeps at least one matching account-research job queued. Turning this off lets existing jobs finish." />

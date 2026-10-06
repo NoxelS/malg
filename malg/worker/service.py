@@ -71,6 +71,7 @@ from malg.database.models import (
 from malg.database.research import (
     canonical_input_hash,
     create_workflow_for_job,
+    latest_search_outage,
     persist_discovered_candidate,
     persist_stage_result,
 )
@@ -650,14 +651,7 @@ class ResearchWorker:
     async def run_once(self) -> bool:
         """Claim one job and cancel its active supervisor as soon as ownership is lost."""
         with self.session_factory.begin() as session:
-            outage = session.scalar(
-                select(ResearchStageResult)
-                .where(
-                    ResearchStageResult.reason_code.like("search_%"),
-                )
-                .order_by(ResearchStageResult.created_at.desc())
-                .limit(1)
-            )
+            outage = latest_search_outage(session)
             if (
                 outage is not None
                 and (datetime.now(UTC) - _aware(outage.created_at)).total_seconds()

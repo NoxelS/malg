@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from malg.core.models.jobs import ResearchJobKind
 
@@ -35,6 +35,16 @@ class DashboardJobDuration(BaseModel):
     average_duration_seconds: float | None
 
 
+class DashboardSearchStatus(BaseModel):
+    """Provider cooldown status; elapsed cooldown does not confirm recovery."""
+
+    status: Literal["unknown", "paused", "retry_ready"] = "unknown"
+    reason_code: str | None = None
+    observed_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    job_id: str | None = None
+
+
 class DashboardSummary(BaseModel):
     """Local execution and worker state, excluding external CRM record counts."""
 
@@ -42,6 +52,7 @@ class DashboardSummary(BaseModel):
     jobs: DashboardJobCounts
     outcomes: DashboardOutcomeCounts
     job_durations: list[DashboardJobDuration]
+    search: DashboardSearchStatus = Field(default_factory=DashboardSearchStatus)
 
 
 class WorkerJobSummary(BaseModel):

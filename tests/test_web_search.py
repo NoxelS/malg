@@ -146,6 +146,27 @@ def test_healthy_empty_search_remains_distinct_from_provider_failure(monkeypatch
     assert client.failure_reason_code is None
 
 
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [None],
+        [{}],
+        [{"url": 42}],
+        [{"url": "file:///private"}],
+        [{"url": "https://["}],
+        [{"url": "http:missing-host"}],
+    ],
+)
+def test_nonempty_malformed_results_are_parser_failures(monkeypatch, rows) -> None:
+    _FakeHTTPClient.payload = {"results": rows}
+    monkeypatch.setattr(web_search.httpx, "AsyncClient", _FakeHTTPClient)
+    client = SearxngSearchClient(_config())
+    with pytest.raises(SearchUnavailable) as error:
+        asyncio.run(client.search("AI services"))
+    assert error.value.reason_code == "search_parser_failure"
+    assert client.health == "unavailable"
+
+
 def test_search_agent_denial_remains_visible_after_generated_code_catches_it(monkeypatch) -> None:
     """The smaller search-client allowance must not become a model-reported false budget."""
     from datetime import UTC, datetime, timedelta

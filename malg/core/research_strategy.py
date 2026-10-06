@@ -178,7 +178,7 @@ class RetrievalStrategy(GenerationStrategy):
                     else tools
                 )
                 if search_failure is not None and turn < self.config.max_reasoning_turns:
-                    active_tools = tools
+                    active_tools = [tool for tool in tools if tool.name != "search"]
                 response, _ = await runtime.generate(
                     tools=active_tools, tool_choice="required", max_tokens=4096
                 )
@@ -221,10 +221,20 @@ class RetrievalStrategy(GenerationStrategy):
                             }
                         elif isinstance(args, SearchArguments):
                             assert self.retrieval is not None
-                            result = await self.retrieval.search(args.query, language=args.language)
-                            known_urls.update(observed_urls(asdict(result)))
-                            output = asdict(result)
-                            progressed |= bool(result.results)
+                            # A response can contain several tool calls; suspend later
+                            # discovery calls in that same response as well as future turns.
+                            if search_failure is not None:
+                                output = {
+                                    "reason_code": "search_suspended",
+                                    "instruction": "Use already observed URLs or finish; discovery is suspended for this stage.",
+                                }
+                            else:
+                                result = await self.retrieval.search(
+                                    args.query, language=args.language
+                                )
+                                known_urls.update(observed_urls(asdict(result)))
+                                output = asdict(result)
+                                progressed |= bool(result.results)
                         elif isinstance(args, FetchArguments):
                             assert self.retrieval is not None
                             canonical = canonicalize_url(args.url)
