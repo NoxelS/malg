@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
+import pytest
 from nooa.unifiedllm import Tool
 from openai import InternalServerError
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 import malg.core.openai_llm as openai_llm
+from malg.core.models.account import Money
 from malg.core.openai_llm import OpenAIChatClient
 
 
@@ -211,3 +215,37 @@ def test_call_uses_sync_client_and_closes_owned_clients() -> None:
     assert sync_client.completions.create_request is not None
     assert sync_client.closed is True
     assert async_client.closed is True
+
+
+def test_money_tool_schema_uses_compatible_decimal_syntax_and_retains_validation() -> None:
+    async_client = _AsyncClient(_response(SimpleNamespace(content="done", tool_calls=[])))
+    money_tool = Tool("finish", "Return an exact amount.", lambda: None, Money)
+
+    asyncio.run(
+        _client(async_client=async_client).acall(
+            [{"role": "user", "content": "Return an amount."}],
+            tools=[money_tool],
+            tool_choice="required",
+        )
+    )
+
+    request = async_client.completions.create_request
+    assert request is not None
+    amount = request["tools"][0]["function"]["parameters"]["properties"]["amount"]
+    assert amount["anyOf"][0] == {"type": "number", "minimum": 0}
+    pattern = amount["anyOf"][1]["pattern"]
+    assert "(?!" not in pattern
+    for value in ("0", "123", "0.01", ".5", "123.", "+001.50"):
+        assert re.fullmatch(pattern, value)
+        assert Money(amount=value, currency_code="EUR").amount == Decimal(value)
+    for value in ("", ".", "+", "-.", "abc"):
+        assert re.fullmatch(pattern, value) is None
+        with pytest.raises(ValidationError):
+            Money(amount=value, currency_code="EUR")
+    with pytest.raises(ValidationError):
+        Money(amount="-0.01", currency_code="EUR")
+    with pytest.raises(ValidationError):
+        Money(amount="1", currency_code="BAD")
+    assert Money(amount="0.123456789123456789", currency_code="EUR").amount == Decimal(
+        "0.123456789123456789"
+    )
