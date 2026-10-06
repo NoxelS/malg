@@ -307,6 +307,10 @@ MALG_LLM__MAX_TOKENS=4096
 MALG_LLM__ENABLE_THINKING=false
 ```
 
+Money tool schemas use a decimal pattern without lookahead for compatibility with Solheim's
+required-tool grammar. Host validation still enforces exact Decimal amounts, nonnegative
+values, and supported currencies.
+
 MALG uses the official OpenAI Python SDK directly. It sends configured model names unchanged, so a
 gateway alias such as `nc-medium` remains `nc-medium` rather than gaining a client-side provider
 prefix. LiteLLM may still be the server behind an OpenAI-compatible endpoint; it is not MALG's

@@ -5,8 +5,17 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
 from malg.core.models.research import FieldObservation, ResearchResult
 from malg.crm.identity import normalize_domain
@@ -202,7 +211,20 @@ class Money(BaseModel):
     """Exact nonnegative amount with an explicitly observed ISO 4217 currency."""
 
     model_config = ConfigDict(extra="forbid")
-    amount: Decimal = Field(ge=0)
+    # Equivalent decimal syntax without lookahead, which Solheim's tool grammar rejects.
+    # This changes only the advertised schema; Decimal and nonnegative validation remain.
+    amount: Annotated[
+        Decimal,
+        WithJsonSchema(
+            {
+                "anyOf": [
+                    {"type": "number", "minimum": 0},
+                    {"type": "string", "pattern": r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$"},
+                ]
+            },
+            mode="validation",
+        ),
+    ] = Field(ge=0)
     currency_code: str = Field(min_length=3, max_length=3)
 
     @model_validator(mode="after")
