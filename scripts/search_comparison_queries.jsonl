@@ -1,0 +1,100 @@
+{"id":"en-company-profile","language":"en","query":"Germany industrial automation manufacturer company profile products locations"}
+{"id":"de-company-profile","language":"de","query":"deutscher Hersteller Industrieautomation Unternehmensprofil Produkte Standorte"}
+{"id":"en-company-revenue","language":"en","query":"Germany mid-sized manufacturing company annual revenue annual report"}
+{"id":"de-company-revenue","language":"de","query":"deutsches mittelständisches Produktionsunternehmen Umsatz Geschäftsbericht"}
+{"id":"en-company-leadership","language":"en","query":"German engineering company executive leadership management team"}
+{"id":"de-company-leadership","language":"de","query":"deutsches Maschinenbauunternehmen Geschäftsführung Vorstand Management"}
+{"id":"en-company-products","language":"en","query":"Germany industrial company product portfolio technical solutions"}
+{"id":"de-company-products","language":"de","query":"deutsches Industrieunternehmen Produktportfolio technische Lösungen"}
+{"id":"en-company-customers","language":"en","query":"German B2B manufacturer customer industries reference projects"}
+{"id":"de-company-customers","language":"de","query":"deutscher B2B Hersteller Kundenbranchen Referenzprojekte"}
+{"id":"en-company-expansion","language":"en","query":"German manufacturing company international expansion new markets"}
+{"id":"de-company-expansion","language":"de","query":"deutsches Produktionsunternehmen internationale Expansion neue Märkte"}
+{"id":"en-company-investment","language":"en","query":"Germany industrial manufacturer recent investment production facility"}
+{"id":"de-company-investment","language":"de","query":"deutscher Industriehersteller aktuelle Investition Produktionsstandort"}
+{"id":"en-company-hiring","language":"en","query":"Germany engineering company hiring careers open positions"}
+{"id":"de-company-hiring","language":"de","query":"deutsches Engineering Unternehmen Karriere Stellenangebote"}
+{"id":"en-company-sustainability","language":"en","query":"German manufacturer sustainability report emissions targets"}
+{"id":"de-company-sustainability","language":"de","query":"deutscher Hersteller Nachhaltigkeitsbericht Emissionsziele"}
+{"id":"en-company-certifications","language":"en","query":"Germany industrial supplier quality certifications ISO"}
+{"id":"de-company-certifications","language":"de","query":"deutscher Industrielieferant Qualitätszertifizierungen ISO"}
+{"id":"en-company-news","language":"en","query":"German manufacturing company latest news product launch partnership"}
+{"id":"de-company-news","language":"de","query":"deutsches Produktionsunternehmen aktuelle Nachrichten Produkteinführung Partnerschaft"}
+{"id":"en-company-acquisition","language":"en","query":"Germany engineering firm acquisition merger ownership change"}
+{"id":"de-company-acquisition","language":"de","query":"deutsches Engineering Unternehmen Übernahme Fusion Eigentümerwechsel"}
+{"id":"en-company-subsidiaries","language":"en","query":"German industrial group subsidiaries locations legal entities"}
+{"id":"de-company-subsidiaries","language":"de","query":"deutsche Industriegruppe Tochtergesellschaften Standorte Gesellschaften"}
+{"id":"en-sector-automation","language":"en","query":"Germany industrial automation market trends manufacturers"}
+{"id":"de-sector-automation","language":"de","query":"Deutschland Markttrends Industrieautomation Hersteller"}
+{"id":"en-sector-packaging","language":"en","query":"Germany packaging machinery manufacturers market overview"}
+{"id":"de-sector-packaging","language":"de","query":"Deutschland Verpackungsmaschinen Hersteller Marktübersicht"}
+{"id":"en-sector-food","language":"en","query":"German food processing equipment suppliers industry"}
+{"id":"de-sector-food","language":"de","query":"deutsche Anbieter Lebensmittelverarbeitung Anlagen Branche"}
+{"id":"en-sector-medical","language":"en","query":"Germany medical device manufacturers industry companies"}
+{"id":"de-sector-medical","language":"de","query":"Deutschland Medizintechnik Hersteller Unternehmen Branche"}
+{"id":"en-sector-energy","language":"en","query":"German renewable energy equipment manufacturers market"}
+{"id":"de-sector-energy","language":"de","query":"deutsche Hersteller Anlagen erneuerbare Energien Markt"}
+{"id":"en-sector-logistics","language":"en","query":"Germany logistics technology providers warehouse automation"}
+{"id":"de-sector-logistics","language":"de","query":"Deutschland Logistiktechnologie Anbieter Lagerautomatisierung"}
+{"id":"en-sector-construction","language":"en","query":"German construction materials manufacturers industry companies"}
+{"id":"de-sector-construction","language":"de","query":"deutsche Baustoffhersteller Unternehmen Branche"}
+{"id":"en-sector-chemicals","language":"en","query":"Germany specialty chemicals producers company directory"}
+{"id":"de-sector-chemicals","language":"de","query":"Deutschland Spezialchemie Produzenten Unternehmensverzeichnis"}
+{"id":"en-sector-electronics","language":"en","query":"German electronics contract manufacturers capabilities"}
+{"id":"de-sector-electronics","language":"de","query":"deutsche Elektronik Auftragsfertiger Kompetenzen"}
+{"id":"en-sector-mobility","language":"en","query":"Germany automotive supplier companies electric mobility"}
+{"id":"de-sector-mobility","language":"de","query":"Deutschland Automobilzulieferer Unternehmen Elektromobilität"}
+{"id":"en-sector-agriculture","language":"en","query":"German agricultural machinery manufacturers company overview"}
+{"id":"de-sector-agriculture","language":"de","query":"deutsche Landmaschinenhersteller Unternehmensübersicht"}
+{"id":"en-sector-water","language":"en","query":"Germany water technology companies industrial treatment equipment"}
+{"id":"de-sector-water","language":"de","query":"Deutschland Wassertechnik Unternehmen industrielle Aufbereitung"}
+{"id":"en-sector-recycling","language":"en","query":"German recycling equipment manufacturers waste processing"}
+{"id":"de-sector-recycling","language":"de","query":"deutsche Recyclinganlagen Hersteller Abfallverarbeitung"}
+{"id":"en-sector-robotics","language":"en","query":"Germany robotics companies industrial applications manufacturers"}
+{"id":"de-sector-robotics","language":"de","query":"Deutschland Robotik Unternehmen industrielle Anwendungen Hersteller"}
+{"id":"en-sector-sensors","language":"en","query":"German sensor technology companies industrial measurement"}
+{"id":"de-sector-sensors","language":"de","query":"deutsche Sensortechnik Unternehmen industrielle Messtechnik"}
+{"id":"en-sector-software","language":"en","query":"Germany B2B software companies manufacturing execution systems"}
+{"id":"de-sector-software","language":"de","query":"deutsche B2B Softwareunternehmen Manufacturing Execution Systeme"}
+{"id":"en-source-registry","language":"en","query":"Germany official company register search corporate information"}
+{"id":"de-source-registry","language":"de","query":"Deutschland offizielles Unternehmensregister Unternehmensinformationen suchen"}
+{"id":"en-source-chamber","language":"en","query":"Germany chamber of commerce company search directory"}
+{"id":"de-source-chamber","language":"de","query":"Deutschland Industrie und Handelskammer Unternehmenssuche Verzeichnis"}
+{"id":"en-source-tradefair","language":"en","query":"Germany industrial trade fair exhibitor directory automation"}
+{"id":"de-source-tradefair","language":"de","query":"Deutschland Industriemesse Ausstellerverzeichnis Automatisierung"}
+{"id":"en-source-association","language":"en","query":"German engineering industry association member companies"}
+{"id":"de-source-association","language":"de","query":"deutscher Maschinenbau Verband Mitgliedsunternehmen"}
+{"id":"en-source-press","language":"en","query":"Germany manufacturing trade publication company news"}
+{"id":"de-source-press","language":"de","query":"deutsche Fachzeitschrift Produktion Unternehmensnachrichten"}
+{"id":"en-source-tender","language":"en","query":"Germany public procurement industrial equipment tenders"}
+{"id":"de-source-tender","language":"de","query":"Deutschland öffentliche Ausschreibung Industrieausrüstung Vergabe"}
+{"id":"en-source-research","language":"en","query":"Germany industry market research manufacturing statistics official"}
+{"id":"de-source-research","language":"de","query":"Deutschland Branchen Marktstudie Produktionsstatistik amtlich"}
+{"id":"en-source-patents","language":"en","query":"German industrial company patent search public database"}
+{"id":"de-source-patents","language":"de","query":"deutsches Industrieunternehmen Patentrecherche öffentliche Datenbank"}
+{"id":"en-source-filings","language":"en","query":"German company annual accounts filings search public"}
+{"id":"de-source-filings","language":"de","query":"deutsche Unternehmensabschlüsse Jahresabschluss öffentliche Suche"}
+{"id":"en-source-projects","language":"en","query":"Germany industrial construction projects company contracts news"}
+{"id":"de-source-projects","language":"de","query":"Deutschland Industrieprojekte Unternehmen Aufträge Nachrichten"}
+{"id":"en-source-export","language":"en","query":"German exporters industrial products company directory"}
+{"id":"de-source-export","language":"de","query":"deutsche Exporteure Industrieprodukte Unternehmensverzeichnis"}
+{"id":"en-source-supply","language":"en","query":"Germany supplier directory precision manufacturing companies"}
+{"id":"de-source-supply","language":"de","query":"Deutschland Lieferantenverzeichnis Präzisionsfertigung Unternehmen"}
+{"id":"en-source-foundation","language":"en","query":"Germany family-owned industrial businesses company information"}
+{"id":"de-source-foundation","language":"de","query":"Deutschland familiengeführte Industriebetriebe Unternehmensinformationen"}
+{"id":"en-source-startup","language":"en","query":"German industrial technology startups company overview"}
+{"id":"de-source-startup","language":"de","query":"deutsche Industrietechnologie Startups Unternehmensübersicht"}
+{"id":"en-source-location","language":"en","query":"Germany industrial companies by region manufacturing directory"}
+{"id":"de-source-location","language":"de","query":"Industrieunternehmen Deutschland nach Region Produktionsverzeichnis"}
+{"id":"en-source-regulation","language":"en","query":"Germany manufacturing regulatory requirements industry sources"}
+{"id":"de-source-regulation","language":"de","query":"Deutschland Fertigung regulatorische Anforderungen Branchenquellen"}
+{"id":"en-source-statistics","language":"en","query":"Germany manufacturing employment revenue statistics Destatis"}
+{"id":"de-source-statistics","language":"de","query":"Deutschland Verarbeitendes Gewerbe Beschäftigung Umsatz Statistik Destatis"}
+{"id":"en-source-supplychain","language":"en","query":"German industrial supply chain companies supplier relationships"}
+{"id":"de-source-supplychain","language":"de","query":"deutsche industrielle Lieferkette Unternehmen Lieferantenbeziehungen"}
+{"id":"en-source-innovation","language":"en","query":"Germany industrial research development company projects"}
+{"id":"de-source-innovation","language":"de","query":"Deutschland industrielle Forschung Entwicklung Unternehmensprojekte"}
+{"id":"en-source-patent-office","language":"en","query":"Germany patent office company search technology classification"}
+{"id":"de-source-patent-office","language":"de","query":"Deutschland Patentamt Unternehmenssuche Technologiefeld Klassifikation"}
+{"id":"en-source-investment","language":"en","query":"German industrial company expansion investment press release"}
+{"id":"de-source-investment","language":"de","query":"deutsches Industrieunternehmen Erweiterung Investition Pressemitteilung"}
