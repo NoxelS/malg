@@ -8,6 +8,7 @@
     <app-state-message message="Loading job details…" />
   } @else if (error() === 'not-found' && !job()) {
     <app-state-message message="This research job could not be found." tone="error" />
+    <button tuiButton type="button" appearance="secondary" (click)="refresh()">Retry</button>
   } @else if (error() && !job()) {
     <app-state-message message="Job details could not be loaded right now. Try again." tone="error" />
     <button tuiButton type="button" appearance="secondary" (click)="refresh()">Retry</button>

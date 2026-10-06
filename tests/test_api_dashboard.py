@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.fixtures import authenticated_client
 
-from malg.database.models import Base, ResearchJob, WorkerHeartbeat
+from malg.database.models import Base, ResearchJob, ResearchStageResult, WorkerHeartbeat
 
 
 def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
@@ -86,6 +86,13 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
             {"kind": "icp", "average_duration_seconds": 120.0},
             {"kind": "account", "average_duration_seconds": None},
         ],
+        "search": {
+            "status": "unknown",
+            "reason_code": None,
+            "observed_at": None,
+            "next_retry_at": None,
+            "job_id": None,
+        },
     }
     workers = client.get("/api/v1/workers").json()
     assert [worker["worker_id"] for worker in workers] == ["running-worker", "idle-worker"]
@@ -109,3 +116,50 @@ def test_dashboard_reports_all_statuses_and_current_worker_claims() -> None:
     second_page = client.get("/api/v1/workers/overview", params={"limit": 1, "offset": 1})
     assert [worker["worker_id"] for worker in second_page.json()["items"]] == ["idle-worker"]
     assert client.get("/api/v1/workers/overview", params={"limit": 101}).status_code == 422
+
+
+def test_dashboard_exposes_provider_cooldown_and_retry_readiness() -> None:
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    now = datetime.now(UTC)
+    with sessions.begin() as session:
+        for identifier, stage_key, reason, observed in [
+            (
+                "outage",
+                "account.research.search_health",
+                "search_captcha",
+                now - timedelta(seconds=1),
+            ),
+            ("budget", "account.research", "search_stage_limit", now),
+        ]:
+            session.add(
+                ResearchStageResult(
+                    stage_result_id=identifier,
+                    workflow_id="workflow",
+                    job_id="affected-job",
+                    stage_key=stage_key,
+                    schema_version=2,
+                    revision=1,
+                    input_hash=identifier,
+                    outcome="needs_review",
+                    payload={},
+                    reason_code=reason,
+                    created_at=observed,
+                )
+            )
+    client = authenticated_client(engine)
+    search = client.get("/api/v1/dashboard").json()["search"]
+    assert search["status"] == "paused"
+    assert search["reason_code"] == "search_captcha"
+    assert search["job_id"] == "affected-job"
+    assert datetime.fromisoformat(search["next_retry_at"]) > now
+    with sessions.begin() as session:
+        session.get(ResearchStageResult, "outage").created_at = now - timedelta(days=1)
+    search = client.get("/api/v1/dashboard").json()["search"]
+    assert search["status"] == "retry_ready"
+    assert search["reason_code"] == "search_captcha"
+    assert datetime.fromisoformat(search["next_retry_at"]) < now
+    engine.dispose()

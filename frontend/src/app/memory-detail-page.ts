@@ -35,6 +35,7 @@ export class MemoryDetailPage implements OnInit {
       const memoryId = params.get('memoryId');
       if (!memoryId) return;
       this.memoryId = memoryId;
+      this.memory.set(null);
       ++this.generation;
       this.inFlight = false;
       this.loading.set(true);
