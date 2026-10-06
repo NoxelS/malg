@@ -115,6 +115,20 @@ export class DashboardPage implements OnInit {
     return seconds === null ? 'No successful jobs yet' : this.formatDuration(Math.round(seconds));
   }
 
+  protected formatSearchDate(value: string | null): string {
+    return formatDate({value});
+  }
+
+  protected searchFailureLabel(reason: string | null): string {
+    const labels: Record<string, string> = {
+      search_captcha: 'a CAPTCHA challenge', search_rate_limited: 'provider rate limiting',
+      search_provider_blocked: 'blocked provider access', search_provider_failure: 'a provider failure',
+      search_http_error: 'an HTTP failure', search_transport_error: 'a connection failure',
+      search_parser_failure: 'an invalid search response',
+    };
+    return labels[reason ?? ''] ?? 'a search outage';
+  }
+
   protected durationLabel(duration: DashboardJobDuration): string {
     return duration.kind === 'icp' ? 'ICP' : duration.kind.charAt(0).toUpperCase() + duration.kind.slice(1);
   }

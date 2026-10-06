@@ -12,8 +12,8 @@ from malg.core.models.dashboard import DashboardSummary, WorkerOverviewPage, Wor
 from malg.database.dashboard import get_dashboard_summary, list_active_workers, list_worker_overview
 
 
-def dashboard_router(active_worker_timeout_seconds: int) -> APIRouter:
-    """Build dashboard routes using the startup-captured liveness timeout."""
+def dashboard_router(active_worker_timeout_seconds: int, search_retry_seconds: int) -> APIRouter:
+    """Build routes using startup-captured liveness and provider cooldown settings."""
     router = APIRouter(prefix="/api/v1", tags=["dashboard"])
 
     def active_since() -> datetime:
@@ -21,7 +21,13 @@ def dashboard_router(active_worker_timeout_seconds: int) -> APIRouter:
 
     @router.get("/dashboard", response_model=DashboardSummary)
     def dashboard(session: SessionDependency) -> DashboardSummary:
-        return get_dashboard_summary(session, active_since())
+        now = datetime.now(UTC)
+        return get_dashboard_summary(
+            session,
+            now - timedelta(seconds=active_worker_timeout_seconds),
+            now=now,
+            search_retry_seconds=search_retry_seconds,
+        )
 
     @router.get("/workers", response_model=list[WorkerSummary])
     def workers(session: SessionDependency) -> list[WorkerSummary]:

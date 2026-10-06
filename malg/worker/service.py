@@ -71,6 +71,7 @@ from malg.database.models import (
 from malg.database.research import (
     canonical_input_hash,
     create_workflow_for_job,
+    latest_search_outage,
     persist_discovered_candidate,
     persist_stage_result,
 )
@@ -555,6 +556,7 @@ async def _child_stage_async(
         if isinstance(error, SearchUnavailable):
             health = {
                 "health": "unavailable",
+                "reason_code": error.reason_code,
                 "engine_errors": agent.web_search.engine_errors
                 if agent is not None and hasattr(agent, "web_search")
                 else [],
@@ -572,7 +574,7 @@ async def _child_stage_async(
                     outcome="needs_review",
                     payload=health,
                     now=datetime.now(UTC),
-                    reason_code="search_unavailable",
+                    reason_code=error.reason_code,
                 )
             if trace:
                 trace.finish_failure(error)
@@ -649,14 +651,7 @@ class ResearchWorker:
     async def run_once(self) -> bool:
         """Claim one job and cancel its active supervisor as soon as ownership is lost."""
         with self.session_factory.begin() as session:
-            outage = session.scalar(
-                select(ResearchStageResult)
-                .where(
-                    ResearchStageResult.reason_code == "search_unavailable",
-                )
-                .order_by(ResearchStageResult.created_at.desc())
-                .limit(1)
-            )
+            outage = latest_search_outage(session)
             if (
                 outage is not None
                 and (datetime.now(UTC) - _aware(outage.created_at)).total_seconds()

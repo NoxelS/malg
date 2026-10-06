@@ -51,7 +51,7 @@ Browser-capable agents also receive a per-agent SearXNG discovery client and
 `self.retrieval.search(query)` / `self.retrieval.fetch(url, purpose="evidence")`.
 Generation uses the latter pair to retain host-known excerpts for exact-quote validation.
 Search titles and snippets are untrusted discovery hints, not evidence. Repeated normalized
-queries and URLs reuse per-stage observations. Failed external requests and redirects consume
+URLs reuse per-stage observations; searches use the shared database cache. Failed external requests and redirects consume
 the shared finite workflow budget.
 
 Failed fetches return a human-readable diagnostic in `page.text` and no evidence
@@ -127,12 +127,21 @@ the last ten dispositions and exclusions. Local stage limits advance to another
 attempt; workflow-wide limits and initialization failures stop the job.
 
 SearXNG engine errors are retained. Partial results are `degraded`; empty results
-with engine failures raise `search_unavailable`, while a healthy empty result remains
-a valid no-hit response. Search starts are paced across PostgreSQL workers using an
-advisory transaction lock and the configured minimum interval. Provider outages are
-persisted separately, fail the active job with a safe retriable code, and pause worker
-claiming for 300 seconds (`search_unavailable_retry_seconds`). Queued jobs wait through
-the cooldown; failed jobs can be explicitly retried through the existing job API.
+with engine failures raise `SearchUnavailable` with a safe provider reason code.
+CAPTCHA, rate limiting, blocked access, HTTP, transport and parser failures are
+distinguished from healthy empty results. A nonempty response with no usable result
+entries is a parser failure. After an outage, the account strategy suspends search
+for the remainder of the stage, including additional calls in the same model response,
+while allowing evidence fetches from already observed URLs and candidate checkpoints.
+If known evidence cannot produce a result, the provider failure propagates for retry.
+
+Search starts are paced across PostgreSQL workers using an advisory transaction lock
+and the configured minimum interval. Provider outage checkpoints pause worker claiming
+for 300 seconds (`search_unavailable_retry_seconds`); local search budget denials never
+activate this shared cooldown. Queued jobs wait through the cooldown; failed jobs can
+be explicitly retried through the existing job API. The Dashboard shows the provider
+reason, last outage, earliest retry time and affected job. After the cooldown, it reports
+retry readiness rather than assuming recovery; refresh the dashboard to update its state.
 
 The final account publication checkpoint includes `candidate_results`, `review_candidates`,
 `candidate_limit`, and `reason_code`. Review entries link to retained research checkpoints for

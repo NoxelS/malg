@@ -145,6 +145,7 @@ class RetrievalStrategy(GenerationStrategy):
         runtime.event_manager.add(Task(prompt=prompt))
         context_chars = len(prompt)
         seen: set[tuple[str, str]] = set()
+        search_failure: SearchUnavailable | None = None
         no_progress = 0
         generation = runtime.get_generation_id() or call.id
         parent_generation = runtime.get_parent_generation_id()
@@ -176,6 +177,8 @@ class RetrievalStrategy(GenerationStrategy):
                     or no_progress == self.config.max_no_progress_turns - 1
                     else tools
                 )
+                if search_failure is not None and turn < self.config.max_reasoning_turns:
+                    active_tools = [tool for tool in tools if tool.name != "search"]
                 response, _ = await runtime.generate(
                     tools=active_tools, tool_choice="required", max_tokens=4096
                 )
@@ -198,8 +201,11 @@ class RetrievalStrategy(GenerationStrategy):
                             raise ValueError("Tool arguments exceed the bounded input size.")
                         args = model.model_validate_json(action.arguments)
                         if action.name == "finish":
+                            result = cast(Any, args).result
+                            if search_failure is not None and getattr(result, "data", None) is None:
+                                raise search_failure
                             finished = success = True
-                            return cast(Any, args).result
+                            return result
                         signature_args = args.model_dump()
                         if isinstance(args, SearchArguments):
                             signature_args["query"] = " ".join(args.query.split()).casefold()
@@ -215,10 +221,20 @@ class RetrievalStrategy(GenerationStrategy):
                             }
                         elif isinstance(args, SearchArguments):
                             assert self.retrieval is not None
-                            result = await self.retrieval.search(args.query, language=args.language)
-                            known_urls.update(observed_urls(asdict(result)))
-                            output = asdict(result)
-                            progressed |= bool(result.results)
+                            # A response can contain several tool calls; suspend later
+                            # discovery calls in that same response as well as future turns.
+                            if search_failure is not None:
+                                output = {
+                                    "reason_code": "search_suspended",
+                                    "instruction": "Use already observed URLs or finish; discovery is suspended for this stage.",
+                                }
+                            else:
+                                result = await self.retrieval.search(
+                                    args.query, language=args.language
+                                )
+                                known_urls.update(observed_urls(asdict(result)))
+                                output = asdict(result)
+                                progressed |= bool(result.results)
                         elif isinstance(args, FetchArguments):
                             assert self.retrieval is not None
                             canonical = canonicalize_url(args.url)
@@ -257,6 +273,8 @@ class RetrievalStrategy(GenerationStrategy):
                             "detail": str(error)[:500],
                         }
                     except SearchUnavailable as error:
+                        if action.name == "finish":
+                            raise
                         if (
                             self.retrieval
                             and self.retrieval.search_client
@@ -277,15 +295,21 @@ class RetrievalStrategy(GenerationStrategy):
                                 )
                             )
                             continue
+                        search_failure = error
                         record_active_event(
                             "search_unavailable",
                             {
+                                "reason_code": error.reason_code,
                                 "engine_errors": self.retrieval.search_client.engine_errors
                                 if self.retrieval and self.retrieval.search_client
-                                else []
+                                else [],
                             },
                         )
-                        raise
+                        output = {
+                            "health": "unavailable",
+                            "reason_code": error.reason_code,
+                            "instruction": "Discovery is unavailable. Continue only with already observed URLs, or finish if the known evidence is sufficient.",
+                        }
                     serialized = json.dumps(output, ensure_ascii=False)
                     context_chars += len(serialized)
                     runtime.event_manager.add(
@@ -298,6 +322,8 @@ class RetrievalStrategy(GenerationStrategy):
                     )
                 no_progress = 0 if progressed else no_progress + 1
                 if no_progress >= self.config.max_no_progress_turns:
+                    if search_failure is not None:
+                        raise search_failure
                     raise BudgetExhausted(
                         "research stopped making progress",
                         reason_code="no_progress_stage_limit",

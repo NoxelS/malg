@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from malg.core.models.dashboard import (
     DashboardJobCounts,
     DashboardJobDuration,
     DashboardOutcomeCounts,
+    DashboardSearchStatus,
     DashboardSummary,
     WorkerJobSummary,
     WorkerOverviewPage,
@@ -18,10 +19,35 @@ from malg.core.models.dashboard import (
 )
 from malg.core.models.jobs import ResearchJobKind, ResearchJobStatus
 from malg.database.models import ResearchJob, WorkerHeartbeat
+from malg.database.research import latest_search_outage
 
 
-def get_dashboard_summary(session: Session, active_since: datetime) -> DashboardSummary:
-    """Return local worker and job aggregates without a CRM data mirror."""
+def get_dashboard_summary(
+    session: Session,
+    active_since: datetime,
+    *,
+    now: datetime,
+    search_retry_seconds: int,
+) -> DashboardSummary:
+    """Return local aggregates and provider cooldown using the worker's retry interval.
+
+    The caller supplies UTC time and configured cooldown seconds. No external
+    search probe is made; retry readiness is distinct from confirmed recovery.
+    """
+    search = DashboardSearchStatus()
+    outage = latest_search_outage(session)
+    if outage is not None:
+        observed_at = outage.created_at
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        next_retry_at = observed_at + timedelta(seconds=search_retry_seconds)
+        search = DashboardSearchStatus(
+            status="paused" if now < next_retry_at else "retry_ready",
+            reason_code=outage.reason_code,
+            observed_at=observed_at,
+            next_retry_at=next_retry_at,
+            job_id=outage.job_id,
+        )
     counts = {status: 0 for status in ("queued", "running", "succeeded", "failed", "cancelled")}
     for status, count in session.execute(
         select(ResearchJob.status, func.count()).group_by(ResearchJob.status)
@@ -79,6 +105,7 @@ def get_dashboard_summary(session: Session, active_since: datetime) -> Dashboard
         jobs=DashboardJobCounts(**counts),
         outcomes=DashboardOutcomeCounts(**outcomes),
         job_durations=job_durations,
+        search=search,
     )
 
 
