@@ -51,7 +51,7 @@ Browser-capable agents also receive a per-agent SearXNG discovery client and
 `self.retrieval.search(query)` / `self.retrieval.fetch(url, purpose="evidence")`.
 Generation uses the latter pair to retain host-known excerpts for exact-quote validation.
 Search titles and snippets are untrusted discovery hints, not evidence. Repeated normalized
-queries and URLs reuse per-stage observations. Failed external requests and redirects consume
+URLs reuse per-stage observations; searches use the shared database cache. Failed external requests and redirects consume
 the shared finite workflow budget.
 
 Failed fetches return a human-readable diagnostic in `page.text` and no evidence
@@ -82,9 +82,48 @@ construction. `MALG_BROWSER__TIMEOUT_SECONDS` controls each MCP request timeout.
 
 SearXNG is private to the Compose network at `http://searxng:8080`; it has no published host port.
 Configure it through `[default.search]` or `MALG_SEARCH__...`: `timeout_seconds`, `max_results`,
-`max_requests_per_run`, `min_interval_seconds`, `languages`, and `categories`. Set
-`SEARXNG_SECRET` in the environment before starting tools outside local development. The service
-exposes JSON results only and has no public-instance features, image proxy, or autocomplete.
+`max_requests_per_run`, `min_interval_seconds`, `cache_ttl_seconds`, `languages`, and
+`categories`. Every successful search response is stored as complete JSON in PostgreSQL's
+`search_cache` table. Entries survive agent runs, worker processes, and restarts. No entry-count
+eviction removes stored queries. The 300-second default TTL controls reuse; after expiry a
+successful refresh replaces the previous response. Expired results are never returned during
+provider failures. HTTP errors and malformed responses are not cached; partial engine failures
+are also excluded from successful caching. A two-second failure marker shares an outage with
+concurrent waiters while allowing a later retry.
+
+Cache identity includes the versioned endpoint, exact query after whitespace normalization,
+language, categories, safe-search, and result depth. Refreshes use short database transactions
+and expiring lease tokens; only the current owner can publish. Concurrent workers wait for that
+response instead of issuing another request. Worker death permits another owner after lease
+expiry. Lease expiry can cause another upstream attempt if the original request outlives its lease.
+Cache hits consume no upstream request budget. Results remain untrusted discovery hints.
+
+Apply the bundled Alembic migration before starting workers. Agents use `DATABASE_URL` for the
+shared cache; cache database failures propagate instead of bypassing coordination. Durable
+`upstream_requests`, `cache_hits`, and `coalesced_requests` counters are stored per query. Inspect
+aggregate traffic and reuse without exposing query text:
+
+```sql
+SELECT sum(upstream_requests) AS upstream_requests,
+       sum(cache_hits) AS cache_hits,
+       sum(coalesced_requests) AS coalesced_requests
+FROM search_cache;
+```
+
+Set `SEARXNG_SECRET` in the environment before starting tools outside local development.
+The service exposes JSON results only and has no public-instance features, image proxy, or
+autocomplete. Deployed engine selection remains owned by Sisyphus; validate a minimal engine
+set there using representative queries before changing deployment settings.
+
+MALG builds a patched SearXNG image from `docker/searxng/Dockerfile`. The pinned upstream
+DuckDuckGo parser crashes when a result block lacks a destination link; the patch skips
+those blocks and preserves valid results in the same response. Offline parser regression
+checks run during the image build, including preservation of CAPTCHA errors. Run
+`docker build -t malg-searxng:local docker/searxng` to validate it independently.
+Review the patch against upstream when upgrading the base image. This fixes malformed-result
+parsing, not provider CAPTCHA or rate-limit blocks. CI publishes the patched image as
+`ghcr.io/noxels/malg-searxng` with release and commit tags; production must explicitly
+adopt that image in its deployment configuration to receive the fix.
 
 ## Account discovery and outcomes
 

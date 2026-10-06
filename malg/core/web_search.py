@@ -13,6 +13,7 @@ import httpx
 
 from malg.config import SearchConfig
 from malg.core.budget import BudgetExhausted, deny_external_attempt, reserve_external_attempt
+from malg.database.search_cache import SearchCache, default_search_cache
 
 _MAX_QUERY_LENGTH = 300
 SEARCH_OUTAGE_REASON_CODES = frozenset(
@@ -63,9 +64,19 @@ class SearxngSearchClient:
     """
 
     def __init__(
-        self, config: SearchConfig, *, request_slot: Callable[[], Awaitable[None]] | None = None
+        self,
+        config: SearchConfig,
+        *,
+        request_slot: Callable[[], Awaitable[None]] | None = None,
+        cache: SearchCache | None = None,
     ) -> None:
+        """Use an injected cache or the shared DATABASE_URL pool and optional worker pacing.
+
+        Apply the cache migration before searching. Cache hits bypass external request pacing
+        and budgets; misses reserve an attempt before sending HTTP. Construction creates no schema.
+        """
         self._config = config
+        self._cache = cache if cache is not None else default_search_cache()
         self.request_slot = request_slot
         self.engine_errors: tuple[dict[str, str], ...] = ()
         self.health = "unknown"
@@ -101,49 +112,100 @@ class SearxngSearchClient:
         if not self._config.enabled:
             raise SearchUnavailable("Web search is disabled by configuration.")
 
-        await self._wait_for_request_slot()
         self.engine_errors = ()
         self.health = "unavailable"
         self.failure_reason_code = None
+        normalized_query = " ".join(query.split())
+        request: dict[str, Any] = {
+            "version": 1,
+            "endpoint": self._config.url,
+            "params": {
+                "q": normalized_query,
+                "format": "json",
+                "language": language,
+                "categories": ",".join(self._config.categories),
+                "safesearch": 2,
+            },
+            "result_depth": self._config.max_results,
+        }
+        key = self._cache.key(request)
+        counted_wait = False
+        # Cover pacing, HTTP timeout, and publication without holding a DB transaction.
+        lease_seconds = (
+            self._config.timeout_seconds
+            + self._config.max_requests_per_run * self._config.min_interval_seconds
+            + 30
+        )
+        while True:
+            lookup = await asyncio.to_thread(
+                self._cache.lookup, request, lease_seconds=lease_seconds
+            )
+            if lookup.state == "hit":
+                return self._observe(lookup.payload)
+            if lookup.state == "failed":
+                self.failure_reason_code = "search_unavailable"
+                raise SearchUnavailable("Private search request failed.")
+            if lookup.state == "owner":
+                assert lookup.token is not None
+                break
+            if not counted_wait:
+                await asyncio.to_thread(self._cache.count, key, "coalesced_requests")
+                counted_wait = True
+            await asyncio.sleep(0.1)
+        token = lookup.token
         try:
+            await self._wait_for_request_slot()
+            await asyncio.to_thread(self._cache.count, key, "upstream_requests")
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._config.timeout_seconds, connect=5.0)
             ) as client:
-                response = await client.get(
-                    f"{self._config.url}/search",
-                    params={
-                        "q": query,
-                        "format": "json",
-                        "language": language,
-                        "categories": ",".join(self._config.categories),
-                        "safesearch": 2,
-                    },
-                )
+                response = await client.get(f"{self._config.url}/search", params=request["params"])
                 response.raise_for_status()
                 payload: object = response.json()
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            reason_code = (
-                "search_rate_limited"
-                if status == 429
-                else "search_provider_blocked"
-                if status in {401, 403}
-                else "search_http_error"
+            results = self._observe(payload)
+            # Partial engine failures are returned but never retained as healthy.
+            if self.engine_errors:
+                await asyncio.to_thread(self._cache.release, key, token, failed=True)
+            else:
+                await asyncio.to_thread(
+                    self._cache.finish, key, token, payload, self._config.cache_ttl_seconds
+                )
+            return results
+        except BaseException as exc:
+            await asyncio.shield(
+                asyncio.to_thread(
+                    self._cache.release,
+                    key,
+                    token,
+                    failed=isinstance(exc, (httpx.HTTPError, ValueError, SearchUnavailable)),
+                )
             )
+            if isinstance(exc, SearchUnavailable):
+                self.failure_reason_code = exc.reason_code
+                raise
+            if isinstance(exc, httpx.HTTPStatusError):
+                status = exc.response.status_code
+                reason_code = (
+                    "search_rate_limited"
+                    if status == 429
+                    else "search_provider_blocked"
+                    if status in {401, 403}
+                    else "search_http_error"
+                )
+                message = "Private search returned an HTTP error."
+            elif isinstance(exc, httpx.HTTPError):
+                reason_code = "search_transport_error"
+                message = "Private search request failed."
+            elif isinstance(exc, ValueError):
+                reason_code = "search_parser_failure"
+                message = "Private search returned invalid JSON."
+            else:
+                raise
             self.failure_reason_code = reason_code
-            raise SearchUnavailable(
-                "Private search returned an HTTP error.", reason_code=reason_code
-            ) from exc
-        except httpx.HTTPError as exc:
-            self.failure_reason_code = "search_transport_error"
-            raise SearchUnavailable(
-                "Private search request failed.", reason_code=self.failure_reason_code
-            ) from exc
-        except ValueError as exc:
-            self.failure_reason_code = "search_parser_failure"
-            raise SearchUnavailable(
-                "Private search returned invalid JSON.", reason_code=self.failure_reason_code
-            ) from exc
+            raise SearchUnavailable(message, reason_code=reason_code) from exc
+
+    def _observe(self, payload: object) -> list[SearchResult]:
+        """Restore engine diagnostics identically for fresh and cached search responses."""
         try:
             results = self._normalize_results(payload)
         except SearchUnavailable as exc:
