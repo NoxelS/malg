@@ -4,49 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from threading import RLock
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 from malg.config import SearchConfig
+from malg.database.search_cache import SearchCache, default_search_cache
 
 _MAX_QUERY_LENGTH = 300
-_SEARCH_CACHE: OrderedDict[tuple[object, ...], tuple[float, tuple[SearchResult, ...]]] = (
-    OrderedDict()
-)
-_SEARCH_INFLIGHT: dict[tuple[object, ...], asyncio.Future[tuple[SearchResult, ...]]] = {}
-_SEARCH_CACHE_LOCK = RLock()
-_UPSTREAM_REQUESTS = 0
-_CACHE_HITS = 0
-_COALESCED_REQUESTS = 0
-
-
-@dataclass(frozen=True)
-class SearchMetrics:
-    """Process-local counters for upstream search requests and result reuse."""
-
-    upstream_requests: int
-    cache_hits: int
-    coalesced_requests: int
-
-
-def get_search_metrics() -> SearchMetrics:
-    """Return process-local upstream request and cache-reuse counters."""
-    with _SEARCH_CACHE_LOCK:
-        return SearchMetrics(_UPSTREAM_REQUESTS, _CACHE_HITS, _COALESCED_REQUESTS)
-
-
-def clear_search_cache() -> None:
-    """Clear cached results and process-local metrics, primarily for controlled operations."""
-    global _UPSTREAM_REQUESTS, _CACHE_HITS, _COALESCED_REQUESTS
-    with _SEARCH_CACHE_LOCK:
-        _SEARCH_CACHE.clear()
-        _UPSTREAM_REQUESTS = _CACHE_HITS = _COALESCED_REQUESTS = 0
 
 
 class SearchRateLimitExceeded(RuntimeError):
@@ -77,8 +45,14 @@ class SearxngSearchClient:
     search engines.
     """
 
-    def __init__(self, config: SearchConfig) -> None:
+    def __init__(self, config: SearchConfig, *, cache: SearchCache | None = None) -> None:
+        """Use the injected cache or the shared database configured by DATABASE_URL.
+
+        Schema migration must precede searches. Construction creates no schema and sends no
+        network request; the default cache lazily uses a shared connection pool.
+        """
         self._config = config
+        self._cache = cache if cache is not None else default_search_cache()
         self._request_count = 0
         self._last_request_at: float | None = None
         self._request_lock = asyncio.Lock()
@@ -106,71 +80,75 @@ class SearxngSearchClient:
             raise SearchUnavailable("Web search is disabled by configuration.")
 
         normalized_query = " ".join(query.split())
-        key = (
-            self._config.url,
-            normalized_query.casefold(),
-            language,
-            self._config.categories,
-            2,
-            self._config.max_results,
+        request: dict[str, Any] = {
+            "version": 1,
+            "endpoint": self._config.url,
+            "params": {
+                "q": normalized_query,
+                "format": "json",
+                "language": language,
+                "categories": ",".join(self._config.categories),
+                "safesearch": 2,
+            },
+            "result_depth": self._config.max_results,
+        }
+        key = self._cache.key(request)
+        counted_wait = False
+        # Cover pacing, HTTP timeout, and publication without holding a DB transaction.
+        lease_seconds = (
+            self._config.timeout_seconds
+            + self._config.max_requests_per_run * self._config.min_interval_seconds
+            + 30
         )
-        now = time.monotonic()
-        global _CACHE_HITS, _COALESCED_REQUESTS
-        owner = False
-        with _SEARCH_CACHE_LOCK:
-            cached = _SEARCH_CACHE.get(key)
-            if cached is not None and now - cached[0] < self._config.cache_ttl_seconds:
-                _SEARCH_CACHE.move_to_end(key)
-                _CACHE_HITS += 1
-                return list(cached[1])
-            if cached is not None:
-                del _SEARCH_CACHE[key]
-            pending = _SEARCH_INFLIGHT.get(key)
-            if pending is not None:
-                _COALESCED_REQUESTS += 1
-            else:
-                pending = asyncio.get_running_loop().create_future()
-                _SEARCH_INFLIGHT[key] = pending
-                owner = True
-        if not owner:
-            return list(await asyncio.shield(pending))
-
+        while True:
+            lookup = await asyncio.to_thread(
+                self._cache.lookup, request, lease_seconds=lease_seconds
+            )
+            if lookup.state == "hit":
+                return self._normalize_results(lookup.payload)
+            if lookup.state == "failed":
+                raise SearchUnavailable("Private search request failed.")
+            if lookup.state == "owner":
+                assert lookup.token is not None
+                break
+            if not counted_wait:
+                await asyncio.to_thread(self._cache.count, key, "coalesced_requests")
+                counted_wait = True
+            await asyncio.sleep(0.1)
+        token = lookup.token
         try:
             await self._wait_for_request_slot()
+            await asyncio.to_thread(self._cache.count, key, "upstream_requests")
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._config.timeout_seconds, connect=5.0)
             ) as client:
-                response = await client.get(
-                    f"{self._config.url}/search",
-                    params={
-                        "q": normalized_query,
-                        "format": "json",
-                        "language": language,
-                        "categories": ",".join(self._config.categories),
-                        "safesearch": 2,
-                    },
-                )
+                response = await client.get(f"{self._config.url}/search", params=request["params"])
                 response.raise_for_status()
                 payload: object = response.json()
-            results = tuple(self._normalize_results(payload))
+            results = self._normalize_results(payload)
+            assert isinstance(payload, dict)
+            if not results and payload.get("unresponsive_engines"):
+                raise SearchUnavailable("Private search engines are unavailable.")
+            # Partial engine outages are returned to this caller but never retained as healthy.
+            if payload.get("unresponsive_engines"):
+                await asyncio.to_thread(self._cache.release, key, token, failed=True)
+            else:
+                await asyncio.to_thread(
+                    self._cache.finish, key, token, payload, self._config.cache_ttl_seconds
+                )
+            return results
         except BaseException as exc:
-            with _SEARCH_CACHE_LOCK:
-                _SEARCH_INFLIGHT.pop(key, None)
-                if not pending.done():
-                    pending.set_exception(exc)
-                    pending.exception()
-            if isinstance(exc, httpx.HTTPError):
+            await asyncio.shield(
+                asyncio.to_thread(
+                    self._cache.release,
+                    key,
+                    token,
+                    failed=isinstance(exc, (httpx.HTTPError, SearchUnavailable, ValueError)),
+                )
+            )
+            if isinstance(exc, (httpx.HTTPError, ValueError)):
                 raise SearchUnavailable("Private search request failed.") from exc
             raise
-        with _SEARCH_CACHE_LOCK:
-            _SEARCH_CACHE[key] = (time.monotonic(), results)
-            _SEARCH_CACHE.move_to_end(key)
-            while len(_SEARCH_CACHE) > self._config.cache_max_entries:
-                _SEARCH_CACHE.popitem(last=False)
-            _SEARCH_INFLIGHT.pop(key, None)
-            if not pending.done():
-                pending.set_result(results)
-        return list(results)
 
     def _validate_query(self, query: str) -> None:
         if not isinstance(query, str) or not query.strip() or len(query) > _MAX_QUERY_LENGTH:
@@ -194,9 +172,6 @@ class SearxngSearchClient:
             reserve_external_attempt("search")
             self._request_count += 1
             self._last_request_at = time.monotonic()
-            global _UPSTREAM_REQUESTS
-            with _SEARCH_CACHE_LOCK:
-                _UPSTREAM_REQUESTS += 1
 
     def _normalize_results(self, payload: object) -> list[SearchResult]:
         if not isinstance(payload, Mapping):

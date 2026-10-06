@@ -49,7 +49,6 @@ class SearchConfig:
     languages: tuple[str, ...]
     categories: tuple[str, ...]
     cache_ttl_seconds: int = 300
-    cache_max_entries: int = 1024
 
 
 @dataclass(frozen=True)
@@ -385,7 +384,7 @@ def get_search_config(settings: Dynaconf) -> SearchConfig:
     if invalid_integer_fields:
         names = ", ".join(invalid_integer_fields)
         raise ValueError(f"Search configuration field(s) must be positive integers: {names}.")
-    for field, default in (("cache_ttl_seconds", 300), ("cache_max_entries", 1024)):
+    for field, default in (("cache_ttl_seconds", 300),):
         value = search.get(field, default)
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise ValueError(f"Search configuration field {field} must be a positive integer.")
@@ -423,7 +422,6 @@ def get_search_config(settings: Dynaconf) -> SearchConfig:
         languages=tuple(search["languages"]),
         categories=tuple(search["categories"]),
         cache_ttl_seconds=search.get("cache_ttl_seconds", 300),
-        cache_max_entries=search.get("cache_max_entries", 1024),
     )
 
 

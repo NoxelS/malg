@@ -69,25 +69,19 @@ class RetrievalService:
     def __init__(self, search_client: SearxngSearchClient | None = None) -> None:
         self.search_client = search_client
         self._cache: dict[str, FetchObservation] = {}
-        self._query_cache: dict[tuple[str, str], SearchResponse] = {}
 
     async def search(self, query: str, *, language: str = "en") -> SearchResponse:
         """Return SearchResponse with ``.results`` containing title/url/snippet attributes.
 
         Use ``response.results`` and ``hit.url``, not dictionary indexing or vars().
         Snippets are discovery clues, never host-verified evidence. Repeated normalized
-        query/language pairs reuse the cached response without another request.
+        searches use the shared database cache and its configured freshness policy.
         """
-        normalized = " ".join(query.split()).casefold()
-        key = (normalized, language)
-        if key in self._query_cache:
-            return self._query_cache[key]
         if self.search_client is None:
             response = SearchResponse((), health="unavailable")
         else:
             results = tuple(await self.search_client.search(query, language=language))
             response = SearchResponse(results, health="unknown")
-        self._query_cache[key] = response
         return response
 
     async def fetch(self, url: str, *, purpose: str) -> FetchObservation:
