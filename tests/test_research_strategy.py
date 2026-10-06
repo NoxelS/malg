@@ -162,17 +162,26 @@ def test_search_health_preserves_partial_results(monkeypatch, errors, expected):
     assert bool(response.engine_errors) == bool(errors)
 
 
-def test_empty_search_with_engine_failures_stops_before_more_model_calls(monkeypatch):
+def test_search_outage_allows_fetching_urls_known_before_discovery(monkeypatch):
     monkeypatch.setattr("malg.core.web_search.httpx.AsyncClient", _FakeHTTPClient)
     _FakeHTTPClient.payload = {"results": [], "unresponsive_engines": [["duckduckgo", "CAPTCHA"]]}
-    runtime = _Runtime([("search", {"query": "software"}), _finish()])
+    calls = redirect_transport(monkeypatch, None, body=b"Known public evidence")
+    url = "http://public.example/"
+    runtime = _Runtime(
+        [
+            ("search", {"query": "software"}),
+            ("fetch", {"url": url}),
+            _finish(),
+        ]
+    )
     with pytest.raises(SearchUnavailable):
         asyncio.run(
             RetrievalStrategy(
                 ResearchConfig(), retrieval=RetrievalService(SearxngSearchClient(_config()))
-            ).execute(runtime, _call())
+            ).execute(runtime, _call(website=url))
         )
-    assert len(runtime.requests) == 1
+    assert calls == [url]
+    assert len(runtime.requests) == 3
 
 
 def test_context_limit_stops_before_request():
