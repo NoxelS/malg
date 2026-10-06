@@ -119,6 +119,9 @@ jobs:
       - name: Build frontend image without pushing
         run: docker build --file frontend/Dockerfile --tag malg-frontend:ci frontend
 
+      - name: Build and test patched search image without pushing
+        run: docker build --tag malg-searxng:ci docker/searxng
+
   publish:
     name: Publish images and release
     if: github.event_name == 'push'
@@ -299,16 +302,36 @@ jobs:
           sbom: true
           provenance: mode=max
 
+      - name: Build and push patched search image
+        if: steps.release.outputs.publish == 'true'
+        id: search
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/searxng
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/noxels/malg-searxng:${{ steps.release.outputs.tag }}
+            ghcr.io/noxels/malg-searxng:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.release.outputs.tag }}
+          sbom: true
+          provenance: mode=max
+
       - name: Verify published image digests
         if: steps.release.outputs.publish == 'true'
         shell: bash
         env:
           BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
           FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+          SEARCH_DIGEST: ${{ steps.search.outputs.digest }}
         run: |
           set -euo pipefail
           [[ "$BACKEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
           [[ "$FRONTEND_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
+          [[ "$SEARCH_DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
 
       - name: Create GitHub release
         if: steps.release.outputs.publish == 'true'
@@ -318,6 +341,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
           FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+          SEARCH_DIGEST: ${{ steps.search.outputs.digest }}
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -328,4 +352,5 @@ jobs:
             --target "$GITHUB_SHA" --generate-notes --title "$RELEASE_TAG" \
             --notes "Published image digests:
           - ghcr.io/noxels/malg@$BACKEND_DIGEST
-          - ghcr.io/noxels/malg-frontend@$FRONTEND_DIGEST"
+          - ghcr.io/noxels/malg-frontend@$FRONTEND_DIGEST
+          - ghcr.io/noxels/malg-searxng@$SEARCH_DIGEST"

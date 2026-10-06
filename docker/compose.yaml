@@ -156,7 +156,10 @@ services:
     restart: unless-stopped
 
   searxng:
-    image: docker.io/searxng/searxng:2026.9.8-3fdc6d753
+    image: malg-searxng:local
+    build:
+      context: ./searxng
+      dockerfile: Dockerfile
     init: true
     user: "977:977"
     read_only: true
