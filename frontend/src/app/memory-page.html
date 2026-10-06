@@ -1,7 +1,7 @@
 <app-page-layout>
   <app-page-header eyebrow="Operations" title="Memory" description="Durable agent findings and recall history." />
   <section class="memory-overview" aria-labelledby="memory-overview-heading">
-    <div class="memory-overview__heading"><div><h2 id="memory-overview-heading">Durable memories</h2><p>Filter and sort memory records. Select a row to read the full entry.</p></div><button tuiButton type="button" appearance="secondary" (click)="applyFilters()">Refresh</button></div>
+    <div class="memory-overview__heading"><div><h2 id="memory-overview-heading">Durable memories</h2><p>Filter and sort memory records. Select a row to read the full entry.</p></div><app-auto-refresh-indicator [refreshing]="loading()" /></div>
     <form class="memory-filters" (submit)="$event.preventDefault(); applyFilters()">
       <label>Search content <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput name="memory-query" [(ngModel)]="contentQuery" (ngModelChange)="applyFilters()" placeholder="Words in the memory" /></tui-textfield></label>
       <label>Owner <tui-textfield tuiTextfieldSize="m" [tuiTextfieldCleaner]="false"><input tuiInput name="owner" [(ngModel)]="ownerFilter" (ngModelChange)="applyFilters()" placeholder="Exact owner" /></tui-textfield></label>
@@ -10,7 +10,7 @@
       <label class="memory-archive-toggle"><input tuiCheckbox type="checkbox" name="include-archived" [ngModel]="includeArchived()" (ngModelChange)="includeArchived.set($event); applyFilters()" /> Include archived</label>
       <button tuiButton type="button" appearance="secondary" (click)="clearFilters()">Clear filters</button>
     </form>
-    @if (error()) { <app-state-message message="Memories could not be loaded right now. Retry the request." tone="error" /> }
+    @if (error()) { <app-state-message message="Memories could not be loaded right now. Automatic refresh will retry." tone="error" /> }
     @if (clearedCount() !== null) { <p class="memory-notice" role="status">Deleted {{ clearedCount() }} memories.</p> }
     <div class="memory-toolbar">
       <p aria-live="polite">{{ shownMemories().length }} shown · {{ totalMemories() }} matching memories</p>
@@ -18,7 +18,7 @@
       <p class="memory-toolbar__hint">Deletes only memories on this page and their associations. This cannot be undone.</p>
     </div>
     @if (deleteMessage()) { <p class="memory-action-result" role="status">{{ deleteMessage() }}</p> }
-    <div class="memory-grid" [class.memory-grid--loading]="loading()"><ag-grid-angular [theme]="gridTheme" [columnDefs]="columnDefs" [defaultColDef]="defaultColDef" [rowModelType]="'infinite'" [cacheBlockSize]="50" [pagination]="true" [paginationPageSize]="50" [paginationPageSizeSelector]="[25, 50, 100]" [rowHeight]="88" (paginationChanged)="updateShownMemories()" (modelUpdated)="updateShownMemories()" [maxBlocksInCache]="4" [getRowId]="getRowId" (gridReady)="onGridReady($event)" (rowClicked)="openMemory($event)" /></div>
+    <div class="memory-grid" [class.memory-grid--loading]="loading() && !shownMemories().length"><ag-grid-angular [theme]="gridTheme" [columnDefs]="columnDefs" [defaultColDef]="defaultColDef" [rowModelType]="'infinite'" [cacheBlockSize]="50" [pagination]="true" [paginationPageSize]="50" [paginationPageSizeSelector]="[25, 50, 100]" [rowHeight]="88" (paginationChanged)="updateShownMemories()" (modelUpdated)="updateShownMemories()" [maxBlocksInCache]="4" [getRowId]="getRowId" (gridReady)="onGridReady($event)" (rowClicked)="openMemory($event)" /></div>
     <div class="memory-danger-zone"><div><h3>Clear global memory</h3><p>Deletes every durable memory and its associations for all owners.</p></div><button tuiButton type="button" appearance="secondary-destructive" [disabled]="deleting() || clearing()" (click)="requestClear()">Clear all memories</button></div>
     @if (clearConfirmationOpen()) { <section class="clear-confirmation" role="alert"><p>Delete every memory for every owner? This cannot be undone.</p><div><button tuiButton type="button" appearance="secondary" [disabled]="clearing()" (click)="cancelClear()">Cancel</button><button tuiButton type="button" appearance="primary-destructive" [disabled]="clearing() || deleting()" (click)="clearAllMemories()">{{ clearing() ? 'Clearing…' : 'Delete all memories' }}</button></div></section> }
     @if (clearError()) { <app-state-message message="The memory database could not be cleared." tone="error" /> }

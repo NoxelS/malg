@@ -7,13 +7,14 @@ import {AgGridAngular} from 'ag-grid-angular';
 import {ColDef, ModuleRegistry, RenderApiModule, RowApiModule, GridApi, GridReadyEvent, IDatasource, IGetRowsParams, RowClickedEvent} from 'ag-grid-community';
 
 import {ApiService, MemoryOverviewItem} from './api-service';
+import {AutoRefreshIndicatorComponent, AUTO_REFRESH_INTERVAL_MS} from './components/auto-refresh-indicator.component';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
 import {overviewGridTheme, registerOverviewGridModules} from './components/overview-grid.config';
 import {StateMessageComponent} from './components/state-message.component';
 import {TuiButton, TuiCheckbox, TuiInput} from '@taiga-ui/core';
 import {TuiSelect} from '@taiga-ui/kit';
-import {catchError, from, map, mergeMap, of, toArray} from 'rxjs';
+import {catchError, from, interval, map, mergeMap, of, toArray} from 'rxjs';
 import {MemoryPreviewCell, MemoryTypeCell, MemoryActionsCell} from './components/memory-grid-cells';
 
 registerOverviewGridModules();
@@ -23,7 +24,7 @@ const formatTimestamp = (params: {value: number | null | undefined}): string => 
 
 @Component({
   selector: 'app-memory-page',
-  imports: [AgGridAngular, FormsModule, PageHeaderComponent, PageLayoutComponent, StateMessageComponent, TuiButton, TuiCheckbox, TuiInput, TuiSelect],
+  imports: [AgGridAngular, AutoRefreshIndicatorComponent, FormsModule, PageHeaderComponent, PageLayoutComponent, StateMessageComponent, TuiButton, TuiCheckbox, TuiInput, TuiSelect],
   templateUrl: './memory-page.html',
   styleUrl: './memory-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -40,6 +41,7 @@ export class MemoryPage implements OnInit {
   protected readonly typeOptions = ['', 'info', 'skill', 'episode', 'intent', 'todo', 'reflection', 'scratch'];
   protected readonly typeLabel = (value: string): string => value ? value.charAt(0).toUpperCase() + value.slice(1) : 'All types';
   private generation = 0;
+  private inFlightRequests = 0;
   protected readonly loading = signal(false);
   protected readonly error = signal(false);
   protected readonly clearing = signal(false);
@@ -70,7 +72,10 @@ export class MemoryPage implements OnInit {
   protected readonly getRowId = (params: {data: MemoryOverviewItem}): string => params.data.id;
   private readonly datasource: IDatasource = {getRows: (params: IGetRowsParams<MemoryOverviewItem>) => this.loadRows(params.startRow, params.endRow - params.startRow, params.sortModel[0]?.colId, params.sortModel[0]?.sort, params.successCallback, params.failCallback)};
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+    interval(AUTO_REFRESH_INTERVAL_MS).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refreshOverview());
+  }
+
 
   protected onGridReady(event: GridReadyEvent<MemoryOverviewItem>): void {
     this.gridApi = event.api;
@@ -83,6 +88,12 @@ export class MemoryPage implements OnInit {
     this.gridApi?.paginationGoToFirstPage();
     this.gridApi?.purgeInfiniteCache();
   }
+
+  private refreshOverview(): void {
+    if (!this.gridApi || this.gridApi.isDestroyed() || this.inFlightRequests > 0 || this.deleting() || this.clearing()) return;
+    this.gridApi.refreshInfiniteCache();
+  }
+
 
   /** Restrict bulk actions to the loaded rows on the current filtered page. */
   protected updateShownMemories(): void {
@@ -111,7 +122,7 @@ export class MemoryPage implements OnInit {
     ).subscribe((results) => {
       const deleted = results.filter(Boolean).length;
       const failed = results.length - deleted;
-      this.deleteMessage.set(`${deleted} memor${deleted === 1 ? 'y' : 'ies'} deleted.${failed ? ` ${failed} could not be deleted. Refresh and retry the remaining entries.` : ''}`);
+      this.deleteMessage.set(`${deleted} memor${deleted === 1 ? 'y' : 'ies'} deleted.${failed ? ` ${failed} could not be deleted. Wait for the list to refresh, then retry the remaining entries.` : ''}`);
       this.deleting.set(false);
       this.applyFilters();
     });
@@ -151,10 +162,25 @@ export class MemoryPage implements OnInit {
     params = params.set('offset', String(startRow)).set('limit', String(Math.min(requestedLimit, 100)));
     if (sortColumn && ['created_at', 'last_accessed_at', 'importance', 'salience', 'strength', 'access_count', 'type'].includes(sortColumn)) params = params.set('sort', sortColumn);
     if (sortDirection === 'asc' || sortDirection === 'desc') params = params.set('direction', sortDirection);
+    this.inFlightRequests++;
     this.loading.set(true); this.error.set(false);
     this.api.listMemoryOverview(params).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (page) => { if (generation !== this.generation) return; this.loading.set(false); this.totalMemories.set(page.total); success([...page.items], page.total); this.updateShownMemories(); },
-      error: () => { if (generation !== this.generation) return; this.loading.set(false); this.error.set(true); fail(); },
+      next: (page) => {
+        this.inFlightRequests--;
+        this.loading.set(this.inFlightRequests > 0);
+        if (generation !== this.generation) return;
+        this.totalMemories.set(page.total);
+        success([...page.items], page.total);
+        this.gridApi?.setRowCount(page.total);
+        this.updateShownMemories();
+      },
+      error: () => {
+        this.inFlightRequests--;
+        this.loading.set(this.inFlightRequests > 0);
+        if (generation !== this.generation) return;
+        this.error.set(true);
+        fail();
+      },
     });
   }
 }

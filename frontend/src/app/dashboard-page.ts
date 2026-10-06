@@ -1,5 +1,6 @@
-import {HttpParams} from '@angular/common/http';
 import {ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal} from '@angular/core';
+import {HttpParams} from '@angular/common/http';
+import {interval} from 'rxjs';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {FormsModule} from '@angular/forms';
 import {Router, RouterLink} from '@angular/router';
@@ -8,6 +9,7 @@ import {ColDef, GridApi, GridReadyEvent, IDatasource, IGetRowsParams, RowClicked
 import {TuiButton, TuiInput} from '@taiga-ui/core';
 import {TuiSelect, TuiToastDirective} from '@taiga-ui/kit';
 import {AccountResearchController, ApiService, CrmListItem, DashboardJobDuration, DashboardSummary, WorkerOverviewItem, WorkerSummary} from './api-service';
+import {AutoRefreshIndicatorComponent, AUTO_REFRESH_INTERVAL_MS} from './components/auto-refresh-indicator.component';
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
 import {SectionHeadingComponent} from './components/section-heading.component';
@@ -23,7 +25,7 @@ const formatDate = (params: {value: string | null | undefined}): string => param
 
 @Component({
   selector: 'app-dashboard-page',
-  imports: [AgGridAngular, RouterLink, FormsModule, TuiButton, TuiInput, TuiSelect, TuiToastDirective, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent],
+  imports: [AgGridAngular, RouterLink, FormsModule, TuiButton, TuiInput, TuiSelect, TuiToastDirective, AutoRefreshIndicatorComponent, PageHeaderComponent, PageLayoutComponent, SectionHeadingComponent, StateMessageComponent],
   templateUrl: './dashboard-page.html',
   styleUrl: './dashboard-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -54,6 +56,7 @@ export class DashboardPage implements OnInit {
   protected readonly controllerCampaignIds = (): string[] => ['', ...this.campaigns().map((item) => item.id)];
   protected readonly controllerIcpIds = (): string[] => ['', ...this.icps().map((item) => item.id)];
   protected readonly gridError = signal(false);
+  protected readonly gridLoading = signal(0);
   protected readonly gridTheme = overviewGridTheme;
   protected readonly defaultColDef: ColDef<WorkerOverviewItem> = {resizable: true, sortable: false, minWidth: 110};
   protected readonly columnDefs: ColDef<WorkerOverviewItem>[] = [
@@ -75,6 +78,7 @@ export class DashboardPage implements OnInit {
   ngOnInit(): void {
     this.loadSummary();
     this.loadController();
+    interval(AUTO_REFRESH_INTERVAL_MS).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
   }
 
   protected onGridReady(event: GridReadyEvent<WorkerOverviewItem>): void {
@@ -83,10 +87,10 @@ export class DashboardPage implements OnInit {
   }
 
   protected refresh(): void {
+    if (this.loading() || this.refreshing() || this.controllerLoading() || this.gridLoading() > 0) return;
     this.loadSummary(true);
     this.loadController();
-    ++this.generation;
-    this.gridApi?.purgeInfiniteCache();
+    this.gridApi?.refreshInfiniteCache();
   }
 
   protected openControllerConfiguration(): void {
@@ -105,10 +109,11 @@ export class DashboardPage implements OnInit {
   protected setControllerEnabled(enabled: boolean): void {
     const controller = this.controller(); if (!controller || this.controllerBusy()) return;
     this.controllerBusy.set(true); this.controllerError.set('');
-    this.api.setAccountResearchControllerState(enabled, controller.revision).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: (value) => { this.controller.set(value); this.controllerBusy.set(false); }, error: () => { this.controllerBusy.set(false); this.controllerError.set('The controller state could not be changed. Refresh and try again.'); this.loadController(); }});
+    this.api.setAccountResearchControllerState(enabled, controller.revision).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: (value) => { this.controller.set(value); this.controllerBusy.set(false); }, error: () => { this.controllerBusy.set(false); this.controllerError.set('The controller state could not be changed. Status will refresh automatically; try again.'); this.loadController(); }});
   }
   protected validControllerCounts(): boolean { return Number.isInteger(this.controllerCompanies) && this.controllerCompanies >= 1 && this.controllerCompanies <= 20 && Number.isInteger(this.controllerPeople) && this.controllerPeople >= 1 && this.controllerPeople <= 5 && Number.isInteger(this.controllerOpportunities) && this.controllerOpportunities >= 1 && this.controllerOpportunities <= 3; }
-  private loadController(): void { this.api.getAccountResearchController().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: (controller) => this.controller.set(controller), error: () => this.controllerError.set('Continuous research status could not be loaded.')}); }
+  protected readonly controllerLoading = signal(false);
+  private loadController(): void { if (this.controllerLoading()) return; this.controllerLoading.set(true); this.api.getAccountResearchController().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: (controller) => { this.controller.set(controller); this.controllerError.set(''); this.controllerLoading.set(false); }, error: () => { this.controllerError.set('Continuous research status could not be loaded.'); this.controllerLoading.set(false); }}); }
   private loadControllerScopes(): void { this.api.listCrmCampaigns().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: (page) => this.campaigns.set(page.items), error: () => this.controllerError.set('Campaigns could not be loaded.')}); if (this.controllerCampaign) this.api.listCrmIcps(this.controllerCampaign).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: (page) => this.icps.set(page.items), error: () => this.controllerError.set('ICPs could not be loaded.')}); }
 
   protected formatAverageDuration(seconds: number | null): string {
@@ -140,12 +145,14 @@ export class DashboardPage implements OnInit {
   }
 
   private loadSummary(refreshing = false): void {
+    if (this.refreshing()) return;
     if (refreshing) this.refreshing.set(true);
     else this.loading.set(true);
-    this.error.set(false);
+    
     this.api.listDashboard().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (summary) => {
         this.summary.set(summary);
+        this.error.set(false);
         this.loading.set(false);
         this.refreshing.set(false);
       },
@@ -159,30 +166,25 @@ export class DashboardPage implements OnInit {
 
   private loadRows(params: IGetRowsParams<WorkerOverviewItem>): void {
     const generation = this.generation;
+    this.gridLoading.update((count) => count + 1);
     let query = new HttpParams()
       .set('offset', String(params.startRow))
       .set('limit', String(Math.min(params.endRow - params.startRow, 100)));
     const sort = params.sortModel[0];
-    const sortMap: Record<string, string> = {
-      status: 'status', last_seen_at: 'last_seen_at', online_since: 'online_since',
-      claimed_at: 'claimed_at', kind: 'kind', attempt_count: 'attempt_count',
-    };
+    const sortMap: Record<string, string> = {status: 'status', last_seen_at: 'last_seen_at', online_since: 'online_since', claimed_at: 'claimed_at', kind: 'kind', attempt_count: 'attempt_count'};
     const requestedSort = sort?.colId === 'current_job' ? undefined : sortMap[sort?.colId ?? ''];
-    if (requestedSort) {
-      query = query.set('sort', requestedSort);
-      if (sort?.sort === 'asc' || sort?.sort === 'desc') query = query.set('direction', sort.sort);
-    }
+    if (requestedSort) { query = query.set('sort', requestedSort); if (sort?.sort === 'asc' || sort?.sort === 'desc') query = query.set('direction', sort.sort); }
     this.gridError.set(false);
     this.api.listWorkerOverview(query).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (page) => {
+        this.gridLoading.update((count) => Math.max(0, count - 1));
         if (generation !== this.generation) return;
-        const rows = page.items.map((worker: WorkerSummary): WorkerOverviewItem => ({
-          ...worker,
-          running_for_seconds: worker.job ? Math.max(0, Math.floor((Date.now() - Date.parse(worker.job.claimed_at)) / 1000)) : null,
-        }));
+        const rows = page.items.map((worker: WorkerSummary): WorkerOverviewItem => ({...worker, running_for_seconds: worker.job ? Math.max(0, Math.floor((Date.now() - Date.parse(worker.job.claimed_at)) / 1000)) : null}));
         params.successCallback(rows, page.total);
+        this.gridApi?.setRowCount(page.total);
       },
       error: () => {
+        this.gridLoading.update((count) => Math.max(0, count - 1));
         if (generation !== this.generation) return;
         this.gridError.set(true);
         params.failCallback();

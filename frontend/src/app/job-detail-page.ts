@@ -1,9 +1,9 @@
 import {DatePipe, JsonPipe} from '@angular/common';
 import {HttpErrorResponse} from '@angular/common/http';
-import {ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal} from '@angular/core';
+import {ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal} from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {ActivatedRoute, Router, RouterLink} from '@angular/router';
-import {forkJoin, of} from 'rxjs';
+import {forkJoin, interval, of} from 'rxjs';
 import {catchError, finalize, tap} from 'rxjs/operators';
 import {ApiService, AgentRun, AgentTraceEvent, AgentTraceEventPage, AgentTurn, CrmStatus, JobWrites, JsonValue, ResearchJob, StageRecord} from './api-service';
 import {TuiButton} from '@taiga-ui/core';
@@ -13,6 +13,7 @@ import {PageLayoutComponent} from './components/page-layout.component';
 import {StateMessageComponent} from './components/state-message.component';
 import {TracePropertyListComponent} from './components/trace-property-list.component';
 import {TraceTurnCardComponent} from './components/trace-turn-card.component';
+import {AUTO_REFRESH_INTERVAL_MS, AutoRefreshIndicatorComponent} from './components/auto-refresh-indicator.component';
 
 interface SectionFailure {
   readonly endpoint: 'LLM turns' | 'Trace events';
@@ -57,12 +58,12 @@ const emptyRunState = (): RunState => ({
 
 @Component({
   selector: 'app-job-detail-page',
-  imports: [DatePipe, JsonPipe, RouterLink, TuiBadge, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent, TracePropertyListComponent, TraceTurnCardComponent],
+  imports: [DatePipe, JsonPipe, RouterLink, TuiBadge, TuiButton, PageHeaderComponent, PageLayoutComponent, StateMessageComponent, TracePropertyListComponent, TraceTurnCardComponent, AutoRefreshIndicatorComponent],
   templateUrl: './job-detail-page.html',
   styleUrl: './job-detail-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class JobDetailPage implements OnDestroy, OnInit {
+export class JobDetailPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -93,29 +94,34 @@ export class JobDetailPage implements OnDestroy, OnInit {
   protected readonly error = signal<'not-found' | 'unavailable' | null>(null);
   protected readonly traceUnavailable = signal(false);
   protected readonly refreshing = signal(false);
+  protected readonly crmLoading = signal(false);
+  protected readonly autoRefreshing = computed(() => this.loading() || this.refreshing() || this.crmLoading());
   protected readonly retryingJob = signal(false);
   protected readonly jobActionError = signal(false);
   protected readonly runStates = signal<Record<string, RunState>>({});
   private jobId = '';
-  private pollHandle?: number;
   private generation = 0;
   private inFlight = false;
+  private crmInFlight = false;
   ngOnInit(): void {
+    interval(AUTO_REFRESH_INTERVAL_MS).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh());
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const jobId = params.get('jobId');
       if (!jobId) return;
-      ++this.generation; this.inFlight = false; clearTimeout(this.pollHandle);
+      this.inFlight = false;
+      ++this.generation;
+      this.crmLoading.set(this.crmInFlight);
       this.jobId = jobId;
       this.job.set(null);
       this.runs.set([]);
       this.runStates.set({});
       this.stages.set([]); this.writes.set(null); this.inputPayload.set(null);
       this.error.set(null);
+      this.loading.set(true);
       this.loadCrm();
       this.loadJob(false);
     });
   }
-  ngOnDestroy(): void { ++this.generation; clearTimeout(this.pollHandle); }
   protected retryJob(): void {
     const job = this.job();
     if (!job || !this.canRetry(job) || !this.canPublish() || this.retryingJob()) return;
@@ -131,8 +137,17 @@ export class JobDetailPage implements OnDestroy, OnInit {
   }
 
   private loadCrm(): void {
+    if (this.crmInFlight) return;
+    this.crmInFlight = true;
+    this.crmLoading.set(true);
     const generation = this.generation;
-    this.api.getCrmStatus().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.getCrmStatus().pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => {
+        this.crmInFlight = false;
+        this.crmLoading.set(false);
+      }),
+    ).subscribe({
       next: (status) => { if (generation === this.generation) this.crm.set(status); },
       error: () => { if (generation === this.generation) this.crm.set(null); },
     });
@@ -244,7 +259,6 @@ export class JobDetailPage implements OnDestroy, OnInit {
   private loadJob(isRefresh: boolean): void {
     if (this.inFlight) return;
     this.inFlight = true;
-    clearTimeout(this.pollHandle);
     if (isRefresh) this.refreshing.set(true); else this.loading.set(true);
     const generation = this.generation;
     const current = () => generation === this.generation;
@@ -269,10 +283,6 @@ export class JobDetailPage implements OnDestroy, OnInit {
       finalize(() => {
         if (!current()) return;
         this.inFlight = false; this.loading.set(false); this.refreshing.set(false);
-        const job = this.job();
-        if (job && (['queued', 'running'].includes(job.status) || this.writes()?.side_effects_pending || this.writesUnavailable())) {
-          this.pollHandle = window.setTimeout(() => this.loadJob(true), 2000);
-        }
       }),
     ).subscribe();
   }

@@ -1,9 +1,9 @@
 import {HttpParams} from '@angular/common/http';
-import {ChangeDetectionStrategy, Component, DestroyRef, OnInit, WritableSignal, inject, signal} from '@angular/core';
+import {ChangeDetectionStrategy, Component, DestroyRef, OnInit, WritableSignal, computed, inject, signal} from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {FormsModule} from '@angular/forms';
 import {Router} from '@angular/router';
-import {Observable, catchError, from, map, mergeMap, of, toArray} from 'rxjs';
+import {Observable, catchError, from, interval, map, mergeMap, of, toArray} from 'rxjs';
 import {AgGridAngular} from 'ag-grid-angular';
 import {ColDef, ModuleRegistry, RenderApiModule, RowApiModule, GridApi, GridReadyEvent, IDatasource, IGetRowsParams, RowClickedEvent} from 'ag-grid-community';
 import {ApiService, CrmListItem, CrmPage, CrmStatus, JobKind, JobOverviewItem} from './api-service';
@@ -13,8 +13,9 @@ import {JobActionsCell, JobIdentityCell, JobStatusCell} from './components/job-g
 import {PageHeaderComponent} from './components/page-header.component';
 import {PageLayoutComponent} from './components/page-layout.component';
 import {StateMessageComponent} from './components/state-message.component';
-import {overviewGridTheme, registerOverviewGridModules} from './components/overview-grid.config';
+import {AutoRefreshIndicatorComponent, AUTO_REFRESH_INTERVAL_MS} from './components/auto-refresh-indicator.component';
 
+import {overviewGridTheme, registerOverviewGridModules} from './components/overview-grid.config';
 type Selector = 'campaigns' | 'icps';
 type LoadState = 'idle' | 'loading' | 'error';
 
@@ -23,7 +24,7 @@ const formatDate = (params: {value: string | null | undefined}): string => param
 registerOverviewGridModules();
 ModuleRegistry.registerModules([RenderApiModule, RowApiModule]);
 
-@Component({selector: 'app-jobs-page', imports: [AgGridAngular, FormsModule, TuiButton, TuiCheckbox, TuiInput, TuiSelect, PageHeaderComponent, PageLayoutComponent, StateMessageComponent], changeDetection: ChangeDetectionStrategy.OnPush, templateUrl: './jobs-page.html', styleUrl: './jobs-page.scss'})
+@Component({selector: 'app-jobs-page', imports: [AgGridAngular, FormsModule, TuiButton, TuiCheckbox, TuiInput, TuiSelect, AutoRefreshIndicatorComponent, PageHeaderComponent, PageLayoutComponent, StateMessageComponent], changeDetection: ChangeDetectionStrategy.OnPush, templateUrl: './jobs-page.html', styleUrl: './jobs-page.scss'})
 export class JobsPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
@@ -40,7 +41,9 @@ export class JobsPage implements OnInit {
   protected readonly campaignIds = (): string[] => ['', ...this.campaigns().map((item) => item.id)];
   protected readonly icpIds = (): string[] => ['', ...this.icps().map((item) => item.id)];
   private overviewGeneration = 0;
-  protected readonly overviewLoading = signal(false);
+  private readonly overviewRequestCount = signal(0);
+  protected readonly overviewLoading = computed(() => this.overviewRequestCount() > 0);
+  protected readonly overviewHasLoaded = signal(false);
   protected readonly overviewError = signal(false);
   protected readonly crm = signal<CrmStatus | null>(null);
   protected readonly crmError = signal(false);
@@ -87,13 +90,23 @@ export class JobsPage implements OnInit {
   private readonly datasource: IDatasource = {getRows: (params: IGetRowsParams<JobOverviewItem>) => this.loadOverviewRows(params.startRow, params.endRow - params.startRow, params.sortModel[0]?.colId, params.sortModel[0]?.sort, params.successCallback, params.failCallback)};
   private readonly generations: Record<Selector, number> = {campaigns: 0, icps: 0};
 
+
   ngOnInit(): void {
     this.refreshCrm();
+    interval(AUTO_REFRESH_INTERVAL_MS).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.refreshCrm();
+      this.refreshOverview();
+    });
   }
 
   protected onGridReady(event: GridReadyEvent<JobOverviewItem>): void {
     this.gridApi = event.api;
     event.api.setGridOption('datasource', this.datasource);
+  }
+
+  protected refreshOverview(): void {
+    if (!this.gridApi || this.overviewLoading() || this.deleting()) return;
+    this.gridApi.refreshInfiniteCache();
   }
 
   protected applyOverviewFilters(): void {
@@ -134,7 +147,7 @@ export class JobsPage implements OnInit {
     ).subscribe((results) => {
       const deleted = results.filter(Boolean).length;
       const failed = results.length - deleted;
-      this.deleteMessage.set(`${deleted} job${deleted === 1 ? '' : 's'} deleted.${failed ? ` ${failed} could not be deleted. Jobs with unresolved CRM writes cannot be removed; refresh and retry.` : ''}`);
+      this.deleteMessage.set(`${deleted} job${deleted === 1 ? '' : 's'} deleted.${failed ? ` ${failed} could not be deleted. Jobs with unresolved CRM writes cannot be removed; wait for the list to refresh, then retry.` : ''}`);
       this.deleting.set(false);
       this.applyOverviewFilters();
     });
@@ -168,10 +181,24 @@ export class JobsPage implements OnInit {
     params = params.set('offset', String(startRow)).set('limit', String(Math.min(requestedLimit, 100)));
     if (sortColumn && ['created_at', 'started_at', 'finished_at', 'attempt_count', 'status', 'kind'].includes(sortColumn)) params = params.set('sort', sortColumn);
     if (sortDirection === 'asc' || sortDirection === 'desc') params = params.set('direction', sortDirection);
-    this.overviewLoading.set(true); this.overviewError.set(false);
+    this.overviewRequestCount.update((count) => count + 1);
+    this.overviewError.set(false);
     this.api.listJobOverview(params).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (page) => { if (generation !== this.overviewGeneration) return; this.overviewLoading.set(false); this.totalJobs.set(page.total); success([...page.items], page.total); this.updateShownJobs(); },
-      error: () => { if (generation !== this.overviewGeneration) return; this.overviewLoading.set(false); this.overviewError.set(true); fail(); },
+      next: (page) => {
+        this.overviewRequestCount.update((count) => Math.max(0, count - 1));
+        if (generation !== this.overviewGeneration) return;
+        this.overviewHasLoaded.set(true);
+        this.totalJobs.set(page.total);
+        success([...page.items], page.total);
+        this.gridApi?.setRowCount(page.total);
+        this.updateShownJobs();
+      },
+      error: () => {
+        this.overviewRequestCount.update((count) => Math.max(0, count - 1));
+        if (generation !== this.overviewGeneration) return;
+        this.overviewError.set(true);
+        fail();
+      },
     });
   }
 
