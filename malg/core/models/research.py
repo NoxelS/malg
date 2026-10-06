@@ -37,6 +37,7 @@ class ResearchOutcome(ResearchModel):
     outcome: Literal[
         "complete", "partial", "needs_review", "insufficient_evidence", "budget_exhausted"
     ]
+    reason_code: str | None = Field(default=None, min_length=1, max_length=64)
     unknowns: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(
         default_factory=list, max_length=10
     )
@@ -66,3 +67,34 @@ class ResearchResult[T: BaseModel](ResearchOutcome):
                         f"expected one of {', '.join(fields)}"
                     )
         return self
+
+
+class EvidenceIssue(ResearchModel):
+    """One rejected observation and its host-owned position in a candidate."""
+
+    group: Literal["observations", "signal_observations"]
+    index: int = Field(ge=0, le=9)
+    observation: FieldObservation
+    reason_code: Literal["invalid_evidence_reference", "invalid_evidence_quote"]
+
+
+class EvidenceRepairRequest(ResearchModel):
+    """Untrusted rejected claims plus the only excerpts permitted for their repair."""
+
+    issues: list[EvidenceIssue] = Field(min_length=1, max_length=18)
+    excerpts: dict[str, str]
+
+
+class EvidenceCorrection(ResearchModel):
+    """Replacement citation for an existing claim; business fields cannot be edited."""
+
+    group: Literal["observations", "signal_observations"]
+    index: int = Field(ge=0, le=9)
+    excerpt_ids: list[str] = Field(min_length=1, max_length=8)
+    quote: str = Field(min_length=1, max_length=500)
+
+
+class EvidenceCorrections(ResearchModel):
+    """One bounded citation-repair response, without new claims or qualification changes."""
+
+    corrections: list[EvidenceCorrection] = Field(default_factory=list, max_length=18)

@@ -6,7 +6,6 @@ Revises: 20261005_01
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "20261006_01"
 down_revision = "20261005_01"
@@ -19,8 +18,8 @@ def upgrade() -> None:
     op.create_table(
         "search_cache",
         sa.Column("cache_key", sa.String(64), primary_key=True),
-        sa.Column("request", sa.JSON().with_variant(JSONB(), "postgresql"), nullable=False),
-        sa.Column("response", sa.JSON().with_variant(JSONB(), "postgresql")),
+        sa.Column("request", sa.Text(), nullable=False),
+        sa.Column("response", sa.Text()),
         sa.Column("expires_at", sa.DateTime(timezone=True)),
         sa.Column("lease_token", sa.String(36)),
         sa.Column("lease_expires_at", sa.DateTime(timezone=True)),

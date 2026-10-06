@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -12,12 +12,13 @@ from urllib.parse import urlparse
 import httpx
 
 from malg.config import SearchConfig
+from malg.core.budget import BudgetExhausted, deny_external_attempt, reserve_external_attempt
 from malg.database.search_cache import SearchCache, default_search_cache
 
 _MAX_QUERY_LENGTH = 300
 
 
-class SearchRateLimitExceeded(RuntimeError):
+class SearchRateLimitExceeded(BudgetExhausted):
     """Raised when a research run has exhausted its configured discovery budget."""
 
 
@@ -37,7 +38,7 @@ class SearchResult:
 
 
 class SearxngSearchClient:
-    """Search SearXNG with shared result reuse and per-agent request budgets.
+    """Search SearXNG with per-agent request budgets and serialized pacing.
 
     Queries are sent only to the configured private SearXNG endpoint. Returned titles and
     snippets are untrusted discovery hints, not evidence; callers must verify claims by visiting
@@ -45,17 +46,31 @@ class SearxngSearchClient:
     search engines.
     """
 
-    def __init__(self, config: SearchConfig, *, cache: SearchCache | None = None) -> None:
-        """Use the injected cache or the shared database configured by DATABASE_URL.
+    def __init__(
+        self,
+        config: SearchConfig,
+        *,
+        request_slot: Callable[[], Awaitable[None]] | None = None,
+        cache: SearchCache | None = None,
+    ) -> None:
+        """Use an injected cache or the shared DATABASE_URL pool and optional worker pacing.
 
-        Schema migration must precede searches. Construction creates no schema and sends no
-        network request; the default cache lazily uses a shared connection pool.
+        Apply the cache migration before searching. Cache hits bypass external request pacing
+        and budgets; misses reserve an attempt before sending HTTP. Construction creates no schema.
         """
         self._config = config
         self._cache = cache if cache is not None else default_search_cache()
+        self.request_slot = request_slot
+        self.engine_errors: tuple[dict[str, str], ...] = ()
+        self.health = "unknown"
         self._request_count = 0
         self._last_request_at: float | None = None
         self._request_lock = asyncio.Lock()
+
+    @property
+    def min_interval_seconds(self) -> float:
+        """Return the configured spacing used by shared worker pacing."""
+        return self._config.min_interval_seconds
 
     @property
     def request_count(self) -> int:
@@ -79,6 +94,8 @@ class SearxngSearchClient:
         if not self._config.enabled:
             raise SearchUnavailable("Web search is disabled by configuration.")
 
+        self.engine_errors = ()
+        self.health = "unavailable"
         normalized_query = " ".join(query.split())
         request: dict[str, Any] = {
             "version": 1,
@@ -105,7 +122,7 @@ class SearxngSearchClient:
                 self._cache.lookup, request, lease_seconds=lease_seconds
             )
             if lookup.state == "hit":
-                return self._normalize_results(lookup.payload)
+                return self._observe(lookup.payload)
             if lookup.state == "failed":
                 raise SearchUnavailable("Private search request failed.")
             if lookup.state == "owner":
@@ -125,7 +142,7 @@ class SearxngSearchClient:
                 response = await client.get(f"{self._config.url}/search", params=request["params"])
                 response.raise_for_status()
                 payload: object = response.json()
-            results = self._normalize_results(payload)
+            results = self._observe(payload)
             assert isinstance(payload, dict)
             if not results and payload.get("unresponsive_engines"):
                 raise SearchUnavailable("Private search engines are unavailable.")
@@ -150,6 +167,25 @@ class SearxngSearchClient:
                 raise SearchUnavailable("Private search request failed.") from exc
             raise
 
+    def _observe(self, payload: object) -> list[SearchResult]:
+        """Restore engine diagnostics identically for fresh and cached search responses."""
+        results = self._normalize_results(payload)
+        errors = payload.get("unresponsive_engines", []) if isinstance(payload, Mapping) else []
+        self.engine_errors = (
+            tuple(
+                {"engine": str(item[0])[:80], "reason": str(item[1])[:200]}
+                for item in errors[:20]
+                if isinstance(item, (list, tuple)) and len(item) >= 2
+            )
+            if isinstance(errors, list)
+            else ()
+        )
+        self.health = "degraded" if self.engine_errors else "healthy"
+        if not results and self.engine_errors:
+            self.health = "unavailable"
+            raise SearchUnavailable("Search returned no usable hits while engines failed.")
+        return results
+
     def _validate_query(self, query: str) -> None:
         if not isinstance(query, str) or not query.strip() or len(query) > _MAX_QUERY_LENGTH:
             raise SearchUnavailable(
@@ -161,14 +197,22 @@ class SearxngSearchClient:
     async def _wait_for_request_slot(self) -> None:
         async with self._request_lock:
             if self._request_count >= self._config.max_requests_per_run:
-                raise SearchRateLimitExceeded("Search request budget exhausted for this agent run.")
+                deny_external_attempt(
+                    SearchRateLimitExceeded(
+                        "Search request budget exhausted for this agent run.",
+                        reason_code="search_agent_limit",
+                        kind="search",
+                        used=self._request_count,
+                        limit=self._config.max_requests_per_run,
+                    )
+                )
+            if self.request_slot is not None:
+                await self.request_slot()
             now = time.monotonic()
             if self._last_request_at is not None:
                 delay = self._config.min_interval_seconds - (now - self._last_request_at)
                 if delay > 0:
                     await asyncio.sleep(delay)
-            from malg.core.budget import reserve_external_attempt
-
             reserve_external_attempt("search")
             self._request_count += 1
             self._last_request_at = time.monotonic()
@@ -195,16 +239,20 @@ class SearxngSearchClient:
     @staticmethod
     def _normalize_result(raw_result: Mapping[str, Any]) -> SearchResult | None:
         url = raw_result.get("url")
-        if not isinstance(url, str) or urlparse(url).scheme not in {"http", "https"}:
+        if (
+            not isinstance(url, str)
+            or len(url) > 2000
+            or urlparse(url).scheme not in {"http", "https"}
+        ):
             return None
         title = raw_result.get("title")
         snippet = raw_result.get("content")
         engines = raw_result.get("engines")
         category = raw_result.get("category")
         return SearchResult(
-            title=title.strip() if isinstance(title, str) else "",
+            title=title.strip()[:200] if isinstance(title, str) else "",
             url=url,
-            snippet=snippet.strip() if isinstance(snippet, str) else "",
+            snippet=snippet.strip()[:600] if isinstance(snippet, str) else "",
             engines=tuple(engine for engine in engines if isinstance(engine, str))
             if isinstance(engines, list)
             else (),

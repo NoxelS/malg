@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-from malg.core.models.research import ResearchResult
+from malg.core.models.research import FieldObservation, ResearchResult
 from malg.crm.identity import normalize_domain
 
 # ISO 4217 alphabetic codes used by the supported currency set. Unknown codes are rejected.
@@ -241,6 +241,37 @@ class AccountOperationalStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+class AccountEngagementSignalType(StrEnum):
+    """Public invitation types that can support a human-initiated response."""
+
+    FREELANCE_PROJECT = "freelance_project"
+    SUBCONTRACTOR_REQUEST = "subcontractor_request"
+    FREELANCER_POOL = "freelancer_pool"
+    FREELANCE_INITIATIVE_APPLICATION = "freelance_initiative_application"
+
+
+class AccountEngagementSignalStatus(StrEnum):
+    """Observed availability of a public invitation at research time."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+    UNCERTAIN = "uncertain"
+
+
+class AccountEngagementSignal(BaseModel):
+    """A sourced public invitation for freelancers or subcontractors to respond."""
+
+    model_config = ConfigDict(extra="forbid")
+    signal_type: AccountEngagementSignalType
+    title: str = Field(min_length=1, max_length=300)
+    source_url: HttpUrl
+    invited_work: str = Field(min_length=1, max_length=1000)
+    response_route: str = Field(min_length=1, max_length=500)
+    status: AccountEngagementSignalStatus
+    published_at: date | None = None
+    deadline: date | None = None
+
+
 class AccountIdentity(BaseModel):
     """Bounded observed identity anchors, not generated IDs or guessed domains."""
 
@@ -276,12 +307,24 @@ class AccountResearchResult(ResearchResult[AccountData]):
 
     identity: AccountIdentity | None = None
     qualification: AccountValidationOutcome
+    engagement_signal: AccountEngagementSignal | None = None
+    signal_observations: list[FieldObservation] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def require_identity_for_data(self) -> AccountResearchResult:
-        """Allow unknown identity only when no business data was established."""
+        """Validate identity presence and engagement-signal observation fields."""
         if self.data is not None and self.identity is None:
             raise ValueError("account data requires an observed identity")
+        if self.engagement_signal is None and self.signal_observations:
+            raise ValueError("signal observations require an engagement signal")
+        if self.engagement_signal is not None:
+            fields = type(self.engagement_signal).model_fields
+            for observation in self.signal_observations:
+                if observation.field not in fields:
+                    raise ValueError(
+                        f"unknown engagement signal field {observation.field!r}; "
+                        f"expected one of {', '.join(fields)}"
+                    )
         return self
 
 
@@ -344,3 +387,14 @@ class AccountValidationAssessment(BaseModel):
     rationale: str = Field(min_length=1)
     checks: list[ValidationCheck] = Field(min_length=1)
     validated_at: datetime
+
+
+class AccountResearchFeedback(BaseModel):
+    """Previous candidate disposition used to adapt discovery within one workflow."""
+
+    model_config = ConfigDict(extra="forbid")
+    stage_key: str = Field(max_length=100)
+    reason_code: str = Field(max_length=64)
+    candidate_name: str | None = Field(default=None, max_length=200)
+    candidate_website: str | None = Field(default=None, max_length=2048)
+    unknowns: list[str] = Field(default_factory=list, max_length=10)

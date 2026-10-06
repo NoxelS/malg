@@ -59,8 +59,13 @@ excerpts. HTTP 404/410 and DNS host-not-found explain that the page or hostname
 is missing; temporary DNS, connection failures and denied access do not assert
 nonexistence. Visible source text replaces null characters before creating
 excerpts, so generated quotes and PostgreSQL checkpoints use identical text.
-Malformed citations discard the candidate as `insufficient_evidence`, with a
-safe reason in `unknowns`, rather than terminating the workflow. Earlier
+Malformed account citations first receive one repair attempt limited to four reasoning
+iterations in the same supervised child and shared budget. The repair can replace only
+rejected excerpt IDs and exact quotes; company data, identity, claim fields/text and
+qualification stay unchanged. Every repaired claim is revalidated. Missing evidence and
+unsuccessful repairs (including a repair that cannot finish within its turn allowance)
+discard the candidate as `insufficient_evidence`, with a safe
+`reason_code` and `unknowns`, rather than terminating the workflow. Earlier
 checkpoints and CRM publications remain durable. Child failures expose only
 allowlisted public codes such as `llm_rate_limited` and `evidence_storage_failed`;
 full diagnostics remain in authenticated traces.
@@ -110,6 +115,77 @@ The service exposes JSON results only and has no public-instance features, image
 autocomplete. Deployed engine selection remains owned by Sisyphus; validate a minimal engine
 set there using representative queries before changing deployment settings.
 
+MALG builds a patched SearXNG image from `docker/searxng/Dockerfile`. The pinned upstream
+DuckDuckGo parser crashes when a result block lacks a destination link; the patch skips
+those blocks and preserves valid results in the same response. Offline parser regression
+checks run during the image build, including preservation of CAPTCHA errors. Run
+`docker build -t malg-searxng:local docker/searxng` to validate it independently.
+Review the patch against upstream when upgrading the base image. This fixes malformed-result
+parsing, not provider CAPTCHA or rate-limit blocks. CI publishes the patched image as
+`ghcr.io/noxels/malg-searxng` with release and commit tags; production must explicitly
+adopt that image in its deployment configuration to receive the fix.
+
+## Account discovery and outcomes
+
+Account discovery prioritizes official freelancer pools, subcontractor applications and
+freelancer-open initiative applications. It searches invitation eligibility separately from
+company capabilities and ICP fit, instead of requiring every criterion in one query. A standing
+software freelancer application can qualify when separate company evidence establishes relevant
+capabilities; employee-only vacancies, public email addresses alone and client-facing sales
+pages remain insufficient. Undated standing applications require explicit eligibility and a
+current response route; dated projects require evidence of availability. Research and validation
+receive the host's current UTC date for deadline comparisons. Unknown optional
+firmographics remain null. Proven mismatches are rejected, while unresolved mandatory criteria
+or invitation status require review.
+
+Account jobs use a tool-only NOOA strategy: `search`, `fetch`, `save_candidate`
+and `finish`. Model output is parsed as data; no generated Python, direct HTTP,
+browser calls or nested generation is executed. Fetches must use URLs observed in
+inputs, search results or fetched links. Campaign/ICP jobs retain their existing
+Eurostat and memory tools.
+
+Each account stage allows 20 minutes (including the 60-second cleanup reserve),
+20 search requests, 24 fetch requests (redirects also count), and 24 reasoning turns.
+The last turn offers only `finish`. Four turns without new results, evidence or a
+saved candidate end the local attempt; normalized repeats do not count as progress.
+Failed page fetches are cached. Agent-visible page evidence is limited to two complete
+2,000-character excerpts per fetch. `excerpt_start` selects another pair from the cached
+page without another network request; source validation uses the original host excerpts.
+Context inputs and tool history have a 96,000-character allowance. Limits are
+configurable through `[default.research]` / `MALG_RESEARCH__...`.
+
+`save_candidate` commits unverified names and observed official websites immediately
+under the active claim. These discovery checkpoints survive termination and are reused
+as leads on subsequent attempts. They are never proof of qualification or permission to
+publish. A locally exhausted lead yields to other candidates and stays in diagnostics.
+Each requested company still allows ten candidate attempts by default
+(`max_account_candidates_per_company`). Attempts receive
+the last ten dispositions and exclusions. Local stage limits advance to another
+attempt; workflow-wide limits and initialization failures stop the job.
+
+SearXNG engine errors are retained. Partial results are `degraded`; empty results
+with engine failures raise `search_unavailable`, while a healthy empty result remains
+a valid no-hit response. Search starts are paced across PostgreSQL workers using an
+advisory transaction lock and the configured minimum interval. Provider outages are
+persisted separately, fail the active job with a safe retriable code, and pause worker
+claiming for 300 seconds (`search_unavailable_retry_seconds`). Queued jobs wait through
+the cooldown; failed jobs can be explicitly retried through the existing job API.
+
+The final account publication checkpoint includes `candidate_results`, `review_candidates`,
+`candidate_limit`, and `reason_code`. Review entries link to retained research checkpoints for
+human assessment; they are never published as qualified companies. If none publish and review
+candidates exist, the job reports `needs_review`. Reaching the candidate allowance reports
+`candidate_limit_reached`, independently of the business outcome. Complete Company/Person/
+Opportunity bundles remain required for CRM publication.
+
+Only host-enforced denials produce `budget_exhausted`. Persisted `budget` diagnostics identify
+the resource, usage, limit and stage where available; timeouts distinguish initialization, stage
+and workflow deadlines. The search client's per-agent allowance is also a host denial
+(`search_agent_limit`), including when generated code catches its exception. A model-reported
+budget outcome without a host denial becomes
+`insufficient_evidence` (or `needs_review` for retained data) with
+`model_reported_budget_exhausted`. Historical host-denial checkpoints remain readable.
+
 ## Eurostat-enabled agents
 
 Eurostat-capable agents inherit from `EurostatSupport`. Its asynchronous methods return pandas
@@ -152,7 +228,8 @@ deadlines, reasoning iterations and shared LLM/search/fetch allowances. The supe
 performs generation and persists fenced evidence; only the parent publishes to Twenty. Cancellation
 terminates the child, prevents new operations and preserves already-observed remote effects.
 
-The supplied defaults favor completing account bundles: each stage has a one-hour deadline, and
+Non-account stages retain a one-hour deadline; account stages use the shorter local
+attempt limits above. The supplied workflow defaults favor completing account bundles:
 each workflow unit has a two-hour deadline. They allow up to 512 reasoning iterations, 256 LLM
 attempts per stage, 512 per workflow unit, and 1,000 search / 2,000 fetch attempts per workflow
 unit. These are intentionally generous but still finite so cancellation, cleanup and worker

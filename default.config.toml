@@ -69,3 +69,13 @@ max_llm_attempts_per_stage = 256
 max_llm_attempts_per_workflow = 512
 max_search_requests = 1000
 max_fetch_requests = 2000
+max_account_candidates_per_company = 10
+
+# Local attempts yield to other candidates; workflow limits remain unchanged.
+candidate_timeout_seconds = 1200
+max_search_requests_per_stage = 20
+max_fetch_requests_per_stage = 24
+max_reasoning_turns = 24
+max_no_progress_turns = 4
+max_research_context_chars = 96000
+search_unavailable_retry_seconds = 300

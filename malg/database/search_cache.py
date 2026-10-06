@@ -55,7 +55,7 @@ class SearchCache:
             if session.get(SearchCacheEntry, key) is None:
                 try:
                     with session.begin_nested():
-                        session.add(SearchCacheEntry(cache_key=key, request=request))
+                        session.add(SearchCacheEntry(cache_key=key, request=json.dumps(request)))
                         session.flush()
                 except IntegrityError:
                     pass  # A concurrent worker inserted the same query.
@@ -75,7 +75,7 @@ class SearchCache:
                     .values(cache_hits=SearchCacheEntry.cache_hits + 1)
                 )
                 session.commit()
-                return CacheLookup("hit", payload=row.response)
+                return CacheLookup("hit", payload=json.loads(row.response))
             failure = row.failure_until
             if failure is not None:
                 failure = failure.replace(tzinfo=UTC) if failure.tzinfo is None else failure
@@ -129,7 +129,7 @@ class SearchCache:
                     SearchCacheEntry.lease_expires_at > now,
                 )
                 .values(
-                    response=payload,
+                    response=json.dumps(payload),
                     expires_at=now + timedelta(seconds=ttl_seconds),
                     lease_token=None,
                     lease_expires_at=None,

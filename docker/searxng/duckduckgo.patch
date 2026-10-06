@@ -1,0 +1,20 @@
+--- a/searx/engines/duckduckgo.py
++++ b/searx/engines/duckduckgo.py
+@@ -493,11 +493,16 @@
+     # just select "web-result" and ignore results of class "result--ad result--ad--small"
+     for div_result in eval_xpath(doc, '//div[@id="links"]/div[contains(@class, "web-result")]'):
+         _title = eval_xpath(div_result, ".//h2/a")
++        result_url = eval_xpath_getindex(div_result, ".//h2/a/@href", 0, "")
++        # DDG can include placeholder results without a destination. Keep valid
++        # siblings instead of discarding the entire response with an IndexError.
++        if not result_url or not result_url.strip():
++            continue
+         _content = eval_xpath_getindex(div_result, './/a[contains(@class, "result__snippet")]', 0, [])
+         res.add(
+             res.types.MainResult(
+                 title=extract_text(_title) or "",
+-                url=eval_xpath(div_result, ".//h2/a/@href")[0],
++                url=result_url,
+                 content=extract_text(_content) or "",
+             )
+         )

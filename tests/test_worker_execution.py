@@ -9,7 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from malg.worker.execution import ExecutionConfig, ResearchExecutionError, run_supervised
+from malg.worker.execution import (
+    ExecutionConfig,
+    ResearchDeadlineExceeded,
+    ResearchExecutionError,
+    run_supervised,
+)
 
 
 def _delayed_write(path: str, connection, *, initialize: bool, started=None) -> None:
@@ -44,12 +49,13 @@ def test_cancellation_terminates_initialized_child(tmp_path):
 def test_initialization_timeout_terminates_silent_child(tmp_path):
     async def run():
         path = str(tmp_path / "result")
-        with pytest.raises(TimeoutError, match="initialization"):
+        with pytest.raises(ResearchDeadlineExceeded, match="initialization") as timeout:
             await run_supervised(
                 partial(_delayed_write, path, initialize=False),
                 deadline_at=datetime.now(UTC) + timedelta(seconds=10),
                 config=ExecutionConfig(0.2, 0),
             )
+        assert timeout.value.reason_code == "initialization_timeout"
         await asyncio.sleep(2.1)
         assert not await asyncio.to_thread(Path(path).exists)
 
@@ -62,6 +68,10 @@ class GenerationError(Exception):
 
 def _failed_stage(connection, error_type: str) -> None:
     connection.send_bytes(b"initialized")
+    if error_type == "search":
+        from malg.core.web_search import SearchUnavailable
+
+        raise SearchUnavailable("private upstream payload")
     if error_type == "rate_limit":
         raise GenerationError("RateLimitError: private upstream payload")
     raise RuntimeError("private upstream payload")
@@ -69,7 +79,11 @@ def _failed_stage(connection, error_type: str) -> None:
 
 @pytest.mark.parametrize(
     ("error_type", "code"),
-    [("rate_limit", "llm_rate_limited"), ("other", "research_execution_failed")],
+    [
+        ("rate_limit", "llm_rate_limited"),
+        ("other", "research_execution_failed"),
+        ("search", "search_unavailable"),
+    ],
 )
 def test_child_failure_exposes_only_safe_public_code(error_type, code) -> None:
     with pytest.raises(ResearchExecutionError) as failure:

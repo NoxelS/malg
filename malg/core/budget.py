@@ -6,11 +6,40 @@ from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Literal
+from typing import Literal, NoReturn
 
 
 class BudgetExhausted(RuntimeError):
-    """Raised when work would consume the cleanup reserve."""
+    """A host-enforced denial with safe limit and usage diagnostics."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_code: str = "research_budget_exhausted",
+        kind: str | None = None,
+        used: int | float | None = None,
+        limit: int | float | None = None,
+        stage_key: str | None = None,
+    ) -> None:
+        """Retain host-owned counters without including upstream or generated payloads."""
+        super().__init__(message)
+        self.reason_code, self.kind = reason_code, kind
+        self.used, self.limit = used, limit
+        self.stage_key = stage_key
+
+    def diagnostics(self) -> dict[str, str | int | float]:
+        """Return bounded public metadata identifying the exhausted resource."""
+        result: dict[str, str | int | float] = {"reason_code": self.reason_code}
+        if self.kind is not None:
+            result["kind"] = self.kind
+        if self.used is not None:
+            result["used"] = self.used
+        if self.limit is not None:
+            result["limit"] = self.limit
+        if self.stage_key is not None:
+            result["stage_key"] = self.stage_key
+        return result
 
 
 class ClaimLost(RuntimeError):
@@ -32,6 +61,7 @@ class ResearchBudget:
         monotonic_now: float | None = None,
         limits: Mapping[str, int] | None = None,
         reserve: Callable[[Literal["llm", "search", "fetch"]], None] | None = None,
+        deadline_reason: str = "stage_deadline_exhausted",
     ) -> None:
         if deadline_at.tzinfo is None:
             raise ValueError("deadline_at must be timezone-aware")
@@ -40,11 +70,14 @@ class ResearchBudget:
         if cleanup_reserve_seconds < 0:
             raise ValueError("cleanup_reserve_seconds must be non-negative")
         remaining = (self.deadline_at - datetime.now(UTC)).total_seconds()
-        self._deadline = (monotonic() if monotonic_now is None else monotonic_now) + remaining
+        self._started = monotonic() if monotonic_now is None else monotonic_now
+        self._duration = remaining
+        self._deadline = self._started + remaining
+        self._deadline_reason = deadline_reason
         self._attempts = {"llm": 0, "search": 0, "fetch": 0}
         self._limits = dict(limits or {})
         self._reserve = reserve
-        self._exhausted = False
+        self._exhaustion: BudgetExhausted | None = None
 
     def remaining_seconds(self) -> float:
         """Return seconds available before the cleanup reserve."""
@@ -56,29 +89,50 @@ class ResearchBudget:
             raise ValueError("cap must be positive")
         remaining = self.remaining_seconds()
         if remaining <= 0:
-            self._exhausted = True
-            raise BudgetExhausted("research cleanup reserve reached")
+            self._exhaustion = self._deadline_denial()
+            raise self._exhaustion
         return min(float(cap), remaining)
+
+    def _deadline_denial(self) -> BudgetExhausted:
+        """Describe usable stage time, keeping the cleanup reserve outside its limit."""
+        return BudgetExhausted(
+            "research cleanup reserve reached",
+            reason_code=self._deadline_reason,
+            kind="time",
+            used=max(0.0, monotonic() - self._started),
+            limit=max(0.0, self._duration - self.cleanup_reserve_seconds),
+        )
 
     def checkpoint(self) -> None:
         """Fail closed when no stage work can safely begin."""
         if self.remaining_seconds() <= 0:
-            self._exhausted = True
-            raise BudgetExhausted("research cleanup reserve reached")
+            self._exhaustion = self._deadline_denial()
+            raise self._exhaustion
 
     def reserve_attempt(self, kind: Literal["llm", "search", "fetch"]) -> None:
         """Reserve one external attempt before making its request."""
         self.checkpoint()
         if self._attempts[kind] >= self._limits.get(kind, float("inf")):
-            self._exhausted = True
-            raise BudgetExhausted(f"{kind} attempt budget exhausted")
+            self._exhaustion = BudgetExhausted(
+                f"{kind} attempt budget exhausted",
+                reason_code=f"{kind}_stage_limit",
+                kind=kind,
+                used=self._attempts[kind],
+                limit=self._limits[kind],
+            )
+            raise self._exhaustion
         if self._reserve is not None:
             try:
                 self._reserve(kind)
-            except BudgetExhausted:
-                self._exhausted = True
+            except BudgetExhausted as error:
+                self._exhaustion = error
                 raise
         self._attempts[kind] += 1
+
+    def deny(self, error: BudgetExhausted) -> NoReturn:
+        """Retain and raise a host-owned adapter limit even if generated code catches it."""
+        self._exhaustion = error
+        raise error
 
     def child(self, stage_deadline_at: datetime) -> ResearchBudget:
         """Shorten the deadline while retaining the parent's shared attempt limits."""
@@ -90,12 +144,22 @@ class ResearchBudget:
             cleanup_reserve_seconds=self.cleanup_reserve_seconds,
             limits=self._limits,
             reserve=self.reserve_attempt,
+            deadline_reason=(
+                self._deadline_reason
+                if deadline == self.deadline_at
+                else "stage_deadline_exhausted"
+            ),
         )
 
     @property
     def exhausted(self) -> bool:
         """Retain actual budget denial even if a reasoning SDK wraps the exception."""
-        return self._exhausted
+        return self._exhaustion is not None
+
+    @property
+    def exhaustion(self) -> BudgetExhausted | None:
+        """Return the actual denial even when an adapter catches or wraps its exception."""
+        return self._exhaustion
 
     @property
     def attempts(self) -> dict[str, int]:
@@ -117,3 +181,11 @@ def reserve_external_attempt(kind: Literal["llm", "search", "fetch"]) -> None:
     budget = _active_budget.get()
     if budget is not None:
         budget.reserve_attempt(kind)
+
+
+def deny_external_attempt(error: BudgetExhausted) -> NoReturn:
+    """Raise an adapter's host-owned limit and retain it in the active stage budget."""
+    budget = _active_budget.get()
+    if budget is not None:
+        budget.deny(error)
+    raise error

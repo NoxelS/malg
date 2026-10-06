@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from malg.core.models.account import AccountIdentity
 from malg.database.jobs import require_claim
 from malg.database.models import ResearchStageResult, ResearchWorkflow
 
@@ -109,3 +110,38 @@ def persist_stage_result(
     session.add(result)
     session.flush()
     return result
+
+
+def persist_discovered_candidate(
+    session: Session,
+    *,
+    job_id: str,
+    claim_token: str,
+    workflow_id: str,
+    stage_key: str,
+    identity: AccountIdentity,
+    now: datetime,
+) -> ResearchStageResult:
+    """Commit an unverified discovery under the active claim; perform no CRM writes.
+
+    The caller must establish that the website was observed in host retrieval.
+    Discoveries preserve leads across interruption, never qualification or evidence.
+    Same-domain discoveries within an attempt reuse the immutable checkpoint.
+    """
+    if identity.official_website is None:
+        raise ValueError("discovered candidate requires an observed website")
+    domain = identity.official_website.host or ""
+    suffix = sha256(domain.encode()).hexdigest()[:12]
+    payload = {"identity": identity.model_dump(mode="json"), "qualification": "unverified"}
+    return persist_stage_result(
+        session,
+        job_id=job_id,
+        claim_token=claim_token,
+        workflow_id=workflow_id,
+        stage_key=f"{stage_key}.discovery.{suffix}",
+        input_hash=canonical_input_hash(payload),
+        outcome="needs_review",
+        payload=payload,
+        now=now,
+        reason_code="discovered_unverified",
+    )

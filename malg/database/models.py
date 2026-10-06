@@ -35,8 +35,9 @@ class SearchCacheEntry(Base):
 
     __tablename__ = "search_cache"
     cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
-    request: Mapped[dict[str, Any]] = mapped_column(JSONPayload, nullable=False)
-    response: Mapped[dict[str, Any] | None] = mapped_column(JSONPayload)
+    # JSON text retains untrusted NUL escapes that PostgreSQL JSONB cannot represent.
+    request: Mapped[str] = mapped_column(Text, nullable=False)
+    response: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_token: Mapped[str | None] = mapped_column(String(36))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
