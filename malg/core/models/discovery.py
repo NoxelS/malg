@@ -66,7 +66,12 @@ class DiscoveryBatchInput(ResearchModel):
 
 
 class DiscoveryCounts(ResearchModel):
-    """Distinct durably recorded identities; known is pre-batch inventory, not replay count."""
+    """Distinct batch observations and their once-only global-new credit allocation.
+
+    ``new_companies`` counts identities whose global first-discovery credit is allocated
+    to this batch. ``known_companies`` counts the other distinct observations, including
+    identities already in inventory and identities first credited to a concurrent batch.
+    """
 
     observed_companies: NonNegativeStrictInt = 0
     new_companies: NonNegativeStrictInt = 0
@@ -252,11 +257,9 @@ def validate_batch_transition(
         for key in ("usable", "deferred", "failed")
     ):
         raise ValueError("retrieval counters cannot regress")
-    if (
-        current.counts != previous.counts
-        and current.checkpoint_sequence <= previous.checkpoint_sequence
-    ):
-        raise ValueError("company counts may change only with a new checkpoint")
+    progress_changed = current.counts != previous.counts or current.retrieval != previous.retrieval
+    if progress_changed and current.checkpoint_sequence <= previous.checkpoint_sequence:
+        raise ValueError("discovery progress may change only with a new checkpoint")
     if (
         previous.status == ResearchJobStatus.QUEUED
         and current.status == ResearchJobStatus.CANCELLED

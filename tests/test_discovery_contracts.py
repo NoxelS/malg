@@ -141,6 +141,17 @@ def test_result_validation_health_and_canonical_roundtrip():
     assert DiscoveryStopReason.BUDGET_EXHAUSTED == "budget_exhausted"
 
 
+def test_concurrent_batches_allocate_global_new_credit_once():
+    """A concurrent observer can record a company without claiming first-discovery credit."""
+    first_credit = DiscoveryCounts(observed_companies=1, new_companies=1, known_companies=0)
+    concurrent_observation = DiscoveryCounts(
+        observed_companies=1, new_companies=0, known_companies=1
+    )
+    assert first_credit.observed_companies + concurrent_observation.observed_companies == 2
+    assert first_credit.new_companies + concurrent_observation.new_companies == 1
+    assert first_credit.known_companies + concurrent_observation.known_companies == 1
+
+
 def test_transition_progress_is_monotonic_and_terminals_are_immutable():
     batch_id = uuid4()
     queued = DiscoveryBatchResult(batch_id=batch_id, status="queued", checkpoint_sequence=0)
@@ -172,6 +183,19 @@ def test_transition_progress_is_monotonic_and_terminals_are_immutable():
         counts=DiscoveryCounts(observed_companies=5, new_companies=1, known_companies=4),
         checkpoint_sequence=2,
     )
+    retrieval_progress = DiscoveryBatchResult(
+        batch_id=batch_id,
+        status="running",
+        retrieval=DiscoveryRetrievalSummary(usable=1, deferred=1),
+        counts=progress.counts,
+        checkpoint_sequence=1,
+    )
+    retrieval_progress_checkpointed = retrieval_progress.model_copy(
+        update={"checkpoint_sequence": 2}
+    )
+    with pytest.raises(ValueError, match="new checkpoint"):
+        validate_batch_transition(progress, retrieval_progress)
+    validate_batch_transition(progress, retrieval_progress_checkpointed)
     for before, after in (
         (terminal, progress),
         (queued, running.model_copy(update={"batch_id": uuid4()})),

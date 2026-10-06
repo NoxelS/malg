@@ -247,6 +247,13 @@ counts or sequence; earlier commits survive. If storage recovers, the current ow
 `storage_failed` terminal using acknowledged progress. If it remains unavailable, propagate the error
 and let existing lease recovery own durable status.
 
+Every checkpoint that changes company counts or retrieval counters advances the sequence, including
+retrieval-only progress when no companies were found. `observed_companies` counts distinct identities
+seen by the batch. `new_companies` is the once-only global first-discovery credit allocated to that
+batch; `known_companies` is the remaining observed identities, including a company credited to a
+concurrent batch. This keeps each batch's observed total partitioned while ensuring concurrent
+observations cannot each claim the same globally new company.
+
 `DiscoveryCompanyState`, version-keyed `CompanyICPAssessment`, and `CompanyPublicationState` are
 independent records. No assessment means unassessed, not mismatch; a revised ICP can be assessed
 against unchanged company evidence. Identity resolution is not qualification, and assessment does

@@ -204,15 +204,45 @@ def test_discovery_stage_boundaries_are_fenced_and_replay_existing_payload() -> 
             now=now,
         )
         row_id = row.stage_result_id
-    terminal = saved_result(
+    next_checkpoint = saved_result(
         checkpoint.counts,
-        checkpoint.retrieval,
-        1,
+        DiscoveryRetrievalSummary(usable=1, deferred=1),
+        2,
+    )
+    terminal = saved_result(
+        next_checkpoint.counts,
+        next_checkpoint.retrieval,
+        2,
         "succeeded",
         stop_reason="budget_exhausted",
         exhausted_budget="pages",
     )
     with sessions.begin() as session:
+        next_row = persist_stage_result(
+            session,
+            job_id=job_id,
+            claim_token=token,
+            workflow_id=workflow_id,
+            stage_key="discovery.batch.checkpoint.2",
+            input_hash=input_hash,
+            outcome="progress",
+            payload=next_checkpoint.model_dump(mode="json", round_trip=True),
+            now=now,
+        )
+        replay_next = persist_stage_result(
+            session,
+            job_id=job_id,
+            claim_token=token,
+            workflow_id=workflow_id,
+            stage_key="discovery.batch.checkpoint.2",
+            input_hash=input_hash,
+            outcome="different candidate",
+            payload={},
+            now=now,
+        )
+        assert next_row.stage_result_id != row_id
+        assert replay_next.stage_result_id == next_row.stage_result_id
+        assert DiscoveryBatchResult.model_validate(replay_next.payload).retrieval.deferred == 1
         persist_stage_result(
             session,
             job_id=job_id,
@@ -244,7 +274,8 @@ def test_discovery_stage_boundaries_are_fenced_and_replay_existing_payload() -> 
             )
         )
         restored = DiscoveryBatchResult.model_validate(stored_terminal.payload)
-        assert restored.retrieval.health == "healthy"
+        assert restored.retrieval.health == "degraded"
+        assert restored.retrieval.deferred == 1
         assert restored.stop_reason == "budget_exhausted"
         assert restored.counts.observed_companies == 5
 
