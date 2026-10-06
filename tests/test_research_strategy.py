@@ -189,9 +189,7 @@ def test_search_outage_allows_fetching_urls_known_before_discovery(monkeypatch, 
         asyncio.run(
             RetrievalStrategy(
                 ResearchConfig(),
-                retrieval=RetrievalService(
-                    SearxngSearchClient(_config(), cache=search_cache)
-                ),
+                retrieval=RetrievalService(SearxngSearchClient(_config(), cache=search_cache)),
             ).execute(runtime, _call(website=url))
         )
     assert error.value.reason_code == "search_captcha"
@@ -218,9 +216,7 @@ def test_outage_blocks_new_searches_in_same_response_and_later_turns(monkeypatch
         asyncio.run(
             RetrievalStrategy(
                 replace(ResearchConfig(), max_no_progress_turns=5),
-                retrieval=RetrievalService(
-                    SearxngSearchClient(_config(), cache=search_cache)
-                ),
+                retrieval=RetrievalService(SearxngSearchClient(_config(), cache=search_cache)),
             ).execute(runtime, _call(website=url))
         )
     assert error.value.reason_code == "search_captcha"

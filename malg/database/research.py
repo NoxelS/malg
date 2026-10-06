@@ -12,9 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from malg.core.models.account import AccountIdentity
-from malg.core.web_search import SEARCH_OUTAGE_REASON_CODES
 from malg.database.jobs import require_claim
 from malg.database.models import ResearchStageResult, ResearchWorkflow
+from malg.search_codes import SEARCH_OUTAGE_REASON_CODES
 
 
 def latest_search_outage(session: Session) -> ResearchStageResult | None:

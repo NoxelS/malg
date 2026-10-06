@@ -6,7 +6,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -14,20 +14,9 @@ import httpx
 from malg.config import SearchConfig
 from malg.core.budget import BudgetExhausted, deny_external_attempt, reserve_external_attempt
 from malg.database.search_cache import SearchCache, default_search_cache
+from malg.search_codes import SEARCH_OUTAGE_REASON_CODES as SEARCH_OUTAGE_REASON_CODES
 
 _MAX_QUERY_LENGTH = 300
-SEARCH_OUTAGE_REASON_CODES = frozenset(
-    {
-        "search_unavailable",
-        "search_captcha",
-        "search_rate_limited",
-        "search_provider_blocked",
-        "search_provider_failure",
-        "search_http_error",
-        "search_transport_error",
-        "search_parser_failure",
-    }
-)
 
 
 class SearchRateLimitExceeded(BudgetExhausted):
@@ -168,7 +157,11 @@ class SearxngSearchClient:
                 await asyncio.to_thread(self._cache.release, key, token, failed=True)
             else:
                 await asyncio.to_thread(
-                    self._cache.finish, key, token, payload, self._config.cache_ttl_seconds
+                    self._cache.finish,
+                    key,
+                    token,
+                    cast(dict[str, Any], payload),
+                    self._config.cache_ttl_seconds,
                 )
             return results
         except BaseException as exc:
