@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -145,3 +146,252 @@ def test_discovery_checkpoint_survives_job_failure_and_rejects_stale_claim() -> 
                 now=now,
             )
     engine.dispose()
+
+
+def test_discovery_stage_boundaries_are_fenced_and_replay_existing_payload() -> None:
+    """Persist typed discovery boundaries through the existing generic claim fence."""
+    import pytest
+    from sqlalchemy import select, text
+    from sqlalchemy.exc import IntegrityError
+
+    from malg.core.models.discovery import (
+        DiscoveryBatchResult,
+        DiscoveryCounts,
+        DiscoveryRetrievalSummary,
+    )
+    from malg.database.jobs import cancel_job
+    from malg.database.models import ResearchStageResult
+    from malg.database.research import canonical_input_hash, persist_stage_result
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    now = datetime.now(UTC)
+    with sessions.begin() as session:
+        job = enqueue_job(CampaignResearchJobRequest(), session)
+        job = claim_next_job(session, "worker", now, 60, 3)
+        workflow = create_workflow_for_job(session, job, {}, now + timedelta(minutes=2))
+        job_id, token, workflow_id = job.job_id, job.claim_token, workflow.workflow_id
+
+    batch_id = uuid4()
+    input_hash = canonical_input_hash({"schema_version": 1, "batch_id": str(batch_id)})
+
+    def saved_result(counts, retrieval, sequence, status="running", **extra):
+        return DiscoveryBatchResult(
+            batch_id=batch_id,
+            status=status,
+            counts=counts,
+            retrieval=retrieval,
+            checkpoint_sequence=sequence,
+            **extra,
+        )
+
+    checkpoint = saved_result(
+        DiscoveryCounts(observed_companies=5, new_companies=2, known_companies=3),
+        DiscoveryRetrievalSummary(usable=1),
+        1,
+    )
+    with sessions.begin() as session:
+        row = persist_stage_result(
+            session,
+            job_id=job_id,
+            claim_token=token,
+            workflow_id=workflow_id,
+            stage_key="discovery.batch.checkpoint.1",
+            input_hash=input_hash,
+            outcome="progress",
+            payload=checkpoint.model_dump(mode="json", round_trip=True),
+            now=now,
+        )
+        row_id = row.stage_result_id
+    next_checkpoint = saved_result(
+        checkpoint.counts,
+        DiscoveryRetrievalSummary(usable=1, deferred=1),
+        2,
+    )
+    terminal = saved_result(
+        next_checkpoint.counts,
+        next_checkpoint.retrieval,
+        2,
+        "succeeded",
+        stop_reason="budget_exhausted",
+        exhausted_budget="pages",
+    )
+    with sessions.begin() as session:
+        next_row = persist_stage_result(
+            session,
+            job_id=job_id,
+            claim_token=token,
+            workflow_id=workflow_id,
+            stage_key="discovery.batch.checkpoint.2",
+            input_hash=input_hash,
+            outcome="progress",
+            payload=next_checkpoint.model_dump(mode="json", round_trip=True),
+            now=now,
+        )
+        replay_next = persist_stage_result(
+            session,
+            job_id=job_id,
+            claim_token=token,
+            workflow_id=workflow_id,
+            stage_key="discovery.batch.checkpoint.2",
+            input_hash=input_hash,
+            outcome="different candidate",
+            payload={},
+            now=now,
+        )
+        assert next_row.stage_result_id != row_id
+        assert replay_next.stage_result_id == next_row.stage_result_id
+        assert DiscoveryBatchResult.model_validate(replay_next.payload).retrieval.deferred == 1
+        persist_stage_result(
+            session,
+            job_id=job_id,
+            claim_token=token,
+            workflow_id=workflow_id,
+            stage_key="discovery.batch.terminal",
+            input_hash=input_hash,
+            outcome="succeeded",
+            payload=terminal.model_dump(mode="json", round_trip=True),
+            now=now,
+        )
+        replay = persist_stage_result(
+            session,
+            job_id=job_id,
+            claim_token=token,
+            workflow_id=workflow_id,
+            stage_key="discovery.batch.checkpoint.1",
+            input_hash=input_hash,
+            outcome="different candidate",
+            payload={},
+            now=now,
+        )
+        assert replay.stage_result_id == row_id
+        assert DiscoveryBatchResult.model_validate(replay.payload).counts == checkpoint.counts
+    with sessions() as session:
+        stored_terminal = session.scalar(
+            select(ResearchStageResult).where(
+                ResearchStageResult.stage_key == "discovery.batch.terminal"
+            )
+        )
+        restored = DiscoveryBatchResult.model_validate(stored_terminal.payload)
+        assert restored.retrieval.health == "degraded"
+        assert restored.retrieval.deferred == 1
+        assert restored.stop_reason == "budget_exhausted"
+        assert restored.counts.observed_companies == 5
+
+    failure_batch_id = uuid4()
+    failure_hash = canonical_input_hash({"schema_version": 1, "batch_id": str(failure_batch_id)})
+    with sessions.begin() as session:
+        failure_job = enqueue_job(CampaignResearchJobRequest(), session)
+        failure_job = claim_next_job(session, "worker", now, 60, 3)
+        failure_workflow = create_workflow_for_job(
+            session, failure_job, {}, now + timedelta(minutes=2)
+        )
+        failure_job_id = failure_job.job_id
+        failure_token = failure_job.claim_token
+        failure_workflow_id = failure_workflow.workflow_id
+    failure_checkpoint = DiscoveryBatchResult(
+        batch_id=failure_batch_id,
+        status="running",
+        counts=checkpoint.counts,
+        retrieval=checkpoint.retrieval,
+        checkpoint_sequence=1,
+    )
+    with sessions.begin() as session:
+        persist_stage_result(
+            session,
+            job_id=failure_job_id,
+            claim_token=failure_token,
+            workflow_id=failure_workflow_id,
+            stage_key="discovery.batch.checkpoint.1",
+            input_hash=failure_hash,
+            outcome="progress",
+            payload=failure_checkpoint.model_dump(mode="json", round_trip=True),
+            now=now,
+        )
+    with sessions.begin() as session:
+        session.execute(
+            text(
+                "CREATE TRIGGER reject_discovery_checkpoint BEFORE INSERT ON research_stage_results "
+                "WHEN NEW.stage_key = 'discovery.batch.checkpoint.2' "
+                "BEGIN SELECT RAISE(ABORT, 'forced discovery storage failure'); END"
+            )
+        )
+    failed_progress = DiscoveryBatchResult(
+        batch_id=failure_batch_id,
+        status="running",
+        counts=DiscoveryCounts(observed_companies=6, new_companies=3, known_companies=3),
+        retrieval=DiscoveryRetrievalSummary(usable=2),
+        checkpoint_sequence=2,
+    )
+    with sessions() as session:
+        with pytest.raises(IntegrityError):
+            persist_stage_result(
+                session,
+                job_id=failure_job_id,
+                claim_token=failure_token,
+                workflow_id=failure_workflow_id,
+                stage_key="discovery.batch.checkpoint.2",
+                input_hash=failure_hash,
+                outcome="progress",
+                payload=failed_progress.model_dump(mode="json", round_trip=True),
+                now=now,
+            )
+        session.rollback()
+    with sessions() as session:
+        saved_checkpoint = session.scalar(
+            select(ResearchStageResult).where(
+                ResearchStageResult.workflow_id == failure_workflow_id,
+                ResearchStageResult.stage_key == "discovery.batch.checkpoint.1",
+            )
+        )
+        assert (
+            DiscoveryBatchResult.model_validate(saved_checkpoint.payload).counts
+            == checkpoint.counts
+        )
+        assert (
+            session.scalar(
+                select(ResearchStageResult).where(
+                    ResearchStageResult.workflow_id == failure_workflow_id,
+                    ResearchStageResult.stage_key == "discovery.batch.checkpoint.2",
+                )
+            )
+            is None
+        )
+        failure = DiscoveryBatchResult(
+            batch_id=failure_batch_id,
+            status="failed",
+            counts=failure_checkpoint.counts,
+            retrieval=failure_checkpoint.retrieval,
+            checkpoint_sequence=1,
+            stop_reason="operational_failure",
+            failure_code="storage_failed",
+        )
+        session.execute(text("DROP TRIGGER reject_discovery_checkpoint"))
+        persist_stage_result(
+            session,
+            job_id=failure_job_id,
+            claim_token=failure_token,
+            workflow_id=failure_workflow_id,
+            stage_key="discovery.batch.terminal",
+            input_hash=failure_hash,
+            outcome="failed",
+            payload=failure.model_dump(mode="json", round_trip=True),
+            now=now,
+        )
+        session.commit()
+
+    with sessions.begin() as session:
+        cancel_job(session, failure_job_id, now)
+    with sessions() as session, pytest.raises(ValueError, match="claim is no longer current"):
+        persist_stage_result(
+            session,
+            job_id=failure_job_id,
+            claim_token=failure_token,
+            workflow_id=failure_workflow_id,
+            stage_key="discovery.batch.checkpoint.3",
+            input_hash=failure_hash,
+            outcome="progress",
+            payload=failure_checkpoint.model_dump(mode="json", round_trip=True),
+            now=now,
+        )
