@@ -74,12 +74,22 @@ def _failed_stage(connection, error_type: str) -> None:
         raise SearchUnavailable("private upstream payload")
     if error_type == "rate_limit":
         raise GenerationError("RateLimitError: private upstream payload")
+    if error_type == "llm_contract":
+        from malg.core.research_errors import LLMRequestContractError
+
+        raise LLMRequestContractError()
+    if error_type == "tool_contract":
+        from malg.core.research_errors import ResearchToolContractError
+
+        raise ResearchToolContractError(rejected_actions=3, correction_limit=2)
     raise RuntimeError("private upstream payload")
 
 
 @pytest.mark.parametrize(
     ("error_type", "code"),
     [
+        ("llm_contract", "llm_request_unsupported"),
+        ("tool_contract", "invalid_tool_action_limit"),
         ("rate_limit", "llm_rate_limited"),
         ("other", "research_execution_failed"),
         ("search", "search_unavailable"),
@@ -96,3 +106,6 @@ def test_child_failure_exposes_only_safe_public_code(error_type, code) -> None:
         )
     assert failure.value.code == code
     assert str(failure.value) == code
+    if error_type == "tool_contract":
+        assert failure.value.rejected_actions == 3
+        assert failure.value.correction_limit == 2

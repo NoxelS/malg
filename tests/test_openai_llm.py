@@ -217,6 +217,35 @@ def test_call_uses_sync_client_and_closes_owned_clients() -> None:
     assert async_client.closed is True
 
 
+@pytest.mark.parametrize("asynchronous", [False, True])
+def test_grammar_rejection_is_safe_and_not_retried(asynchronous: bool) -> None:
+    from openai import BadRequestError
+
+    from malg.core.research_errors import LLMRequestContractError
+
+    request = httpx.Request("POST", "https://gateway.example/v1/chat/completions")
+    body = {"error": {"message": "Invalid grammar specification: 'triggers'"}}
+    response = httpx.Response(400, json=body, request=request)
+    rejection = BadRequestError("upstream detail", response=response, body=body)
+    if asynchronous:
+        fake = _AsyncClient(rejection)
+        client = _client(async_client=fake)
+        with pytest.raises(LLMRequestContractError) as failure:
+            asyncio.run(client.acall([{"role": "user", "content": "synthetic"}]))
+        assert len(fake.completions.responses) == 0
+        assert fake.completions.create_request["model"] == "nc-medium"
+    else:
+        fake = _SyncClient(rejection)
+        client = _client(sync_client=fake)
+        with pytest.raises(LLMRequestContractError) as failure:
+            client.call([{"role": "user", "content": "synthetic"}])
+        assert len(fake.completions.responses) == 0
+        assert fake.completions.create_request["model"] == "nc-medium"
+    assert failure.value.code == "llm_request_unsupported"
+    assert "triggers" not in str(failure.value)
+    assert failure.value.__cause__ is rejection
+
+
 def test_money_tool_schema_uses_compatible_decimal_syntax_and_retains_validation() -> None:
     async_client = _AsyncClient(_response(SimpleNamespace(content="done", tool_calls=[])))
     money_tool = Tool("finish", "Return an exact amount.", lambda: None, Money)

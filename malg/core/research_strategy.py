@@ -23,8 +23,45 @@ from malg.config import ResearchConfig
 from malg.core.agent_tracing import record_active_event
 from malg.core.budget import BudgetExhausted
 from malg.core.models.account import AccountIdentity
+from malg.core.research_errors import ResearchToolContractError
 from malg.core.retrieval import RetrievalService, canonicalize_url
 from malg.core.web_search import SearchUnavailable
+
+
+def _record_rejected_action(
+    tool: str,
+    reason_code: str,
+    issues: list[dict[str, Any]],
+    rejected_actions: int,
+    correction_limit: int,
+) -> None:
+    """Record sanitized action rejection and rejected search/fetch invocations."""
+    known_tool = tool if tool in {"search", "fetch", "save_candidate", "finish"} else "unknown"
+    record_active_event(
+        "research_action_rejected",
+        {
+            "tool": known_tool,
+            "reason_code": reason_code,
+            "issues": issues[:8],
+            "rejected_actions": rejected_actions,
+            "correction_limit": correction_limit,
+        },
+    )
+    if tool in {"search", "fetch"}:
+        from malg.core.stats import begin_tool_request, finish_tool_request
+
+        request_id, started_at, started_ns = begin_tool_request()
+        finish_tool_request(
+            request_id=request_id,
+            started_at=started_at,
+            started_ns=started_ns,
+            source="search" if tool == "search" else "fetch",
+            operation=tool,
+            outcome="rejected",
+            outbound_attempted=False,
+            reason_code=reason_code,
+            result_count=0,
+        )
 
 
 class SearchArguments(BaseModel):
@@ -147,6 +184,8 @@ class RetrievalStrategy(GenerationStrategy):
         seen: set[tuple[str, str]] = set()
         search_failure: SearchUnavailable | None = None
         no_progress = 0
+        rejected_actions = 0
+        correction_limit = 2
         generation = runtime.get_generation_id() or call.id
         parent_generation = runtime.get_parent_generation_id()
         for turn in range(1, self.config.max_reasoning_turns + 1):
@@ -178,28 +217,105 @@ class RetrievalStrategy(GenerationStrategy):
                     else tools
                 )
                 if search_failure is not None and turn < self.config.max_reasoning_turns:
-                    active_tools = [tool for tool in tools if tool.name != "search"]
+                    active_tools = [tool for tool in active_tools if tool.name != "search"]
                 response, _ = await runtime.generate(
                     tools=active_tools, tool_choice="required", max_tokens=4096
                 )
                 context_chars += len(response.content or "") + len(response.reasoning or "")
                 progressed = False
+                if not response.tool_calls:
+                    rejected_actions += 1
+                    _record_rejected_action(
+                        "unknown",
+                        "tool_unavailable",
+                        [],
+                        rejected_actions,
+                        correction_limit,
+                    )
+                    if rejected_actions > correction_limit:
+                        raise ResearchToolContractError(
+                            rejected_actions=rejected_actions, correction_limit=correction_limit
+                        )
+                    runtime.event_manager.add(
+                        Task(prompt="Call one supplied research tool. Use only valid arguments.")
+                    )
                 for action in response.tool_calls or []:
                     context_chars += len(action.arguments)
                     output: Any
-                    recorded_arguments: dict[str, Any] = {"raw": action.arguments[:500]}
-                    try:
-                        raw_arguments = json.loads(action.arguments)
-                        if isinstance(raw_arguments, dict):
-                            recorded_arguments = raw_arguments
-                        model = models.get(action.name)
-                        if model is None or action.name not in {tool.name for tool in active_tools}:
-                            raise ValueError(
-                                "Unknown tool. Use the supplied tools; code execution is unavailable."
+                    recorded_arguments: dict[str, Any] = {}
+                    rejection_code: str | None = None
+                    issues: list[dict[str, Any]] = []
+                    model = models.get(action.name)
+                    if len(action.arguments) > 32000:
+                        rejection_code = "arguments_too_large"
+                    elif model is None or action.name not in {tool.name for tool in active_tools}:
+                        rejection_code = "tool_unavailable"
+                    else:
+                        try:
+                            args = model.model_validate_json(action.arguments)
+                        except (ValidationError, ValueError) as error:
+                            rejection_code = (
+                                "invalid_json"
+                                if isinstance(error, ValueError)
+                                and not isinstance(error, ValidationError)
+                                else "invalid_value"
                             )
-                        if len(action.arguments) > 32000:
-                            raise ValueError("Tool arguments exceed the bounded input size.")
-                        args = model.model_validate_json(action.arguments)
+                            if isinstance(error, ValidationError):
+                                first = error.errors(include_url=False)[0]
+                                typ = first.get("type", "")
+                                rejection_code = (
+                                    "invalid_json"
+                                    if typ == "json_invalid"
+                                    else "missing"
+                                    if typ == "missing"
+                                    else "unexpected_field"
+                                    if typ == "extra_forbidden"
+                                    else "invalid_type"
+                                    if "type" in typ
+                                    else "out_of_range"
+                                    if any(
+                                        word in typ
+                                        for word in ("greater", "less", "too_long", "too_short")
+                                    )
+                                    else "invalid_value"
+                                )
+                                safe_path = [
+                                    part
+                                    for part in first.get("loc", ())[:6]
+                                    if isinstance(part, int)
+                                    or (isinstance(part, str) and part in model.model_fields)
+                                ]
+                                issues = [{"path": safe_path, "code": rejection_code}]
+                    if rejection_code:
+                        rejected_actions += 1
+                        output = {
+                            "reason_code": "invalid_tool_arguments",
+                            "issues": issues[:8],
+                            "corrections_remaining": max(0, correction_limit - rejected_actions),
+                        }
+                        _record_rejected_action(
+                            action.name,
+                            rejection_code,
+                            issues,
+                            rejected_actions,
+                            correction_limit,
+                        )
+                        if rejected_actions > correction_limit:
+                            raise ResearchToolContractError(
+                                rejected_actions=rejected_actions, correction_limit=correction_limit
+                            )
+                        serialized = json.dumps(output)
+                        runtime.event_manager.add(
+                            ToolCallEvent(
+                                tool_call_id=action.id,
+                                name=action.name,
+                                arguments={},
+                                result=ToolResult(tool_call_id=action.id, content=serialized),
+                            )
+                        )
+                        continue
+                    recorded_arguments = args.model_dump()
+                    try:
                         if action.name == "finish":
                             result = cast(Any, args).result
                             if search_failure is not None and getattr(result, "data", None) is None:
@@ -215,14 +331,28 @@ class RetrievalStrategy(GenerationStrategy):
                         repeat = signature in seen
                         seen.add(signature)
                         if repeat:
+                            rejected_actions += 1
                             output = {
                                 "reason_code": "repeated_action",
-                                "instruction": "Use existing observations or finish; this action was already attempted.",
+                                "corrections_remaining": max(
+                                    0, correction_limit - rejected_actions
+                                ),
+                                "instruction": "Use existing observations or finish; do not repeat this action.",
                             }
+                            _record_rejected_action(
+                                action.name,
+                                "repeated_action",
+                                [],
+                                rejected_actions,
+                                correction_limit,
+                            )
+                            if rejected_actions > correction_limit:
+                                raise ResearchToolContractError(
+                                    rejected_actions=rejected_actions,
+                                    correction_limit=correction_limit,
+                                )
                         elif isinstance(args, SearchArguments):
                             assert self.retrieval is not None
-                            # A response can contain several tool calls; suspend later
-                            # discovery calls in that same response as well as future turns.
                             if search_failure is not None:
                                 output = {
                                     "reason_code": "search_suspended",
@@ -239,39 +369,76 @@ class RetrievalStrategy(GenerationStrategy):
                             assert self.retrieval is not None
                             canonical = canonicalize_url(args.url)
                             if canonical is None or canonical not in known_urls:
-                                raise ValueError(
-                                    "URL was not observed in inputs, search results or fetched links. Do not guess URLs."
+                                rejected_actions += 1
+                                output = {
+                                    "reason_code": "invalid_tool_arguments",
+                                    "issues": [{"path": ["url"], "code": "url_not_observed"}],
+                                    "guidance": "Use a URL already present in inputs, search results, or fetched links; do not invent a URL.",
+                                    "corrections_remaining": max(
+                                        0, correction_limit - rejected_actions
+                                    ),
+                                }
+                                _record_rejected_action(
+                                    action.name,
+                                    "url_not_observed",
+                                    output["issues"],
+                                    rejected_actions,
+                                    correction_limit,
                                 )
-                            page = await self.retrieval.fetch(args.url, purpose="evidence")
-                            known_urls.update(observed_urls(page.links))
-                            if page.final_url:
-                                known_urls.update(observed_urls(page.final_url))
-                            output = {
-                                **asdict(page),
-                                "text": page.text[:400] if not page.excerpts else "",
-                                "excerpts": page.excerpts[
-                                    args.excerpt_start : args.excerpt_start + 2
-                                ],
-                            }
-                            progressed |= bool(page.excerpts)
+                                if rejected_actions > correction_limit:
+                                    raise ResearchToolContractError(
+                                        rejected_actions=rejected_actions,
+                                        correction_limit=correction_limit,
+                                    )
+                            else:
+                                page = await self.retrieval.fetch(args.url, purpose="evidence")
+                                known_urls.update(observed_urls(page.links))
+                                if page.final_url:
+                                    known_urls.update(observed_urls(page.final_url))
+                                output = {
+                                    **asdict(page),
+                                    "text": page.text[:400] if not page.excerpts else "",
+                                    "excerpts": page.excerpts[
+                                        args.excerpt_start : args.excerpt_start + 2
+                                    ],
+                                }
+                                progressed |= bool(page.excerpts)
                         else:
                             assert isinstance(args, CandidateArguments)
                             assert self.checkpoint is not None
                             canonical = canonicalize_url(args.official_website)
                             if canonical is None or canonical not in known_urls:
-                                raise ValueError("Candidate website must be an observed URL.")
-                            identity = AccountIdentity.model_validate(args.model_dump())
-                            self.checkpoint(identity)
-                            output = {
-                                "saved_candidate": identity.model_dump(mode="json"),
-                                "qualification": "unverified",
-                            }
-                            progressed = True
-                    except (ValidationError, ValueError) as error:
-                        output = {
-                            "reason_code": "invalid_tool_arguments",
-                            "detail": str(error)[:500],
-                        }
+                                rejected_actions += 1
+                                output = {
+                                    "reason_code": "invalid_tool_arguments",
+                                    "issues": [
+                                        {"path": ["official_website"], "code": "url_not_observed"}
+                                    ],
+                                    "guidance": "Use a URL already present in inputs, search results, or fetched links; do not invent a URL.",
+                                    "corrections_remaining": max(
+                                        0, correction_limit - rejected_actions
+                                    ),
+                                }
+                                _record_rejected_action(
+                                    action.name,
+                                    "url_not_observed",
+                                    output["issues"],
+                                    rejected_actions,
+                                    correction_limit,
+                                )
+                                if rejected_actions > correction_limit:
+                                    raise ResearchToolContractError(
+                                        rejected_actions=rejected_actions,
+                                        correction_limit=correction_limit,
+                                    )
+                            else:
+                                identity = AccountIdentity.model_validate(args.model_dump())
+                                self.checkpoint(identity)
+                                output = {
+                                    "saved_candidate": identity.model_dump(mode="json"),
+                                    "qualification": "unverified",
+                                }
+                                progressed = True
                     except SearchUnavailable as error:
                         if action.name == "finish":
                             raise
@@ -282,34 +449,32 @@ class RetrievalStrategy(GenerationStrategy):
                         ):
                             output = {
                                 "reason_code": "invalid_tool_arguments",
-                                "detail": str(error)[:500],
+                                "issues": [],
+                                "corrections_remaining": max(
+                                    0, correction_limit - rejected_actions
+                                ),
                             }
-                            serialized = json.dumps(output)
-                            context_chars += len(serialized)
-                            runtime.event_manager.add(
-                                ToolCallEvent(
-                                    tool_call_id=action.id,
-                                    name=action.name,
-                                    arguments=recorded_arguments,
-                                    result=ToolResult(tool_call_id=action.id, content=serialized),
-                                )
+                        else:
+                            search_failure = error
+                            record_active_event(
+                                "search_unavailable",
+                                {
+                                    "reason_code": error.reason_code,
+                                    "engine_errors": self.retrieval.search_client.engine_errors
+                                    if self.retrieval and self.retrieval.search_client
+                                    else [],
+                                },
                             )
-                            continue
-                        search_failure = error
-                        record_active_event(
-                            "search_unavailable",
-                            {
+                            output = {
+                                "health": "unavailable",
                                 "reason_code": error.reason_code,
-                                "engine_errors": self.retrieval.search_client.engine_errors
-                                if self.retrieval and self.retrieval.search_client
-                                else [],
-                            },
-                        )
-                        output = {
-                            "health": "unavailable",
-                            "reason_code": error.reason_code,
-                            "instruction": "Discovery is unavailable. Continue only with already observed URLs, or finish if the known evidence is sufficient.",
-                        }
+                                "instruction": "Discovery is unavailable. Continue only with already observed URLs, or finish if the known evidence is sufficient.",
+                            }
+                    if output.get("reason_code") in {
+                        "invalid_tool_arguments",
+                        "repeated_action",
+                    }:
+                        recorded_arguments = {}
                     serialized = json.dumps(output, ensure_ascii=False)
                     context_chars += len(serialized)
                     runtime.event_manager.add(
