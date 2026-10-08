@@ -119,6 +119,60 @@ def test_strategy_rejects_code_and_guessed_urls_before_network(monkeypatch):
     assert {tool.name for tool in runtime.requests[0]["tools"]} == {"search", "fetch", "finish"}
 
 
+def test_rejected_action_events_and_stats_use_aggregate_codes(monkeypatch):
+    """Keep issue details in feedback while telemetry uses stable aggregate codes."""
+    import malg.core.research_strategy as strategy_module
+    import malg.core.stats as stats_module
+
+    events = []
+    stats = []
+    monkeypatch.setattr(
+        strategy_module,
+        "record_active_event",
+        lambda name, payload: events.append((name, payload)),
+    )
+    monkeypatch.setattr(
+        stats_module,
+        "finish_tool_request",
+        lambda **kwargs: stats.append(kwargs),
+    )
+    runtime = _Runtime(
+        [
+            [
+                ("fetch", '{"url":"' + "x" * 32001 + '"}'),
+                ("unavailable_secret_tool", {"token": "never-retain-this"}),
+            ],
+            _finish(),
+        ]
+    )
+
+    result = asyncio.run(
+        RetrievalStrategy(ResearchConfig(), retrieval=RetrievalService()).execute(runtime, _call())
+    )
+
+    assert result.outcome == "insufficient_evidence"
+    rejected = [payload for name, payload in events if name == "research_action_rejected"]
+    assert [item["reason_code"] for item in rejected] == [
+        "invalid_tool_arguments",
+        "invalid_tool_arguments",
+    ]
+    assert [item["issues"] for item in rejected] == [
+        [{"path": [], "code": "arguments_too_large"}],
+        [{"path": [], "code": "tool_unavailable"}],
+    ]
+    assert len(stats) == 1
+    assert stats[0]["reason_code"] == "invalid_tool_arguments"
+    assert stats[0]["outbound_attempted"] is False
+    feedback = [
+        event.result.content
+        for event in runtime.event_manager.items
+        if type(event).__name__ == "ToolCallEvent" and event.result is not None
+    ]
+    assert any("arguments_too_large" in content for content in feedback)
+    assert any("tool_unavailable" in content for content in feedback)
+    assert "never-retain-this" not in str(events + feedback)
+
+
 def test_saved_candidate_survives_later_attempt_limit(monkeypatch, search_cache):
     monkeypatch.setattr("malg.core.web_search.httpx.AsyncClient", _FakeHTTPClient)
     _FakeHTTPClient.calls = []
@@ -215,6 +269,99 @@ def test_search_outage_allows_fetching_urls_known_before_discovery(monkeypatch, 
     assert len(_FakeHTTPClient.calls) == 1
     assert calls == [url]
     assert len(runtime.requests) == 3
+
+
+def test_healthy_search_client_error_uses_bounded_safe_rejection(monkeypatch):
+    import malg.core.research_strategy as strategy_module
+
+    events = []
+    monkeypatch.setattr(
+        strategy_module,
+        "record_active_event",
+        lambda name, payload: events.append((name, payload)),
+    )
+    service = RetrievalService()
+    service.search_client = SimpleNamespace(health="healthy", engine_errors=[])
+
+    async def fail_search(*args, **kwargs):
+        raise SearchUnavailable("private search detail", reason_code="search_unknown")
+
+    monkeypatch.setattr(service, "search", fail_search)
+    runtime = _Runtime(
+        [
+            [
+                ("search", {"query": "first query"}),
+                ("search", {"query": "second query"}),
+            ],
+            _finish(),
+        ]
+    )
+    result = asyncio.run(
+        RetrievalStrategy(
+            replace(ResearchConfig(), max_no_progress_turns=3), retrieval=service
+        ).execute(runtime, _call())
+    )
+
+    assert result.outcome == "insufficient_evidence"
+    rejected = [payload for name, payload in events if name == "research_action_rejected"]
+    assert [item["reason_code"] for item in rejected] == [
+        "invalid_tool_arguments",
+        "invalid_tool_arguments",
+    ]
+    feedback = [
+        event.result.content
+        for event in runtime.event_manager.items
+        if type(event).__name__ == "ToolCallEvent" and event.result is not None
+    ]
+    assert len(feedback) == 2
+    assert all("invalid_tool_arguments" in item for item in feedback)
+    assert all("private search detail" not in item for item in feedback)
+
+
+def test_repeated_search_after_outage_is_suspended_not_rejected(monkeypatch):
+    import malg.core.research_strategy as strategy_module
+
+    events = []
+    monkeypatch.setattr(
+        strategy_module,
+        "record_active_event",
+        lambda name, payload: events.append((name, payload)),
+    )
+    service = RetrievalService()
+    service.search_client = SimpleNamespace(health="unavailable", engine_errors=[])
+
+    async def fail_search(*args, **kwargs):
+        raise SearchUnavailable("private outage", reason_code="search_unavailable")
+
+    monkeypatch.setattr(service, "search", fail_search)
+    runtime = _Runtime(
+        [
+            [
+                ("fetch", {"url": "https://unobserved.example/"}),
+                ("unknown_secret_tool", {"token": "never-retain"}),
+            ],
+            [
+                ("search", {"query": "same query"}),
+                ("search", {"query": "same query"}),
+            ],
+            _finish(),
+        ]
+    )
+    with pytest.raises(SearchUnavailable):
+        asyncio.run(
+            RetrievalStrategy(ResearchConfig(), retrieval=service).execute(runtime, _call())
+        )
+
+    rejected = [payload for name, payload in events if name == "research_action_rejected"]
+    assert len(rejected) == 2
+    assert all(item["reason_code"] == "invalid_tool_arguments" for item in rejected)
+    replies = [
+        event.result.content
+        for event in runtime.event_manager.items
+        if type(event).__name__ == "ToolCallEvent" and event.result is not None
+    ]
+    assert any("search_suspended" in item for item in replies)
+    assert "never-retain" not in str(replies)
 
 
 def test_outage_blocks_new_searches_in_same_response_and_later_turns(monkeypatch, search_cache):
