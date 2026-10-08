@@ -34,6 +34,8 @@ def _record_rejected_action(
     issues: list[dict[str, Any]],
     rejected_actions: int,
     correction_limit: int,
+    *,
+    record_invocation: bool = True,
 ) -> None:
     """Record sanitized action rejection and rejected search/fetch invocations."""
     known_tool = tool if tool in {"search", "fetch", "save_candidate", "finish"} else "unknown"
@@ -47,7 +49,7 @@ def _record_rejected_action(
             "correction_limit": correction_limit,
         },
     )
-    if tool in {"search", "fetch"}:
+    if record_invocation and tool in {"search", "fetch"}:
         from malg.core.stats import begin_tool_request, finish_tool_request
 
         request_id, started_at, started_ns = begin_tool_request()
@@ -227,8 +229,8 @@ class RetrievalStrategy(GenerationStrategy):
                     rejected_actions += 1
                     _record_rejected_action(
                         "unknown",
-                        "tool_unavailable",
-                        [],
+                        "invalid_tool_arguments",
+                        [{"path": [], "code": "tool_unavailable"}],
                         rejected_actions,
                         correction_limit,
                     )
@@ -248,8 +250,10 @@ class RetrievalStrategy(GenerationStrategy):
                     model = models.get(action.name)
                     if len(action.arguments) > 32000:
                         rejection_code = "arguments_too_large"
+                        issues = [{"path": [], "code": rejection_code}]
                     elif model is None or action.name not in {tool.name for tool in active_tools}:
                         rejection_code = "tool_unavailable"
+                        issues = [{"path": [], "code": rejection_code}]
                     else:
                         try:
                             args = model.model_validate_json(action.arguments)
@@ -295,7 +299,7 @@ class RetrievalStrategy(GenerationStrategy):
                         }
                         _record_rejected_action(
                             action.name,
-                            rejection_code,
+                            "invalid_tool_arguments",
                             issues,
                             rejected_actions,
                             correction_limit,
@@ -328,8 +332,12 @@ class RetrievalStrategy(GenerationStrategy):
                         if isinstance(args, FetchArguments):
                             signature_args["url"] = canonicalize_url(args.url)
                         signature = (action.name, json.dumps(signature_args, sort_keys=True))
-                        repeat = signature in seen
-                        seen.add(signature)
+                        search_suspended = (
+                            isinstance(args, SearchArguments) and search_failure is not None
+                        )
+                        repeat = signature in seen and not search_suspended
+                        if not search_suspended:
+                            seen.add(signature)
                         if repeat:
                             rejected_actions += 1
                             output = {
@@ -380,7 +388,7 @@ class RetrievalStrategy(GenerationStrategy):
                                 }
                                 _record_rejected_action(
                                     action.name,
-                                    "url_not_observed",
+                                    "invalid_tool_arguments",
                                     output["issues"],
                                     rejected_actions,
                                     correction_limit,
@@ -421,7 +429,7 @@ class RetrievalStrategy(GenerationStrategy):
                                 }
                                 _record_rejected_action(
                                     action.name,
-                                    "url_not_observed",
+                                    "invalid_tool_arguments",
                                     output["issues"],
                                     rejected_actions,
                                     correction_limit,
@@ -447,6 +455,7 @@ class RetrievalStrategy(GenerationStrategy):
                             and self.retrieval.search_client
                             and self.retrieval.search_client.health != "unavailable"
                         ):
+                            rejected_actions += 1
                             output = {
                                 "reason_code": "invalid_tool_arguments",
                                 "issues": [],
@@ -454,6 +463,19 @@ class RetrievalStrategy(GenerationStrategy):
                                     0, correction_limit - rejected_actions
                                 ),
                             }
+                            _record_rejected_action(
+                                action.name,
+                                "invalid_tool_arguments",
+                                [],
+                                rejected_actions,
+                                correction_limit,
+                                record_invocation=False,
+                            )
+                            if rejected_actions > correction_limit:
+                                raise ResearchToolContractError(
+                                    rejected_actions=rejected_actions,
+                                    correction_limit=correction_limit,
+                                ) from error
                         else:
                             search_failure = error
                             record_active_event(
