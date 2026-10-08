@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from multiprocessing.connection import Connection
 
+from malg.core.research_errors import LLMRequestContractError, ResearchToolContractError
+
 
 @dataclass(frozen=True)
 class ExecutionConfig:
@@ -37,12 +39,33 @@ class ResearchExecutionError(RuntimeError):
             "evidence_storage_failed",
             "research_execution_failed",
             "search_unavailable",
+            "llm_request_unsupported",
+            "invalid_tool_action_limit",
         }
     )
 
-    def __init__(self, code: str) -> None:
-        """Replace unknown codes with the generic failure; never expose child payloads."""
+    def __init__(
+        self,
+        code: str,
+        *,
+        rejected_actions: int | None = None,
+        correction_limit: int | None = None,
+    ) -> None:
+        """Retain only allowlisted failure diagnostics from an isolated child."""
         self.code = code if code in self.codes else "research_execution_failed"
+        self.rejected_actions = None
+        self.correction_limit = None
+        if self.code == "invalid_tool_action_limit":
+            if (
+                type(rejected_actions) is int
+                and type(correction_limit) is int
+                and rejected_actions == 3
+                and correction_limit == 2
+            ):
+                self.rejected_actions = rejected_actions
+                self.correction_limit = correction_limit
+            else:
+                self.code = "research_execution_failed"
         super().__init__(self.code)
 
 
@@ -52,17 +75,55 @@ def _child_entry(entrypoint: Callable[[Connection], None], initialized: Connecti
         entrypoint(initialized)
     except Exception as error:
         code = "research_execution_failed"
-        if type(error).__name__ == "GenerationError" and "RateLimitError" in str(error):
-            code = "llm_rate_limited"
-        elif type(error).__name__ == "SearchUnavailable":
-            code = "search_unavailable"
-        elif type(error).__name__ == "DataError":
-            code = "evidence_storage_failed"
+        rejected_actions: int | None = None
+        correction_limit: int | None = None
+        current: BaseException | None = error
+        visited: set[int] = set()
+        for _ in range(8):
+            if current is None or id(current) in visited:
+                break
+            visited.add(id(current))
+            if isinstance(current, LLMRequestContractError):
+                code = current.code
+                break
+            if isinstance(current, ResearchToolContractError):
+                code = current.code
+                rejected_actions = current.rejected_actions
+                correction_limit = current.correction_limit
+                break
+            current = current.__cause__
+        if code == "research_execution_failed":
+            if type(error).__name__ == "GenerationError" and "RateLimitError" in str(error):
+                code = "llm_rate_limited"
+            elif type(error).__name__ == "SearchUnavailable":
+                code = "search_unavailable"
+            elif type(error).__name__ == "DataError":
+                code = "evidence_storage_failed"
+        message = f"failed:{code}"
+        if rejected_actions is not None and correction_limit is not None:
+            message += f":{rejected_actions}:{correction_limit}"
         with suppress(OSError):
-            initialized.send_bytes(f"failed:{code}".encode("ascii"))
+            initialized.send_bytes(message.encode("ascii"))
         raise
     finally:
         initialized.close()
+
+
+def _decode_failure_message(message: bytes) -> ResearchExecutionError:
+    """Decode a bounded allowlisted child failure envelope."""
+    try:
+        parts = message.decode("ascii").split(":")
+        if len(parts) == 2 and parts[0] == "failed":
+            return ResearchExecutionError(parts[1])
+        if len(parts) == 4 and parts[0] == "failed":
+            return ResearchExecutionError(
+                parts[1],
+                rejected_actions=int(parts[2]),
+                correction_limit=int(parts[3]),
+            )
+    except (UnicodeDecodeError, ValueError):
+        pass
+    return ResearchExecutionError("research_execution_failed")
 
 
 async def _terminate(process: multiprocessing.process.BaseProcess) -> None:
@@ -107,7 +168,7 @@ async def run_supervised(
     process.start()
     sender.close()
     initialized = False
-    failure_code: str | None = None
+    failure: ResearchExecutionError | None = None
     init_deadline = asyncio.get_running_loop().time() + limits.initialization_timeout_seconds
     try:
         while True:
@@ -119,19 +180,18 @@ async def run_supervised(
                 if message == b"initialized":
                     initialized = True
                 elif message.startswith(b"failed:"):
-                    failure_code = message[7:].decode("ascii", errors="replace")
+                    failure = _decode_failure_message(message)
                 elif message:
                     raise ResearchExecutionError("research_execution_failed")
             if not process.is_alive():
                 await asyncio.to_thread(process.join)
-                # The child may send its final message between poll and exit.
-                if failure_code is None and receiver.poll():
+                if failure is None and receiver.poll():
                     with suppress(EOFError):
                         message = receiver.recv_bytes(128)
                         if message.startswith(b"failed:"):
-                            failure_code = message[7:].decode("ascii", errors="replace")
+                            failure = _decode_failure_message(message)
                 if not initialized or process.exitcode:
-                    raise ResearchExecutionError(failure_code or "research_execution_failed")
+                    raise failure or ResearchExecutionError("research_execution_failed")
                 return
             remaining = (deadline_at.astimezone(UTC) - datetime.now(UTC)).total_seconds()
             if remaining <= limits.cleanup_reserve_seconds:

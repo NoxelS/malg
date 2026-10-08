@@ -207,6 +207,13 @@ attempts per stage, 512 per workflow unit, and 1,000 search / 2,000 fetch attemp
 unit. These are intentionally generous but still finite so cancellation, cleanup and worker
 recovery remain dependable. Deployments may override them with `MALG_RESEARCH__...`.
 
+The native research tool contract remains fail-closed: an endpoint grammar rejection is reported
+as `llm_request_unsupported` without switching models, routes, schemas or tool choice. Malformed
+or repeated model actions receive at most two bounded correction responses per execution; a third
+rejection ends the stage with `invalid_tool_action_limit`. Already checkpointed discoveries remain
+durable. These host-side recovery guarantees do not establish compatibility of a particular
+gateway/provider grammar implementation.
+
 ## Persistent campaign-research memory
 
 Campaign research has explicit, durable NOOA memory backed by PostgreSQL. The agent can recall,

@@ -554,6 +554,43 @@ async def _child_stage_async(
             trace.finish_failure(error)
         raise
     except Exception as error:
+        from malg.core.research_errors import LLMRequestContractError, ResearchToolContractError
+
+        contract_error: LLMRequestContractError | ResearchToolContractError | None = None
+        current: BaseException | None = error
+        seen_errors: set[int] = set()
+        for _ in range(8):
+            if current is None or id(current) in seen_errors:
+                break
+            seen_errors.add(id(current))
+            if isinstance(current, (LLMRequestContractError, ResearchToolContractError)):
+                contract_error = current
+                break
+            current = current.__cause__
+        if contract_error is not None:
+            reason_code = contract_error.code
+            failure_payload: dict[str, Any] = {"reason_code": reason_code}
+            if isinstance(contract_error, ResearchToolContractError):
+                failure_payload.update(
+                    rejected_actions=contract_error.rejected_actions,
+                    correction_limit=contract_error.correction_limit,
+                )
+            with sessions.begin() as session:
+                persist_stage_result(
+                    session,
+                    job_id=job_id,
+                    claim_token=claim_token,
+                    workflow_id=workflow_id,
+                    stage_key=f"{stage_key}.contract_failure",
+                    input_hash=input_hash,
+                    outcome="needs_review",
+                    payload=failure_payload,
+                    now=datetime.now(UTC),
+                    reason_code=reason_code,
+                )
+            if trace:
+                trace.finish_failure(error)
+            raise
         if isinstance(error, SearchUnavailable):
             health = {
                 "health": "unavailable",
@@ -914,6 +951,39 @@ class ResearchWorker:
                         self.research_config.cleanup_reserve_seconds,
                     ),
                 )
+            except ResearchExecutionError as error:
+                if error.code in {"llm_request_unsupported", "invalid_tool_action_limit"}:
+                    contract_payload: dict[str, Any] = {"reason_code": error.code}
+                    if (
+                        error.code == "invalid_tool_action_limit"
+                        and error.rejected_actions is not None
+                        and error.correction_limit is not None
+                    ):
+                        contract_payload.update(
+                            rejected_actions=error.rejected_actions,
+                            correction_limit=error.correction_limit,
+                        )
+                    with self.session_factory.begin() as session:
+                        existing = session.scalar(
+                            select(ResearchStageResult).where(
+                                ResearchStageResult.workflow_id == job.workflow_id,
+                                ResearchStageResult.stage_key == f"{stage_key}.contract_failure",
+                            )
+                        )
+                        if existing is None:
+                            persist_stage_result(
+                                session,
+                                job_id=job.job_id,
+                                claim_token=job.claim_token or "",
+                                workflow_id=job.workflow_id or "",
+                                stage_key=f"{stage_key}.contract_failure",
+                                input_hash=canonical_input_hash(payload),
+                                outcome="needs_review",
+                                payload=contract_payload,
+                                now=datetime.now(UTC),
+                                reason_code=error.code,
+                            )
+                raise
             except ResearchDeadlineExceeded as error:
                 reason = error.reason_code
                 if reason != "initialization_timeout" and deadline == _aware(job.deadline_at):

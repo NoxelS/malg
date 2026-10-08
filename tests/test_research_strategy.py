@@ -95,11 +95,27 @@ def test_strategy_rejects_code_and_guessed_urls_before_network(monkeypatch):
             _finish(),
         ]
     )
-    result = asyncio.run(
-        RetrievalStrategy(ResearchConfig(), retrieval=RetrievalService()).execute(runtime, _call())
-    )
-    assert result.outcome == "insufficient_evidence"
+    from malg.core.research_errors import ResearchToolContractError
+
+    with pytest.raises(ResearchToolContractError) as failure:
+        asyncio.run(
+            RetrievalStrategy(ResearchConfig(), retrieval=RetrievalService()).execute(
+                runtime, _call()
+            )
+        )
+    assert failure.value.code == "invalid_tool_action_limit"
     assert not calls
+    rejected_calls = [
+        event
+        for event in runtime.event_manager.items
+        if type(event).__name__ == "ToolCallEvent"
+        and event.result is not None
+        and "invalid_tool_arguments" in event.result.content
+    ]
+    assert rejected_calls
+    assert all(event.arguments == {} for event in rejected_calls)
+    assert "https://example.com" not in str(rejected_calls)
+    assert "guessed.example" not in str(rejected_calls)
     assert {tool.name for tool in runtime.requests[0]["tools"]} == {"search", "fetch", "finish"}
 
 
@@ -122,16 +138,19 @@ def test_saved_candidate_survives_later_attempt_limit(monkeypatch, search_cache)
             ),
             ("search", {"query": "  SOFTWARE  Freelancer "}),
             ("search", {"query": "software freelancer"}),
+            ("search", {"query": "SOFTWARE freelancer"}),
         ]
     )
     strategy = RetrievalStrategy(
-        replace(ResearchConfig(), max_no_progress_turns=2),
+        replace(ResearchConfig(), max_no_progress_turns=5),
         retrieval=RetrievalService(SearxngSearchClient(_config(), cache=search_cache)),
         checkpoint=discoveries.append,
     )
-    with pytest.raises(BudgetExhausted) as error:
+    from malg.core.research_errors import ResearchToolContractError
+
+    with pytest.raises(ResearchToolContractError) as error:
         asyncio.run(strategy.execute(runtime, _call()))
-    assert error.value.reason_code == "no_progress_stage_limit"
+    assert error.value.code == "invalid_tool_action_limit"
     assert len(_FakeHTTPClient.calls) == 1
     assert discoveries[0].display_name == "Observed company"
 
@@ -261,7 +280,19 @@ def test_nooa_runtime_executes_native_tools_with_offline_sdk(monkeypatch):
             content=None,
             tool_calls=[
                 SimpleNamespace(
-                    id="fetch-1",
+                    id="fetch-invalid",
+                    type="function",
+                    function=SimpleNamespace(
+                        name="fetch", arguments=json.dumps({"url": "http://invented.example/"})
+                    ),
+                )
+            ],
+        ),
+        SimpleNamespace(
+            content=None,
+            tool_calls=[
+                SimpleNamespace(
+                    id="fetch-valid",
                     type="function",
                     function=SimpleNamespace(
                         name="fetch", arguments=json.dumps({"url": "http://public.example/"})
@@ -297,5 +328,9 @@ def test_nooa_runtime_executes_native_tools_with_offline_sdk(monkeypatch):
     assert {tool["function"]["name"] for tool in request["tools"]} == {"search", "fetch", "finish"}
     assert any(
         message["role"] == "tool" and "Observed public source" in message["content"]
+        for message in request["messages"]
+    )
+    assert any(
+        message["role"] == "tool" and "url_not_observed" in message["content"]
         for message in request["messages"]
     )

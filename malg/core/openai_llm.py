@@ -19,6 +19,20 @@ from openai import APIStatusError, APITimeoutError, AsyncOpenAI, OpenAI
 from pydantic import BaseModel
 
 from malg.core.budget import reserve_external_attempt
+from malg.core.research_errors import LLMRequestContractError
+
+
+def _is_grammar_rejection(error: Exception) -> bool:
+    """Classify the observed structured 400 without exposing provider text."""
+    if not isinstance(error, APIStatusError) or error.status_code != 400:
+        return False
+    body = error.body
+    if isinstance(body, Mapping):
+        nested = body.get("error")
+        message = nested.get("message") if isinstance(nested, Mapping) else body.get("message")
+        return isinstance(message, str) and "Invalid grammar specification:" in message
+    return False
+
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +326,8 @@ class OpenAIChatClient(UnifiedLLM):
                 )
                 break
             except Exception as error:
+                if _is_grammar_rejection(error):
+                    raise LLMRequestContractError() from error
                 if not self._is_retryable_timeout(error) or retry_number == self.max_retries:
                     raise
                 next_retry = retry_number + 1
@@ -340,6 +356,8 @@ class OpenAIChatClient(UnifiedLLM):
                 )
                 break
             except Exception as error:
+                if _is_grammar_rejection(error):
+                    raise LLMRequestContractError() from error
                 if not self._is_retryable_timeout(error) or retry_number == self.max_retries:
                     raise
                 next_retry = retry_number + 1

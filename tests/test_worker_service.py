@@ -105,6 +105,46 @@ async def save_checkpoint(fixture, result) -> str:
     return workflow_id
 
 
+def test_safe_child_contract_failure_persists_diagnostics_and_fails_job(
+    setup_worker, monkeypatch
+) -> None:
+    """Carry bounded contract diagnostics across child IPC into durable failure state."""
+
+    async def reject_child(*args, **kwargs):
+        from malg.worker.execution import ResearchExecutionError
+
+        raise ResearchExecutionError(
+            "invalid_tool_action_limit", rejected_actions=3, correction_limit=2
+        )
+
+    monkeypatch.setattr("malg.worker.service.run_supervised", reject_child)
+
+    async def run() -> None:
+        fixture = setup_worker()
+        requeue(fixture)
+        assert await worker_for(fixture).run_once()
+        with fixture[1]() as session:
+            job = session.get(ResearchJob, fixture[6].job_id)
+            assert job.status == "failed"
+            assert job.failure_code == "invalid_tool_action_limit"
+            checkpoint = session.scalar(
+                select(ResearchStageResult).where(
+                    ResearchStageResult.workflow_id == job.workflow_id,
+                    ResearchStageResult.stage_key == "campaign.research.contract_failure",
+                )
+            )
+            assert checkpoint is not None
+            assert checkpoint.outcome == "needs_review"
+            assert checkpoint.reason_code == "invalid_tool_action_limit"
+            assert checkpoint.payload == {
+                "reason_code": "invalid_tool_action_limit",
+                "rejected_actions": 3,
+                "correction_limit": 2,
+            }
+
+    asyncio.run(run())
+
+
 def test_heartbeat_refreshes_without_crm_availability(setup_worker) -> None:
     fixture = setup_worker()
     fixture[2].unavailable = True
